@@ -1,24 +1,14 @@
 <!--
-  ThinkingIndicator.svelte - Animated asterisk with rotating status messages.
+  ThinkingIndicator.svelte - Ember pulse dot with rotating status messages.
 
-  Shows a Claude Code-inspired asterisk animation cycling through asterisk
-  counts and rotating humorous status messages while the agent is thinking.
-  Subscribes to activeTools for context-aware tool messages.
+  Shows a pulsing ember dot and rotating humorous status messages while the
+  agent is thinking. Subscribes to activeTools for context-aware tool messages.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { onDestroy } from 'svelte';
 	import { activeTools } from '$lib/stores/tools.js';
-
-	// Asterisk animation: cycles * -> ** -> *** -> ** -> *
-	const asteriskFrames = [' * ', ' ** ', ' *** ', ' ** ', ' * '];
-	let asteriskIndex = $state(0);
-
-	const asteriskInterval = setInterval(() => {
-		asteriskIndex = (asteriskIndex + 1) % asteriskFrames.length;
-	}, 200);
 
 	// Rotating status messages
 	const genericMessages = [
@@ -53,10 +43,21 @@
 	};
 
 	let messageIndex = $state(0);
-	let currentActiveTools: { id: string; toolName: string }[] = [];
+	let currentActiveTools: { id: string; toolName: string }[] = $state([]);
 
-	const unsubscribe = activeTools.subscribe((tools) => {
-		currentActiveTools = tools;
+	// Subscribe to activeTools and rotate messages using $effect with cleanup
+	$effect(() => {
+		const unsubscribe = activeTools.subscribe((tools) => {
+			currentActiveTools = tools;
+		});
+		return () => unsubscribe();
+	});
+
+	$effect(() => {
+		const id = setInterval(() => {
+			messageIndex++;
+		}, 2500);
+		return () => clearInterval(id);
 	});
 
 	function getStatusMessage(): string {
@@ -72,25 +73,31 @@
 	}
 
 	let statusMessage = $derived(getStatusMessage());
-
-	const messageInterval = setInterval(() => {
-		messageIndex = messageIndex + 1;
-	}, 2500);
-
-	onDestroy(() => {
-		clearInterval(asteriskInterval);
-		clearInterval(messageInterval);
-		unsubscribe();
-	});
 </script>
 
-<div class="flex flex-col items-start gap-1.5">
-	<!-- Animated asterisk -->
-	<span class="font-mono text-sm font-bold text-accent">
-		{asteriskFrames[asteriskIndex]}
-	</span>
+<div class="flex items-center gap-2.5">
+	<!-- Ember pulse dot -->
+	<div class="ember-pulse-dot h-3 w-3 rounded-full bg-ember"></div>
 	<!-- Rotating status message -->
 	<span class="text-xs text-text-secondary italic transition-opacity duration-300">
 		{statusMessage}
 	</span>
 </div>
+
+<style>
+	@keyframes ember-pulse {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+			opacity: 1;
+		}
+		50% {
+			box-shadow: 0 0 12px 4px rgba(245, 158, 11, 0.15);
+			opacity: 0.7;
+		}
+	}
+
+	.ember-pulse-dot {
+		animation: ember-pulse 1.5s ease-in-out infinite;
+	}
+</style>

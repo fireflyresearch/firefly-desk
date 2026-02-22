@@ -108,7 +108,7 @@
 		{#if pendingFiles.length > 0}
 			<FileUploadArea files={pendingFiles} onRemove={removeFile} />
 		{/if}
-		<div class="rounded-2xl border border-border bg-surface p-1 shadow-lg">
+		<div class="rounded-2xl border border-border bg-surface p-1 shadow-lg transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_15px_rgba(245,158,11,0.08)]">
 			<div class="flex items-end gap-1">
 				<button
 					type="button"
@@ -137,7 +137,7 @@
 					onpaste={handlePaste}
 					disabled={disabled || uploading}
 					rows={1}
-					placeholder={uploading ? 'Uploading files...' : 'Type a message...'}
+					placeholder={uploading ? 'Uploading files...' : 'Ask Ember anything...'}
 					class="min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2.5 text-sm text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				></textarea>
 
@@ -145,7 +145,7 @@
 					type="button"
 					onclick={handleSend}
 					disabled={!canSend}
-					class="mb-1 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+					class="mb-1 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-all hover:scale-105 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
 					aria-label="Send message"
 				>
 					<Send size={16} />

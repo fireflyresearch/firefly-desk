@@ -8,9 +8,10 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Bot } from 'lucide-svelte';
+	import { fly } from 'svelte/transition';
 	import ThinkingIndicator from './ThinkingIndicator.svelte';
 	import MarkdownContent from './MarkdownContent.svelte';
+	import EmberAvatar from './EmberAvatar.svelte';
 
 	interface StreamingMessageProps {
 		content: string;
@@ -21,11 +22,11 @@
 	let hasContent = $derived(content.length > 0);
 </script>
 
-<div class="flex w-full justify-start px-4 py-1">
+<div class="flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
 	<div class="flex gap-3">
-		<!-- Bot avatar -->
-		<div class="mt-1 shrink-0">
-			<Bot size={20} class="text-accent" />
+		<!-- Ember avatar -->
+		<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center">
+			<EmberAvatar size={20} />
 		</div>
 		<!-- Content area -->
 		<div class="flex flex-col items-start">
