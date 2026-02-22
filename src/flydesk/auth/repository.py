@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Must be a static, deterministic key so encrypted values survive restarts.
 import base64 as _b64
 
-_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydesk-dev-encryption-key-32byte")
+_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydesk-dev-encryption-key-32b!!")
 
 
 def _to_json(value: Any) -> str | None:
