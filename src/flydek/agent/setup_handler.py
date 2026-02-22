@@ -31,18 +31,24 @@ class SetupStep(StrEnum):
     DEV_USER_PROFILE = "dev_user_profile"
     LLM_PROVIDER = "llm_provider"
     LLM_TEST = "llm_test"
+    SSO_CONFIG = "sso_config"
+    SSO_TEST = "sso_test"
     DATABASE_CHECK = "database_check"
     SAMPLE_DATA = "sample_data"
     READY = "ready"
     DONE = "done"
 
 
-# Step progression order (DEV_USER_PROFILE is conditionally skipped for non-dev mode)
+# Step progression order
+# DEV_USER_PROFILE is conditionally skipped for non-dev mode.
+# SSO_CONFIG and SSO_TEST are conditionally skipped in dev mode.
 _STEP_ORDER = [
     SetupStep.WELCOME,
     SetupStep.DEV_USER_PROFILE,
     SetupStep.LLM_PROVIDER,
     SetupStep.LLM_TEST,
+    SetupStep.SSO_CONFIG,
+    SetupStep.SSO_TEST,
     SetupStep.DATABASE_CHECK,
     SetupStep.SAMPLE_DATA,
     SetupStep.READY,
@@ -62,7 +68,9 @@ class SetupConversationHandler:
         self._app = app
         self._current_step = SetupStep.WELCOME
         self._llm_skipped = False
+        self._sso_skipped = False
         self._pending_provider: dict | None = None
+        self._pending_sso: dict | None = None
         config = getattr(app.state, "config", None)
         self._dev_mode: bool = config.dev_mode if config else True
 
@@ -89,6 +97,16 @@ class SetupConversationHandler:
 
         elif self._current_step == SetupStep.LLM_TEST:
             async for event in self._llm_test(message):
+                yield event
+            self._advance()
+
+        elif self._current_step == SetupStep.SSO_CONFIG:
+            async for event in self._sso_config(message):
+                yield event
+            self._advance()
+
+        elif self._current_step == SetupStep.SSO_TEST:
+            async for event in self._sso_test(message):
                 yield event
             self._advance()
 
@@ -132,6 +150,20 @@ class SetupConversationHandler:
 
         # Auto-skip LLM_TEST if user skipped LLM provider configuration
         if self._current_step == SetupStep.LLM_TEST and self._llm_skipped:
+            idx = _STEP_ORDER.index(self._current_step)
+            if idx + 1 < len(_STEP_ORDER):
+                self._current_step = _STEP_ORDER[idx + 1]
+
+        # Auto-skip SSO_CONFIG in dev mode (SSO is only relevant in production)
+        if self._current_step == SetupStep.SSO_CONFIG and self._dev_mode:
+            idx = _STEP_ORDER.index(self._current_step)
+            if idx + 1 < len(_STEP_ORDER):
+                self._current_step = _STEP_ORDER[idx + 1]
+
+        # Auto-skip SSO_TEST if SSO was skipped or in dev mode
+        if self._current_step == SetupStep.SSO_TEST and (
+            self._dev_mode or self._sso_skipped
+        ):
             idx = _STEP_ORDER.index(self._current_step)
             if idx + 1 < len(_STEP_ORDER):
                 self._current_step = _STEP_ORDER[idx + 1]
@@ -488,6 +520,237 @@ class SetupConversationHandler:
                 },
             )
 
+    async def _sso_config(self, message: str) -> AsyncGenerator[SSEEvent, None]:
+        """Ask the user to configure an SSO / OIDC identity provider."""
+        payload = _parse_json(message)
+
+        if payload and payload.get("action") == "skip":
+            self._sso_skipped = True
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        "No problem. You can configure single sign-on later "
+                        "from the admin console under the SSO section."
+                    )
+                },
+            )
+            return
+
+        if payload and payload.get("action") == "configure_sso":
+            provider_type = payload.get("provider_type", "keycloak")
+            issuer_url = payload.get("issuer_url", "")
+            client_id = payload.get("client_id", "")
+            client_secret = payload.get("client_secret", "")
+            tenant_id = payload.get("tenant_id", "")
+
+            self._pending_sso = {
+                "provider_type": provider_type,
+                "display_name": provider_type.replace("_", " ").title(),
+                "issuer_url": issuer_url,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "tenant_id": tenant_id if provider_type == "microsoft" else None,
+            }
+
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        f"Got it. I will now test the connection to your "
+                        f"{provider_type.replace('_', ' ').title()} identity provider."
+                    )
+                },
+            )
+            return
+
+        # First time entering this step -- emit the prompt and widget
+        yield SSEEvent(
+            event=SSEEventType.TOKEN,
+            data={
+                "content": (
+                    "Let me help you configure single sign-on. "
+                    "Which identity provider are you using?"
+                )
+            },
+        )
+
+        yield SSEEvent(
+            event=SSEEventType.WIDGET,
+            data={
+                "widget_id": str(uuid.uuid4()),
+                "type": "sso-provider-setup",
+                "props": {
+                    "providers": [
+                        {"value": "keycloak", "label": "Keycloak"},
+                        {"value": "google", "label": "Google"},
+                        {"value": "microsoft", "label": "Microsoft"},
+                        {"value": "auth0", "label": "Auth0"},
+                        {"value": "cognito", "label": "AWS Cognito"},
+                        {"value": "okta", "label": "Okta"},
+                    ],
+                    "fields": [
+                        {
+                            "name": "issuer_url",
+                            "label": "Issuer URL",
+                            "type": "text",
+                            "required": True,
+                            "placeholder": "https://auth.example.com/realms/myorg",
+                        },
+                        {
+                            "name": "client_id",
+                            "label": "Client ID",
+                            "type": "text",
+                            "required": True,
+                            "placeholder": "firefly-desk",
+                        },
+                        {
+                            "name": "client_secret",
+                            "label": "Client Secret",
+                            "type": "password",
+                            "required": True,
+                        },
+                        {
+                            "name": "tenant_id",
+                            "label": "Tenant ID (Microsoft only)",
+                            "type": "text",
+                            "required": False,
+                            "condition": {"provider_type": "microsoft"},
+                        },
+                    ],
+                },
+                "display": "inline",
+                "blocking": True,
+                "action": "configure_sso",
+            },
+        )
+
+    async def _sso_test(self, message: str) -> AsyncGenerator[SSEEvent, None]:
+        """Test the OIDC discovery endpoint connectivity."""
+        payload = _parse_json(message)
+        if payload and payload.get("action") == "skip":
+            self._pending_sso = None
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        "Skipping SSO verification. You can configure "
+                        "and test providers from the admin console."
+                    )
+                },
+            )
+            return
+
+        if not self._pending_sso:
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": "No SSO provider to test. Moving on to the next step."
+                },
+            )
+            return
+
+        # Emit TOOL_START to trigger thinking animation
+        yield SSEEvent(
+            event=SSEEventType.TOOL_START,
+            data={"tool": "oidc_discovery_check", "label": "Testing OIDC discovery endpoint"},
+        )
+
+        issuer_url = self._pending_sso["issuer_url"]
+        discovery_ok = False
+        error_msg = ""
+
+        try:
+            from flydek.auth.oidc import OIDCClient
+
+            client = OIDCClient(
+                issuer_url=issuer_url,
+                client_id=self._pending_sso["client_id"],
+                client_secret=self._pending_sso.get("client_secret", ""),
+            )
+            discovery = await client.discover()
+            discovery_ok = bool(discovery.authorization_endpoint)
+        except Exception as exc:
+            logger.warning("OIDC discovery check failed: %s", exc)
+            error_msg = str(exc)
+
+        yield SSEEvent(
+            event=SSEEventType.TOOL_END,
+            data={"tool": "oidc_discovery_check"},
+        )
+
+        if discovery_ok:
+            # Persist the provider in the OIDCProviderRepository
+            session_factory = getattr(self._app.state, "session_factory", None)
+            config = getattr(self._app.state, "config", None)
+            encryption_key = config.credential_encryption_key if config else ""
+
+            if session_factory:
+                try:
+                    from flydek.auth.repository import OIDCProviderRepository
+
+                    repo = OIDCProviderRepository(session_factory, encryption_key)
+                    await repo.create_provider(
+                        provider_type=self._pending_sso["provider_type"],
+                        display_name=self._pending_sso["display_name"],
+                        issuer_url=self._pending_sso["issuer_url"],
+                        client_id=self._pending_sso["client_id"],
+                        client_secret=self._pending_sso.get("client_secret"),
+                        tenant_id=self._pending_sso.get("tenant_id"),
+                        is_active=True,
+                    )
+                    logger.info(
+                        "OIDC provider stored: %s", self._pending_sso["display_name"]
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to persist OIDC provider (non-fatal).", exc_info=True
+                    )
+
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        "Connection successful. The OIDC discovery endpoint is reachable "
+                        "and your identity provider has been saved. Users will be able "
+                        "to sign in using single sign-on."
+                    )
+                },
+            )
+            self._pending_sso = None
+        else:
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        f"I was not able to reach the OIDC discovery endpoint."
+                        f"{(' Error: ' + error_msg + '.') if error_msg else ''}\n\n"
+                        f"You can retry the test or skip this step and configure "
+                        f"SSO later from the admin console."
+                    )
+                },
+            )
+
+            yield SSEEvent(
+                event=SSEEventType.WIDGET,
+                data={
+                    "widget_id": str(uuid.uuid4()),
+                    "type": "confirmation",
+                    "props": {
+                        "title": "SSO Discovery Test Failed",
+                        "description": (
+                            "The OIDC discovery endpoint could not be reached. "
+                            "Would you like to retry or skip?"
+                        ),
+                        "confirm_label": "Retry",
+                        "cancel_label": "Skip",
+                    },
+                    "display": "inline",
+                    "blocking": True,
+                    "action": "sso_test_retry",
+                },
+            )
+
     async def _database_check(self) -> AsyncGenerator[SSEEvent, None]:
         config = getattr(self._app.state, "config", None)
         db_url = config.database_url if config else "unknown"
@@ -652,6 +915,14 @@ class SetupConversationHandler:
             else "- LLM provider can be configured from the admin console\n"
         )
 
+        sso_status = ""
+        if not self._dev_mode:
+            sso_status = (
+                "- Single sign-on is configured and tested\n"
+                if not self._sso_skipped
+                else "- SSO can be configured from the admin console\n"
+            )
+
         yield SSEEvent(
             event=SSEEventType.TOKEN,
             data={
@@ -659,6 +930,7 @@ class SetupConversationHandler:
                     f"Setup is complete. Here is a summary of your {app_title} instance:\n\n"
                     f"- Database is connected and tables are created\n"
                     f"{llm_status}"
+                    f"{sso_status}"
                     f"- The knowledge base is ready to accept documents\n"
                     f"- The service catalog is available for registering systems\n\n"
                     f"You can manage your instance through the admin console, "

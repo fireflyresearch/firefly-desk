@@ -45,6 +45,8 @@ from flydek.api.knowledge import get_knowledge_doc_store, get_knowledge_indexer
 from flydek.api.knowledge import router as knowledge_router
 from flydek.api.llm_providers import get_llm_repo
 from flydek.api.llm_providers import router as llm_providers_router
+from flydek.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
+from flydek.api.oidc_providers import router as oidc_providers_router
 from flydek.api.settings import get_settings_repo
 from flydek.api.settings import router as settings_router
 from flydek.api.setup import router as setup_router
@@ -227,6 +229,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     oidc_repo = OIDCProviderRepository(session_factory, config.credential_encryption_key)
     app.dependency_overrides[auth_get_oidc_repo] = lambda: oidc_repo
+    app.dependency_overrides[admin_get_oidc_repo] = lambda: oidc_repo
 
     # Provide a default OIDCClient from config (may be overridden per-request)
     if config.oidc_issuer_url:
@@ -327,6 +330,7 @@ def create_app() -> FastAPI:
     app.include_router(exports_router)
     app.include_router(files_router)
     app.include_router(llm_providers_router)
+    app.include_router(oidc_providers_router)
     app.include_router(settings_router)
     app.include_router(dashboard_router)
     app.include_router(users_router)

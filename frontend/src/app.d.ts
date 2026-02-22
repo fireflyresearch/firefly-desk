@@ -1,5 +1,12 @@
-// See https://svelte.dev/docs/kit/types#app.d.ts
-// for information about these interfaces
+/**
+ * SvelteKit ambient type declarations.
+ *
+ * See https://svelte.dev/docs/kit/types#app.d.ts
+ *
+ * Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
+ * Licensed under the Apache License, Version 2.0.
+ */
+
 declare global {
 	namespace App {
 		// interface Error {}
@@ -12,6 +19,10 @@ declare global {
 				email: string;
 				displayName: string;
 				roles: string[];
+				permissions: string[];
+				pictureUrl?: string;
+				department?: string;
+				title?: string;
 			} | null;
 		}
 		// interface PageData {}
