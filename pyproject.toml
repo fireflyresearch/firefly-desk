@@ -20,6 +20,9 @@ dependencies = [
     "redis>=5.0.0",
 ]
 
+[project.scripts]
+flydek-seed = "flydek.seeds.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

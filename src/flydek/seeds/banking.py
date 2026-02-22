@@ -1500,3 +1500,49 @@ async def seed_banking_catalog(
         len(ENDPOINTS),
         len(KNOWLEDGE_DOCUMENTS) if knowledge_indexer is not None else 0,
     )
+
+
+async def unseed_banking_catalog(
+    catalog_repo: CatalogRepository,
+    knowledge_indexer: KnowledgeIndexer | None = None,
+) -> None:
+    """Remove all banking example seed data.
+
+    Deletes every system, endpoint, and knowledge document that was created
+    by :func:`seed_banking_catalog`.  Safe to call even if the data was
+    partially seeded -- missing items are silently skipped.
+
+    Parameters
+    ----------
+    catalog_repo:
+        Repository used to delete systems and endpoints.
+    knowledge_indexer:
+        If provided, knowledge documents are deleted (including chunks).
+        When ``None`` the documents are skipped silently.
+    """
+    # 1. Endpoints first (foreign key to systems)
+    for endpoint in reversed(ENDPOINTS):
+        try:
+            await catalog_repo.delete_endpoint(endpoint.id)
+            logger.info("Removed endpoint: %s", endpoint.name)
+        except Exception:  # noqa: BLE001
+            logger.debug("Endpoint already absent: %s", endpoint.id)
+
+    # 2. Systems
+    for system in SYSTEMS:
+        try:
+            await catalog_repo.delete_system(system.id)
+            logger.info("Removed system: %s", system.name)
+        except Exception:  # noqa: BLE001
+            logger.debug("System already absent: %s", system.id)
+
+    # 3. Knowledge documents (optional)
+    if knowledge_indexer is not None:
+        for document in KNOWLEDGE_DOCUMENTS:
+            try:
+                await knowledge_indexer.delete_document(document.id)
+                logger.info("Removed knowledge document: %s", document.title)
+            except Exception:  # noqa: BLE001
+                logger.debug("Document already absent: %s", document.id)
+
+    logger.info("Banking seed data removed.")
