@@ -1,6 +1,17 @@
 <script lang="ts">
-	import { Menu, Settings, Sun, Moon, User, Shield, LogOut } from 'lucide-svelte';
+	import {
+		PanelLeft,
+		PanelLeftClose,
+		Settings,
+		Sun,
+		Moon,
+		User,
+		Shield,
+		LogOut,
+		MessageSquare
+	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import Logo from '$lib/components/layout/Logo.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
@@ -9,9 +20,15 @@
 		title?: string;
 		userName?: string;
 		onToggleSidebar?: () => void;
+		sidebarOpen?: boolean;
 	}
 
-	let { title = 'Firefly Desk', userName = 'User', onToggleSidebar }: TopBarProps = $props();
+	let {
+		title = 'Firefly Desk',
+		userName = 'User',
+		onToggleSidebar,
+		sidebarOpen = true
+	}: TopBarProps = $props();
 
 	let dropdownOpen = $state(false);
 
@@ -26,6 +43,13 @@
 			.toUpperCase()
 			.slice(0, 2)
 	);
+
+	/** Determine active navigation tab from the current URL path. */
+	let activeTab = $derived.by(() => {
+		const path = $page.url.pathname;
+		if (path.startsWith('/admin')) return 'admin';
+		return 'chat';
+	});
 
 	function toggleDarkMode() {
 		setTheme($resolvedTheme === 'dark' ? 'light' : 'dark');
@@ -45,36 +69,88 @@
 			dropdownOpen = false;
 		}
 	}
+
+	function navigateToTab(tab: 'chat' | 'admin') {
+		if (tab === 'chat') goto('/');
+		else if (tab === 'admin') goto('/admin');
+	}
 </script>
 
 <svelte:window onclick={handleWindowClick} />
 
 <header
-	class="flex h-14 shrink-0 items-center border-b border-border bg-surface px-4"
+	class="relative flex h-14 shrink-0 items-center border-b border-border/50 bg-surface/80 px-4 backdrop-blur-xl"
 >
+	<!-- Bottom border glow (visible in dark mode) -->
+	<div
+		class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-ember/20 to-transparent opacity-0 transition-opacity dark:opacity-100"
+	></div>
+
 	<!-- Left: Sidebar toggle + Logo -->
 	<div class="flex items-center gap-2">
 		{#if onToggleSidebar}
 			<button
 				type="button"
 				onclick={onToggleSidebar}
-				class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-				aria-label="Toggle sidebar"
+				class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+				aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
 			>
-				<Menu size={18} />
+				{#if sidebarOpen}
+					<PanelLeftClose size={18} class="transition-transform duration-200" />
+				{:else}
+					<PanelLeft size={18} class="transition-transform duration-200" />
+				{/if}
 			</button>
 		{/if}
 		<Logo class="h-6 text-text-primary" />
 	</div>
 
-	<!-- Center: empty for now (search will go here) -->
-	<div class="flex-1"></div>
+	<!-- Center: Navigation tabs -->
+	<nav class="flex flex-1 items-center justify-center gap-1" aria-label="Main navigation">
+		<button
+			type="button"
+			onclick={() => navigateToTab('chat')}
+			class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors
+				{activeTab === 'chat'
+				? 'text-text-primary'
+				: 'text-text-secondary hover:text-text-primary'}"
+			aria-current={activeTab === 'chat' ? 'page' : undefined}
+		>
+			<MessageSquare size={16} />
+			Chat
+			{#if activeTab === 'chat'}
+				<span
+					class="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-ember"
+				></span>
+			{/if}
+		</button>
+
+		{#if $isAdmin}
+			<button
+				type="button"
+				onclick={() => navigateToTab('admin')}
+				class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors
+					{activeTab === 'admin'
+					? 'text-text-primary'
+					: 'text-text-secondary hover:text-text-primary'}"
+				aria-current={activeTab === 'admin' ? 'page' : undefined}
+			>
+				<Shield size={16} />
+				Admin
+				{#if activeTab === 'admin'}
+					<span
+						class="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-ember"
+					></span>
+				{/if}
+			</button>
+		{/if}
+	</nav>
 
 	<!-- Right: actions -->
 	<div class="flex items-center gap-2">
 		{#if $currentUser?.devMode}
 			<span
-				class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+				class="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
 			>
 				Dev Mode
 			</span>
@@ -82,7 +158,7 @@
 		<button
 			type="button"
 			onclick={toggleDarkMode}
-			class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
 			aria-label={$resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
 		>
 			{#if $resolvedTheme === 'dark'}
@@ -95,7 +171,7 @@
 		<button
 			type="button"
 			onclick={() => goto('/settings')}
-			class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
 			aria-label="Settings"
 		>
 			<Settings size={18} />
@@ -106,7 +182,9 @@
 			<button
 				type="button"
 				onclick={toggleDropdown}
-				class="flex h-8 w-8 items-center justify-center rounded-full select-none cursor-pointer transition-opacity hover:opacity-90 overflow-hidden {$currentUser?.pictureUrl ? '' : 'bg-accent text-xs font-medium text-white'}"
+				class="flex h-8 w-8 items-center justify-center rounded-full select-none cursor-pointer transition-opacity hover:opacity-90 overflow-hidden {$currentUser?.pictureUrl
+					? ''
+					: 'bg-accent text-xs font-medium text-white'}"
 				title={displayName}
 				aria-label="User menu"
 				aria-expanded={dropdownOpen}
@@ -124,7 +202,7 @@
 
 			{#if dropdownOpen}
 				<div
-					class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border bg-surface shadow-lg"
+					class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border bg-surface-elevated/95 shadow-xl backdrop-blur-xl"
 					role="menu"
 				>
 					<div class="border-b border-border px-3 py-2">
