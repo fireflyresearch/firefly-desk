@@ -23,7 +23,7 @@
 </script>
 
 <div class="flex h-screen flex-col bg-surface">
-	<TopBar {title} {userName} onToggleSidebar={toggleSidebar} />
+	<TopBar {title} {userName} onToggleSidebar={toggleSidebar} sidebarOpen={$sidebarOpen} />
 
 	<div class="flex min-h-0 flex-1">
 		{#if $sidebarOpen}
