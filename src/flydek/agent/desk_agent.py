@@ -15,6 +15,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
+from flydek.agent.confirmation import ConfirmationService
 from flydek.agent.context import ContextEnricher
 from flydek.agent.prompt import PromptContext, SystemPromptBuilder
 from flydek.agent.response import AgentResponse
@@ -56,6 +57,7 @@ class DeskAgent:
         company_name: str | None = None,
         tool_executor: ToolExecutor | None = None,
         file_repo: FileUploadRepository | None = None,
+        confirmation_service: ConfirmationService | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -66,6 +68,7 @@ class DeskAgent:
         self._company_name = company_name
         self._tool_executor = tool_executor
         self._file_repo = file_repo
+        self._confirmation_service = confirmation_service
 
     # ------------------------------------------------------------------
     # Public API
@@ -239,14 +242,18 @@ class DeskAgent:
         tool_calls: list[ToolCall],
         session: UserSession,
         conversation_id: str,
+        tool_defs: list[ToolDefinition] | None = None,
     ) -> AsyncGenerator[SSEEvent, None]:
         """Execute tool calls and yield SSE events for each.
 
         For every tool call:
-        1. Emit ``TOOL_START`` with the call metadata.
-        2. Execute via :class:`ToolExecutor` (parallel when possible).
-        3. Emit ``TOOL_END`` per completed call with result summary.
-        4. Emit ``TOOL_SUMMARY`` with aggregated results for the batch.
+        1. Check if the tool requires user confirmation (safety gate).
+        2. If confirmation is required, emit a ``CONFIRMATION`` SSE event
+           and skip execution for that call.
+        3. Otherwise, emit ``TOOL_START`` with the call metadata.
+        4. Execute via :class:`ToolExecutor` (parallel when possible).
+        5. Emit ``TOOL_END`` per completed call with result summary.
+        6. Emit ``TOOL_SUMMARY`` with aggregated results for the batch.
 
         Requires ``self._tool_executor`` to be set; raises
         :class:`RuntimeError` otherwise.
@@ -255,8 +262,63 @@ class DeskAgent:
             msg = "ToolExecutor is not configured"
             raise RuntimeError(msg)
 
-        # Emit TOOL_START for each call.
+        # Build a lookup from endpoint_id -> ToolDefinition for confirmation checks.
+        defs_by_endpoint: dict[str, ToolDefinition] = {}
+        if tool_defs:
+            for td in tool_defs:
+                defs_by_endpoint[td.endpoint_id] = td
+
+        # Partition tool calls: those that require confirmation vs. safe to execute.
+        safe_calls: list[ToolCall] = []
         for call in tool_calls:
+            tool_def = defs_by_endpoint.get(call.endpoint_id)
+
+            if (
+                tool_def is not None
+                and self._confirmation_service is not None
+                and self._confirmation_service.requires_confirmation(
+                    tool_def, list(session.permissions),
+                )
+            ):
+                # Create a pending confirmation and emit a CONFIRMATION event.
+                pending = self._confirmation_service.create_confirmation(
+                    tool_call=call,
+                    tool_def=tool_def,
+                    user_id=session.user_id,
+                    conversation_id=conversation_id,
+                )
+                yield SSEEvent(
+                    event=SSEEventType.CONFIRMATION,
+                    data={
+                        "confirmation_id": pending.confirmation_id,
+                        "tool_call_id": call.call_id,
+                        "tool_name": call.tool_name,
+                        "risk_level": pending.risk_level.value,
+                        "message": (
+                            f"Tool '{call.tool_name}' requires confirmation "
+                            f"(risk: {pending.risk_level.value}). "
+                            "Reply with __confirm__:<id> or __reject__:<id>."
+                        ),
+                    },
+                )
+            else:
+                safe_calls.append(call)
+
+        if not safe_calls:
+            # All calls need confirmation; emit an empty summary.
+            yield SSEEvent(
+                event=SSEEventType.TOOL_SUMMARY,
+                data={
+                    "tool_calls": [],
+                    "total_duration_ms": 0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                },
+            )
+            return
+
+        # Emit TOOL_START for each safe call.
+        for call in safe_calls:
             yield SSEEvent(
                 event=SSEEventType.TOOL_START,
                 data={
@@ -267,7 +329,7 @@ class DeskAgent:
 
         # Execute with automatic parallelism classification.
         results: list[ToolResult] = await self._tool_executor.execute_parallel(
-            tool_calls, session, conversation_id,
+            safe_calls, session, conversation_id,
         )
 
         # Emit TOOL_END for each result.

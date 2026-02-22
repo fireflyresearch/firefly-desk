@@ -215,6 +215,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_parallel=config.max_tools_per_turn,
     )
 
+    # Safety confirmation service for high-risk tool calls.
+    from flydek.agent.confirmation import ConfirmationService
+
+    confirmation_service = ConfirmationService()
+    app.state.confirmation_service = confirmation_service
+
     desk_agent = DeskAgent(
         context_enricher=context_enricher,
         prompt_builder=prompt_builder,
@@ -224,6 +230,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         agent_name=config.agent_name,
         tool_executor=tool_executor,
         file_repo=file_repo,
+        confirmation_service=confirmation_service,
     )
     app.state.desk_agent = desk_agent
 
