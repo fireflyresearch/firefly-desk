@@ -48,6 +48,8 @@ class DeskConfig(BaseSettings):
     oidc_redirect_uri: str = "http://localhost:3000/auth/callback"
     oidc_roles_claim: str = "roles"
     oidc_permissions_claim: str = "permissions"
+    oidc_provider_type: str = "keycloak"
+    oidc_tenant_id: str = ""
 
     # -- CORS (comma-separated origins, default: localhost for dev) --
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]

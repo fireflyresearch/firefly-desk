@@ -21,18 +21,21 @@ from fastapi.middleware.cors import CORSMiddleware
 import flydek
 from flydek.api.audit import get_audit_logger
 from flydek.api.audit import router as audit_router
+from flydek.api.auth import get_oidc_client as auth_get_oidc_client
+from flydek.api.auth import get_oidc_repo as auth_get_oidc_repo
+from flydek.api.auth import router as auth_router
 from flydek.api.catalog import get_catalog_repo
 from flydek.api.catalog import router as catalog_router
-from flydek.api.dashboard import get_audit_logger as dashboard_get_audit
-from flydek.api.dashboard import get_catalog_repo as dashboard_get_catalog
-from flydek.api.dashboard import get_llm_repo as dashboard_get_llm
-from flydek.api.dashboard import get_session_factory as dashboard_get_session
-from flydek.api.dashboard import router as dashboard_router
 from flydek.api.chat import router as chat_router
 from flydek.api.conversations import get_conversation_repo
 from flydek.api.conversations import router as conversations_router
 from flydek.api.credentials import get_credential_store
 from flydek.api.credentials import router as credentials_router
+from flydek.api.dashboard import get_audit_logger as dashboard_get_audit
+from flydek.api.dashboard import get_catalog_repo as dashboard_get_catalog
+from flydek.api.dashboard import get_llm_repo as dashboard_get_llm
+from flydek.api.dashboard import get_session_factory as dashboard_get_session
+from flydek.api.dashboard import router as dashboard_router
 from flydek.api.exports import get_export_repo, get_export_service, get_export_storage
 from flydek.api.exports import router as exports_router
 from flydek.api.files import get_content_extractor, get_file_repo, get_file_storage
@@ -218,6 +221,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[dashboard_get_llm] = lambda: llm_repo
     app.dependency_overrides[dashboard_get_session] = lambda: session_factory
 
+    # Auth / OIDC dependency overrides
+    from flydek.auth.oidc import OIDCClient as _OIDCClientCls
+    from flydek.auth.repository import OIDCProviderRepository
+
+    oidc_repo = OIDCProviderRepository(session_factory, config.credential_encryption_key)
+    app.dependency_overrides[auth_get_oidc_repo] = lambda: oidc_repo
+
+    # Provide a default OIDCClient from config (may be overridden per-request)
+    if config.oidc_issuer_url:
+        _default_oidc_client = _OIDCClientCls(
+            issuer_url=config.oidc_issuer_url,
+            client_id=config.oidc_client_id,
+            client_secret=config.oidc_client_secret,
+        )
+        app.dependency_overrides[auth_get_oidc_client] = lambda: _default_oidc_client
+
     # Users API dependency overrides
     app.dependency_overrides[users_get_session] = lambda: session_factory
     app.dependency_overrides[users_get_settings] = lambda: settings_repo
@@ -277,13 +296,26 @@ def create_app() -> FastAPI:
 
         app.add_middleware(DevAuthMiddleware)
     else:
+        from flydek.auth.oidc import OIDCClient
+        from flydek.auth.providers import get_provider
+
+        oidc_client = OIDCClient(
+            issuer_url=config.oidc_issuer_url,
+            client_id=config.oidc_client_id,
+            client_secret=config.oidc_client_secret,
+        )
+        provider_profile = get_provider(config.oidc_provider_type)
+
         app.add_middleware(
             AuthMiddleware,
             roles_claim=config.oidc_roles_claim,
             permissions_claim=config.oidc_permissions_claim,
+            oidc_client=oidc_client,
+            provider_profile=provider_profile,
         )
 
     # Routers
+    app.include_router(auth_router)
     app.include_router(health_router)
     app.include_router(setup_router)
     app.include_router(chat_router)

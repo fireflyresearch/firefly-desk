@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -16,12 +17,26 @@ from starlette.responses import JSONResponse, Response
 
 from flydek.auth.models import UserSession
 
+if TYPE_CHECKING:
+    from flydek.auth.oidc import OIDCClient
+    from flydek.auth.providers import OIDCProviderProfile
+
+logger = logging.getLogger(__name__)
+
 # Paths that don't require authentication
-PUBLIC_PATHS = frozenset({"/api/health", "/docs", "/openapi.json", "/redoc"})
+PUBLIC_PATHS = frozenset({
+    "/api/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/api/auth/providers",
+    "/api/auth/login-url",
+    "/api/auth/callback",
+})
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Extract and validate JWT from Authorization header."""
+    """Extract and validate JWT from Authorization header or cookie."""
 
     def __init__(
         self,
@@ -30,11 +45,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         roles_claim: str = "roles",
         permissions_claim: str = "permissions",
         token_decoder: Callable[[str], dict[str, Any]] | None = None,
+        oidc_client: OIDCClient | None = None,
+        provider_profile: OIDCProviderProfile | None = None,
     ) -> None:
         super().__init__(app)
         self._roles_claim = roles_claim
         self._permissions_claim = permissions_claim
         self._token_decoder = token_decoder
+        self._oidc_client = oidc_client
+        self._provider_profile = provider_profile
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process each request, enforcing JWT auth on non-public paths."""
@@ -42,30 +61,50 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
 
+        # Try Authorization header first, then cookie
         auth_header = request.headers.get("authorization", "")
-        if not auth_header.startswith("Bearer "):
+        token: str | None = None
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        else:
+            token = request.cookies.get("flydek_token")
+
+        if not token:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Missing or invalid Authorization header"},
             )
 
-        token = auth_header[7:]  # Strip "Bearer "
         try:
-            claims = self._decode_token(token)
+            claims = await self._decode_token(token)
         except Exception:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or expired token"},
             )
 
+        # Extract provider-specific claims if provider profile is available
+        extra: dict[str, Any] = {}
+        if self._provider_profile is not None:
+            from flydek.auth.providers import extract_user_claims
+
+            extra = extract_user_claims(claims, self._provider_profile)
+
         # Build UserSession from claims
         session = UserSession(
             user_id=claims.get("sub", ""),
             email=claims.get("email", ""),
             display_name=claims.get("name", claims.get("email", "")),
-            roles=self._extract_claim(claims, self._roles_claim),
-            permissions=self._extract_claim(claims, self._permissions_claim),
+            roles=extra.get("roles") or self._extract_claim(claims, self._roles_claim),
+            permissions=(
+                extra.get("permissions")
+                or self._extract_claim(claims, self._permissions_claim)
+            ),
             tenant_id=claims.get("tenant_id"),
+            picture_url=extra.get("picture_url"),
+            department=extra.get("department"),
+            title=extra.get("title"),
             session_id=str(uuid.uuid4()),
             token_expires_at=datetime.fromtimestamp(
                 claims.get("exp", 0), tz=timezone.utc
@@ -76,8 +115,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.user_session = session
         return await call_next(request)
 
-    def _decode_token(self, token: str) -> dict[str, Any]:
-        """Decode the JWT token using the configured decoder."""
+    async def _decode_token(self, token: str) -> dict[str, Any]:
+        """Decode the JWT token using OIDC client or the configured decoder."""
+        if self._oidc_client is not None:
+            return await self._oidc_client.validate_token(token)
         if self._token_decoder:
             return self._token_decoder(token)
         raise NotImplementedError("No token decoder configured")
