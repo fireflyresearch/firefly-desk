@@ -1,0 +1,190 @@
+# Configuration
+
+## Overview
+
+Firefly Desk is configured entirely through environment variables, following the twelve-factor app methodology. Every configuration variable uses the `FLYDEK_` prefix to avoid collisions with other applications in the same environment. This prefix convention also makes it straightforward to audit which environment variables belong to Firefly Desk in container orchestration systems where dozens of variables may be present.
+
+All variables can be set in a `.env` file at the project root. The application loads this file automatically on startup. For production deployments, prefer setting variables through your orchestration platform's secrets management rather than committing a `.env` file.
+
+## Mode
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_DEV_MODE` | bool | `true` | Controls whether the application runs in development or production mode. |
+
+Development mode disables OIDC authentication, uses a synthetic development user, and relaxes several security constraints to make local development frictionless. Setting this to `false` activates authentication enforcement, rate limiting, and production logging. This single flag exists because toggling individual security features independently would create an error-prone matrix of configurations that is difficult to reason about.
+
+## Database
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_DATABASE_URL` | str | `sqlite+aiosqlite:///flydek_dev.db` | Async SQLAlchemy database connection URL. |
+| `FLYDEK_REDIS_URL` | str or None | `None` | Redis connection URL for caching and rate limiting. |
+
+The database URL determines which database backend the application uses. SQLite is the default because it requires no installation and is sufficient for development and small-scale deployments. For production, PostgreSQL with the asyncpg driver is recommended. The URL format follows SQLAlchemy conventions: `postgresql+asyncpg://user:password@host:port/dbname`.
+
+Redis is optional in development mode. When provided, it enables distributed rate limiting and session caching, which are essential for multi-instance production deployments where in-memory state is not shared across processes.
+
+**Example production configuration:**
+
+```bash
+FLYDEK_DATABASE_URL=postgresql+asyncpg://flydek_user:strong_password@db-host:5432/flydek
+FLYDEK_REDIS_URL=redis://redis-host:6379/0
+```
+
+## OIDC Authentication
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_OIDC_ISSUER_URL` | str | -- | The issuer URL of your OIDC provider (e.g., `https://keycloak.example.com/realms/myorg`). |
+| `FLYDEK_OIDC_CLIENT_ID` | str | -- | The client ID registered with your OIDC provider. |
+| `FLYDEK_OIDC_CLIENT_SECRET` | str | -- | The client secret for confidential client authentication. |
+| `FLYDEK_OIDC_SCOPES` | list | `openid,profile,email,roles` | Comma-separated list of OIDC scopes to request during authentication. |
+| `FLYDEK_OIDC_REDIRECT_URI` | str | `http://localhost:3000/auth/callback` | The callback URI registered with your OIDC provider. |
+| `FLYDEK_OIDC_ROLES_CLAIM` | str | `roles` | The JWT claim name that contains the user's roles. |
+| `FLYDEK_OIDC_PERMISSIONS_CLAIM` | str | `permissions` | The JWT claim name that contains the user's fine-grained permissions. |
+| `FLYDEK_OIDC_PROVIDER_TYPE` | str | `keycloak` | The OIDC provider type, used for provider-specific claim mapping. Supported values: `keycloak`, `google`, `microsoft`, `auth0`, `cognito`, `okta`. |
+| `FLYDEK_OIDC_TENANT_ID` | str | -- | Tenant or realm identifier, required by some providers (e.g., Microsoft Entra ID). |
+
+OIDC variables are only required when `FLYDEK_DEV_MODE=false`. The roles and permissions claims are configurable because different identity providers use different claim names. Keycloak uses `realm_access.roles`, Auth0 uses a custom namespace, and Entra ID uses `roles`. By making these configurable, Firefly Desk works with any standards-compliant provider without code changes.
+
+**Example Keycloak configuration:**
+
+```bash
+FLYDEK_OIDC_ISSUER_URL=https://keycloak.example.com/realms/operations
+FLYDEK_OIDC_CLIENT_ID=firefly-desk
+FLYDEK_OIDC_CLIENT_SECRET=your-client-secret
+FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDEK_OIDC_ROLES_CLAIM=realm_access.roles
+FLYDEK_OIDC_PERMISSIONS_CLAIM=resource_access.firefly-desk.roles
+FLYDEK_OIDC_PROVIDER_TYPE=keycloak
+```
+
+See the [SSO and OIDC](sso-oidc.md) documentation for detailed configuration guides for each supported provider.
+
+## CORS
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_CORS_ORIGINS` | list | `http://localhost:3000,http://localhost:5173` | Comma-separated list of allowed CORS origins. |
+
+The default origins cover the two most common local development scenarios: the SvelteKit dev server on port 5173 and a production build served on port 3000. In production, restrict this to your actual frontend domain to prevent cross-origin attacks.
+
+**Example production configuration:**
+
+```bash
+FLYDEK_CORS_ORIGINS=https://desk.example.com
+```
+
+## Agent
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_AGENT_NAME` | str | `Ember` | The display name of the conversational agent. |
+| `FLYDEK_AGENT_INSTRUCTIONS` | str or None | `None` | Optional custom system instructions appended to the prompt. |
+| `FLYDEK_MAX_TURNS_PER_CONVERSATION` | int | `200` | Maximum number of turns allowed in a single conversation. |
+| `FLYDEK_MAX_TOOLS_PER_TURN` | int | `10` | Maximum number of tool invocations the agent can make in a single turn. |
+
+The agent name defaults to "Ember," which includes a carefully designed personality and behavioral profile. If you override the agent name, the system uses a generic professional identity instead. The turn and tool limits exist as safety guardrails to prevent runaway conversations or excessive API calls against registered systems.
+
+## Knowledge
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_EMBEDDING_MODEL` | str | `openai:text-embedding-3-small` | The embedding model used for knowledge document vectorization. |
+| `FLYDEK_EMBEDDING_DIMENSIONS` | int | `1536` | The dimensionality of the embedding vectors. |
+| `FLYDEK_RAG_TOP_K` | int | `3` | Number of document chunks to retrieve during RAG. |
+| `FLYDEK_KG_MAX_ENTITIES_IN_CONTEXT` | int | `5` | Maximum number of knowledge graph entities included in context enrichment. |
+
+The RAG top-k value controls the balance between context richness and prompt token usage. A higher value provides more context but increases token consumption and may dilute the relevance of retrieved passages. The default of 3 has been chosen as a practical balance for most operational documentation.
+
+## Security
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_CREDENTIAL_ENCRYPTION_KEY` | str | -- | AES encryption key for stored system credentials and provider secrets. |
+| `FLYDEK_AUDIT_RETENTION_DAYS` | int | `365` | Number of days to retain audit log entries. |
+| `FLYDEK_RATE_LIMIT_PER_USER` | int | `60` | Maximum API requests per user per minute. |
+
+The credential encryption key is critical for production deployments. All credentials stored in the Credential Vault, including API keys, OAuth secrets, bearer tokens for external systems, and OIDC provider secrets, are encrypted at rest using this key. If the key is lost, all stored credentials become unrecoverable and must be re-entered. Generate a strong key and store it in your secrets manager.
+
+**Generating an encryption key:**
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+## File Uploads
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_FILE_STORAGE_PATH` | str | `./uploads` | Directory path where uploaded files are stored. |
+| `FLYDEK_FILE_MAX_SIZE_MB` | int | `50` | Maximum allowed file upload size in megabytes. |
+
+The file storage path should be an absolute path in production deployments to avoid ambiguity. Ensure the application process has read and write permissions to this directory. For multi-instance deployments, use a shared filesystem or object storage.
+
+**Example production configuration:**
+
+```bash
+FLYDEK_FILE_STORAGE_PATH=/data/flydek/uploads
+FLYDEK_FILE_MAX_SIZE_MB=100
+```
+
+## Branding
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDEK_APP_TITLE` | str | `Firefly Desk` | The application title displayed in the UI header and browser tab. |
+| `FLYDEK_APP_LOGO_URL` | str or None | `None` | URL to a custom logo image. |
+| `FLYDEK_ACCENT_COLOR` | str | `#2563EB` | Primary accent color used throughout the UI. |
+
+Branding variables allow organizations to white-label Firefly Desk without modifying frontend code. The accent color propagates through the CSS custom properties system, affecting buttons, links, and interactive elements consistently across all views.
+
+**Example white-label configuration:**
+
+```bash
+FLYDEK_APP_TITLE=ACME Operations Console
+FLYDEK_APP_LOGO_URL=https://cdn.acme.com/logo.svg
+FLYDEK_ACCENT_COLOR=#10B981
+```
+
+## Complete Production Example
+
+The following `.env` file shows a complete production configuration:
+
+```bash
+# Mode
+FLYDEK_DEV_MODE=false
+
+# Database
+FLYDEK_DATABASE_URL=postgresql+asyncpg://flydek_user:strong_password@db-host:5432/flydek
+FLYDEK_REDIS_URL=redis://redis-host:6379/0
+
+# OIDC Authentication
+FLYDEK_OIDC_ISSUER_URL=https://keycloak.example.com/realms/operations
+FLYDEK_OIDC_CLIENT_ID=firefly-desk
+FLYDEK_OIDC_CLIENT_SECRET=your-client-secret
+FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDEK_OIDC_ROLES_CLAIM=realm_access.roles
+FLYDEK_OIDC_PROVIDER_TYPE=keycloak
+
+# CORS
+FLYDEK_CORS_ORIGINS=https://desk.example.com
+
+# Security
+FLYDEK_CREDENTIAL_ENCRYPTION_KEY=your-generated-256-bit-key
+FLYDEK_AUDIT_RETENTION_DAYS=365
+FLYDEK_RATE_LIMIT_PER_USER=60
+
+# Knowledge
+FLYDEK_EMBEDDING_MODEL=openai:text-embedding-3-small
+FLYDEK_RAG_TOP_K=5
+
+# File Uploads
+FLYDEK_FILE_STORAGE_PATH=/data/flydek/uploads
+FLYDEK_FILE_MAX_SIZE_MB=100
+
+# Branding
+FLYDEK_APP_TITLE=Operations Desk
+FLYDEK_ACCENT_COLOR=#2563EB
+```
