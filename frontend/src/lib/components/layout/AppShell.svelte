@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import TopBar from './TopBar.svelte';
 	import ResizableSplit from './ResizableSplit.svelte';
 	import ConversationList from '../chat/ConversationList.svelte';
@@ -27,7 +28,10 @@
 
 	<div class="flex min-h-0 flex-1">
 		{#if $sidebarOpen}
-			<div class="w-72 shrink-0 border-r border-border bg-surface-secondary transition-all">
+			<div
+				transition:slide={{ axis: 'x', duration: 200 }}
+				class="w-72 shrink-0 border-r border-border/50 bg-surface-secondary"
+			>
 				<ConversationList />
 			</div>
 		{/if}
