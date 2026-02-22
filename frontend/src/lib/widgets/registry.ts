@@ -18,6 +18,7 @@ import Timeline from '$lib/components/widgets/Timeline.svelte';
 import ExportCard from '$lib/components/widgets/ExportCard.svelte';
 import SafetyPlanCard from '$lib/components/widgets/SafetyPlanCard.svelte';
 import ImageCard from '$lib/components/widgets/ImageCard.svelte';
+import ChartWidget from '$lib/components/widgets/ChartWidget.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -34,7 +35,8 @@ export const widgetRegistry: Record<string, Component> = {
 	'timeline': Timeline,
 	'export': ExportCard,
 	'safety-plan': SafetyPlanCard,
-	'image': ImageCard
+	'image': ImageCard,
+	'chart': ChartWidget
 };
 
 // ---------------------------------------------------------------------------
