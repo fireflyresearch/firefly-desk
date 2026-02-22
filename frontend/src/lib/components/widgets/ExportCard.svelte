@@ -24,13 +24,13 @@
 		$props();
 
 	// -----------------------------------------------------------------------
-	// Format badge colours
+	// Format badge colours (using CSS variable-based colors)
 	// -----------------------------------------------------------------------
 
 	const formatBadge: Record<string, string> = {
-		csv: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-		json: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-		pdf: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+		csv: 'bg-success/15 text-success border border-success/20',
+		json: 'bg-accent/15 text-accent border border-accent/20',
+		pdf: 'bg-danger/15 text-danger border border-danger/20'
 	};
 
 	let badgeClass = $derived(formatBadge[format] ?? formatBadge.csv);
@@ -61,7 +61,7 @@
 	}
 </script>
 
-<div class="rounded-lg border border-border bg-surface-secondary p-4">
+<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm hover:shadow-md transition-shadow">
 	<!-- Header row: icon + title + format badge -->
 	<div class="flex items-start justify-between gap-3">
 		<div class="flex items-center gap-2.5 min-w-0">
@@ -70,7 +70,7 @@
 			</span>
 			<h3 class="truncate text-sm font-semibold text-text-primary">{title}</h3>
 		</div>
-		<span class="shrink-0 rounded px-2 py-0.5 text-xs font-medium uppercase {badgeClass}">
+		<span class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase {badgeClass}">
 			{format}
 		</span>
 	</div>
@@ -82,7 +82,7 @@
 	</div>
 
 	<!-- Status + action row -->
-	<div class="mt-3 flex items-center justify-between">
+	<div class="mt-4 flex items-center justify-between">
 		<!-- Status indicator -->
 		{#if status === 'generating' || status === 'pending'}
 			<span class="inline-flex items-center gap-1.5 text-xs text-text-secondary">
@@ -105,7 +105,7 @@
 		{#if status === 'completed'}
 			<a
 				href="/api/exports/{export_id}/download"
-				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+				class="btn-hover inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-accent-hover"
 			>
 				<Download size={14} />
 				Download
@@ -114,7 +114,7 @@
 			<button
 				type="button"
 				disabled
-				class="inline-flex items-center gap-1.5 rounded-md bg-accent/50 px-3 py-1.5 text-xs font-medium text-white/60 cursor-not-allowed"
+				class="inline-flex items-center gap-1.5 rounded-lg bg-accent/50 px-3 py-1.5 text-xs font-medium text-white/60 cursor-not-allowed"
 			>
 				<Download size={14} />
 				Download
