@@ -55,11 +55,22 @@
 		})
 	);
 
-	// Configure DOMPurify to allow highlight.js class attributes on spans
+	// Configure DOMPurify to allow highlight.js class attributes on spans/code only
 	const purifyConfig = {
-		ADD_TAGS: ['span'] as string[],
-		ADD_ATTR: ['class'] as string[]
+		ADD_TAGS: ['span'] as string[]
 	};
+
+	// Restrict class attribute to only span and code elements (for highlight.js tokens)
+	DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+		if (
+			node.hasAttribute('class') &&
+			node.nodeName !== 'SPAN' &&
+			node.nodeName !== 'CODE' &&
+			node.nodeName !== 'PRE'
+		) {
+			node.removeAttribute('class');
+		}
+	});
 
 	const clipboardIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 
@@ -73,48 +84,57 @@
 	// Parse markdown and sanitize with DOMPurify (XSS protection preserved)
 	let html = $derived(DOMPurify.sanitize(marked.parse(content) as string, purifyConfig));
 
+	// Helper: create a clipboard icon element
+	function createCopyIcon(): HTMLSpanElement {
+		const iconWrapper = document.createElement('span');
+		iconWrapper.className = 'copy-icon';
+		DOMPurify.sanitize(clipboardIcon, { RETURN_DOM_FRAGMENT: true })
+			.childNodes.forEach((node) => iconWrapper.appendChild(node.cloneNode(true)));
+		return iconWrapper;
+	}
+
 	// After HTML renders, add copy buttons to all code blocks
 	$effect(() => {
-		// Track the html value so this effect re-runs when content changes
-		html;
+		html; // track so this re-runs when content changes
 
 		if (!container) return;
 
-		// Use a microtask to ensure the DOM has updated with the new html
-		queueMicrotask(() => {
-			const pres = container.querySelectorAll('pre');
-			pres.forEach((pre) => {
-				if (pre.querySelector('.copy-btn')) return;
+		const timeouts: ReturnType<typeof setTimeout>[] = [];
 
-				const btn = document.createElement('button');
-				btn.className = 'copy-btn';
-				btn.textContent = '';
-				// Set the SVG icon using safe DOM insertion
-				const iconWrapper = document.createElement('span');
-				iconWrapper.className = 'copy-icon';
-				// The SVG is a static trusted string, not user content
-				DOMPurify.sanitize(clipboardIcon, { RETURN_DOM_FRAGMENT: true })
-					.childNodes.forEach((node) => iconWrapper.appendChild(node.cloneNode(true)));
-				btn.appendChild(iconWrapper);
-				btn.title = 'Copy code';
-				btn.addEventListener('click', async () => {
-					const code = pre.querySelector('code')?.textContent ?? '';
+		const pres = container.querySelectorAll('pre');
+		pres.forEach((pre) => {
+			if (pre.querySelector('.copy-btn')) return;
+
+			const btn = document.createElement('button');
+			btn.className = 'copy-btn';
+			btn.appendChild(createCopyIcon());
+			btn.title = 'Copy code';
+
+			let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+			btn.addEventListener('click', async () => {
+				if (copyTimer) clearTimeout(copyTimer);
+				const code = pre.querySelector('code')?.textContent ?? '';
+				try {
 					await navigator.clipboard.writeText(code);
 					btn.textContent = 'Copied!';
-					setTimeout(() => {
-						btn.textContent = '';
-						const restored = document.createElement('span');
-						restored.className = 'copy-icon';
-						DOMPurify.sanitize(clipboardIcon, { RETURN_DOM_FRAGMENT: true })
-							.childNodes.forEach((node) => restored.appendChild(node.cloneNode(true)));
-						btn.appendChild(restored);
-					}, 2000);
-				});
-
-				pre.style.position = 'relative';
-				pre.appendChild(btn);
+				} catch {
+					btn.textContent = 'Failed';
+				}
+				copyTimer = setTimeout(() => {
+					copyTimer = null;
+					btn.textContent = '';
+					btn.appendChild(createCopyIcon());
+				}, 2000);
+				timeouts.push(copyTimer);
 			});
+
+			pre.appendChild(btn);
 		});
+
+		return () => {
+			timeouts.forEach(clearTimeout);
+		};
 	});
 </script>
 
