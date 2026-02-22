@@ -116,16 +116,28 @@ async def get_setup_status(request: Request) -> SetupStatus:
 
 @router.get("/first-run")
 async def check_first_run(request: Request) -> dict:
-    """Check whether this is a first-run instance (no seed data loaded)."""
-    session_factory = getattr(request.app.state, "session_factory", None)
-    if not session_factory:
+    """Check whether this is a first-run instance."""
+    try:
+        session_factory = getattr(request.app.state, "session_factory", None)
+        if not session_factory:
+            return {"is_first_run": True}
+
+        # Check if setup was already completed
+        from flydek.settings.repository import SettingsRepository
+
+        settings_repo = SettingsRepository(session_factory)
+        completed = await settings_repo.get_app_setting("setup_completed")
+        if completed == "true":
+            return {"is_first_run": False}
+
+        from flydek.catalog.repository import CatalogRepository
+
+        repo = CatalogRepository(session_factory)
+        systems = await repo.list_systems()
+        return {"is_first_run": len(systems) == 0}
+    except Exception:
+        logger.warning("first-run check failed, assuming first run", exc_info=True)
         return {"is_first_run": True}
-
-    from flydek.catalog.repository import CatalogRepository
-
-    repo = CatalogRepository(session_factory)
-    systems = await repo.list_systems()
-    return {"is_first_run": len(systems) == 0}
 
 
 @router.post("/seed")

@@ -15,8 +15,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request as _Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 import flydek
 from flydek.api.audit import get_audit_logger
@@ -88,7 +89,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from flydek.rbac.repository import RoleRepository
 
     role_repo = RoleRepository(session_factory)
-    await role_repo.seed_builtin_roles()
+    try:
+        await role_repo.seed_builtin_roles()
+    except Exception:
+        logger.warning("Failed to seed built-in roles (non-fatal).", exc_info=True)
     app.state.role_repo = role_repo
     app.dependency_overrides[get_role_repo] = lambda: role_repo
 
@@ -284,6 +288,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.config = config
     app.state.session_factory = session_factory
     app.state.conversation_repo = conversation_repo
+    app.state.setup_handlers = {}
     app.state.started_at = datetime.now(timezone.utc)
 
     # Auto-seed platform documentation into the knowledge base (idempotent)
@@ -319,6 +324,11 @@ def create_app() -> FastAPI:
         description="Backoffice as Agent",
         lifespan=lifespan,
     )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(_request: _Request, exc: Exception):
+        logger.error("Unhandled exception: %s", exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     # CORS -- never use wildcard with credentials
     app.add_middleware(

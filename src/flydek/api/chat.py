@@ -271,28 +271,34 @@ async def send_message(
     if is_setup_init or has_active_setup:
         from flydek.agent.setup_handler import SetupConversationHandler
 
+        handler: SetupConversationHandler | None = None
         if is_setup_init and conversation_id not in setup_handlers:
-            handler = SetupConversationHandler(request.app)
-            setup_handlers[conversation_id] = handler
-            if not hasattr(request.app.state, "setup_handlers"):
-                request.app.state.setup_handlers = {}
-            request.app.state.setup_handlers[conversation_id] = handler
+            try:
+                handler = SetupConversationHandler(request.app)
+                setup_handlers[conversation_id] = handler
+                if not hasattr(request.app.state, "setup_handlers"):
+                    request.app.state.setup_handlers = {}
+                request.app.state.setup_handlers[conversation_id] = handler
+            except Exception:
+                logger.error("Failed to create SetupConversationHandler", exc_info=True)
+                # Fall through to regular agent handling
         else:
             handler = setup_handlers[conversation_id]
 
-        async def setup_stream():
-            async for event in handler.handle(body.message):
-                yield event.to_sse()
+        if handler is not None:
+            async def setup_stream():
+                async for event in handler.handle(body.message):
+                    yield event.to_sse()
 
-        return StreamingResponse(
-            setup_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+            return StreamingResponse(
+                setup_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
 
     # Ownership guard: reject if conversation belongs to another user.
     # Skipped for setup-init messages (handled above) so that new setup
