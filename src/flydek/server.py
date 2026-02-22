@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import flydek
+from flydek.api.chat import router as chat_router
 from flydek.api.health import router as health_router
 
 
@@ -34,5 +35,6 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(chat_router)
 
     return app
