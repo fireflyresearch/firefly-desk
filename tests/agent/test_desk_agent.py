@@ -262,7 +262,9 @@ class TestDeskAgentRun:
         self, desk_agent, context_enricher, user_session
     ):
         await desk_agent.run("Hello", user_session, "conv-1")
-        context_enricher.enrich.assert_awaited_once_with("Hello")
+        context_enricher.enrich.assert_awaited_once_with(
+            "Hello", conversation_history=[],
+        )
 
     async def test_run_calls_prompt_builder(
         self, desk_agent, prompt_builder, user_session
@@ -545,3 +547,194 @@ class TestDeskAgentFileIds:
         file_repo.get.assert_any_await("f-b")
         assert "- [report-f-a.pdf]: Text from f-a" in result
         assert "- [report-f-b.pdf]: Text from f-b" in result
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent conversation history (per-user scoping) tests
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentConversationHistory:
+    """Tests for per-user conversation history scoping in DeskAgent."""
+
+    @pytest.fixture
+    def conversation_repo(self) -> AsyncMock:
+        from flydek.conversation.models import Message, MessageRole
+
+        mock = AsyncMock()
+        mock.get_messages = AsyncMock(return_value=[
+            Message(
+                id="msg-1",
+                conversation_id="conv-1",
+                role=MessageRole.USER,
+                content="What is the refund policy?",
+            ),
+            Message(
+                id="msg-2",
+                conversation_id="conv-1",
+                role=MessageRole.ASSISTANT,
+                content="The refund policy requires manager approval for amounts over $500.",
+            ),
+        ])
+        return mock
+
+    @pytest.fixture
+    def desk_agent_with_history(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        conversation_repo,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            conversation_repo=conversation_repo,
+        )
+
+    async def test_run_loads_conversation_history(
+        self, desk_agent_with_history, conversation_repo, user_session
+    ):
+        """run() should call get_messages with user-scoped parameters."""
+        await desk_agent_with_history.run("Follow up question", user_session, "conv-1")
+        conversation_repo.get_messages.assert_awaited_once_with(
+            "conv-1", "user-42", limit=20,
+        )
+
+    async def test_run_passes_history_to_enricher(
+        self, desk_agent_with_history, context_enricher, user_session
+    ):
+        """run() should pass loaded conversation history to enrich()."""
+        await desk_agent_with_history.run("Follow up question", user_session, "conv-1")
+        context_enricher.enrich.assert_awaited_once()
+        call_kwargs = context_enricher.enrich.call_args
+        history = call_kwargs.kwargs["conversation_history"]
+        assert len(history) == 2
+        assert history[0] == {"role": "user", "content": "What is the refund policy?"}
+        assert history[1]["role"] == "assistant"
+
+    async def test_run_includes_conversation_summary_in_prompt(
+        self,
+        desk_agent_with_history,
+        prompt_builder,
+        context_enricher,
+        enriched_context,
+        user_session,
+    ):
+        """run() should populate conversation_summary in the PromptContext."""
+        # Make enricher return context with history so summary is generated
+        enriched_with_history = EnrichedContext(
+            relevant_entities=[],
+            knowledge_snippets=[],
+            conversation_history=[
+                {"role": "user", "content": "What is the refund policy?"},
+                {"role": "assistant", "content": "The refund policy requires manager approval."},
+            ],
+        )
+        context_enricher.enrich = AsyncMock(return_value=enriched_with_history)
+
+        await desk_agent_with_history.run("Follow up", user_session, "conv-1")
+
+        call_ctx: PromptContext = prompt_builder.build.call_args[0][0]
+        assert "Recent conversation:" in call_ctx.conversation_summary
+        assert "User: What is the refund policy?" in call_ctx.conversation_summary
+        assert "Assistant: The refund policy requires manager approval." in call_ctx.conversation_summary
+
+    async def test_run_without_conversation_repo_has_empty_history(
+        self, desk_agent, context_enricher, user_session
+    ):
+        """run() without a conversation_repo should pass empty history to enrich()."""
+        await desk_agent.run("Hello", user_session, "conv-1")
+        context_enricher.enrich.assert_awaited_once_with(
+            "Hello", conversation_history=[],
+        )
+
+    async def test_format_conversation_history_empty(self):
+        """_format_conversation_history returns empty string for empty list."""
+        result = DeskAgent._format_conversation_history([])
+        assert result == ""
+
+    async def test_format_conversation_history_limits_to_10(self):
+        """_format_conversation_history takes only the last 10 messages."""
+        history = [
+            {"role": "user", "content": f"Message {i}"}
+            for i in range(15)
+        ]
+        result = DeskAgent._format_conversation_history(history)
+        lines = result.split("\n")
+        # First line is "Recent conversation:", then 10 message lines
+        assert lines[0] == "Recent conversation:"
+        assert len(lines) == 11  # header + 10 messages
+        assert "Message 5" in result  # 15 - 10 = 5 (first included)
+        assert "Message 4" not in result  # excluded
+
+    async def test_format_conversation_history_truncates_long_content(self):
+        """_format_conversation_history truncates messages over 200 chars."""
+        long_content = "x" * 300
+        history = [{"role": "user", "content": long_content}]
+        result = DeskAgent._format_conversation_history(history)
+        # The content should be truncated to 200 chars
+        assert len(result.split("\n")[1]) < 250  # "User: " + 200 chars
+
+    async def test_load_conversation_history_without_repo(self, desk_agent):
+        """_load_conversation_history returns empty list when repo is None."""
+        result = await desk_agent._load_conversation_history("conv-1", "user-42")
+        assert result == []
+
+    async def test_load_conversation_history_maps_messages(
+        self, desk_agent_with_history
+    ):
+        """_load_conversation_history converts Message objects to dicts."""
+        result = await desk_agent_with_history._load_conversation_history(
+            "conv-1", "user-42",
+        )
+        assert len(result) == 2
+        assert result[0] == {"role": "user", "content": "What is the refund policy?"}
+        assert result[1] == {
+            "role": "assistant",
+            "content": "The refund policy requires manager approval for amounts over $500.",
+        }
+
+    async def test_stores_conversation_repo(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        conversation_repo,
+    ):
+        """DeskAgent should store the conversation_repo dependency."""
+        agent = DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            conversation_repo=conversation_repo,
+        )
+        assert agent._conversation_repo is conversation_repo
+
+    async def test_conversation_repo_defaults_to_none(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+    ):
+        """DeskAgent should default conversation_repo to None."""
+        agent = DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+        )
+        assert agent._conversation_repo is None

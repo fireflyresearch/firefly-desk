@@ -27,6 +27,7 @@ from flydek.tools.factory import ToolDefinition, ToolFactory
 from flydek.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
+    from flydek.conversation.repository import ConversationRepository
     from flydek.files.repository import FileUploadRepository
     from flydek.tools.executor import ToolCall, ToolExecutor, ToolResult
 
@@ -58,6 +59,7 @@ class DeskAgent:
         tool_executor: ToolExecutor | None = None,
         file_repo: FileUploadRepository | None = None,
         confirmation_service: ConfirmationService | None = None,
+        conversation_repo: ConversationRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -69,6 +71,7 @@ class DeskAgent:
         self._tool_executor = tool_executor
         self._file_repo = file_repo
         self._confirmation_service = confirmation_service
+        self._conversation_repo = conversation_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -93,13 +96,21 @@ class DeskAgent:
         """
         turn_id = str(uuid.uuid4())
 
-        # 1. Context enrichment
-        enriched = await self._context_enricher.enrich(message)
+        # 1. Context enrichment (with user-scoped conversation history)
+        history = await self._load_conversation_history(
+            conversation_id, session.user_id,
+        )
+        enriched = await self._context_enricher.enrich(
+            message, conversation_history=history,
+        )
 
         # 2. Prompt assembly
         tool_summaries = self._build_tool_summaries(tools or [])
         knowledge_context = self._format_knowledge_context(enriched)
         file_context = await self._build_file_context(file_ids)
+        conversation_summary = self._format_conversation_history(
+            enriched.conversation_history,
+        )
 
         prompt_context = PromptContext(
             agent_name=self._agent_name,
@@ -112,6 +123,7 @@ class DeskAgent:
             tool_summaries=tool_summaries,
             knowledge_context=knowledge_context,
             file_context=file_context,
+            conversation_summary=conversation_summary,
         )
         _system_prompt = self._prompt_builder.build(prompt_context)
 
@@ -372,6 +384,32 @@ class DeskAgent:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    async def _load_conversation_history(
+        self, conversation_id: str, user_id: str, limit: int = 20,
+    ) -> list[dict[str, str]]:
+        """Load recent messages from the conversation store, scoped to user."""
+        if self._conversation_repo is None:
+            return []
+        messages = await self._conversation_repo.get_messages(
+            conversation_id, user_id, limit=limit,
+        )
+        return [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in messages
+        ]
+
+    @staticmethod
+    def _format_conversation_history(history: list[dict[str, str]]) -> str:
+        """Format conversation history into a summary for the system prompt."""
+        if not history:
+            return ""
+        lines: list[str] = []
+        for msg in history[-10:]:  # Last 10 messages for context
+            role = msg.get("role", "unknown").capitalize()
+            content = msg.get("content", "")[:200]  # Truncate long messages
+            lines.append(f"{role}: {content}")
+        return "Recent conversation:\n" + "\n".join(lines)
 
     async def _build_file_context(self, file_ids: list[str] | None) -> str:
         """Fetch uploaded files by ID and concatenate their extracted text.
