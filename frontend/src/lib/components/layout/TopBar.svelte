@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Menu, Settings, Sun, Moon, User, Shield, LogOut } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
-	import logo from '$lib/assets/logo.svg';
+	import Logo from '$lib/components/layout/Logo.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
 
@@ -64,7 +64,7 @@
 				<Menu size={18} />
 			</button>
 		{/if}
-		<img src={logo} alt={title} class="h-6" />
+		<Logo class="h-6 text-text-primary" />
 	</div>
 
 	<!-- Center: empty for now (search will go here) -->
