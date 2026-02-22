@@ -1,8 +1,8 @@
 <!--
   InputBar.svelte - Message input area at the bottom of the chat.
 
-  Features auto-expanding textarea (up to 6 lines), Cmd/Ctrl+Enter to send,
-  and a send button with the Lucide Send icon.
+  Features auto-expanding textarea (up to 6 lines), Enter to send,
+  Shift+Enter for newline, and a send button inside a prominent container.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -41,7 +41,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			handleSend();
 		}
@@ -52,25 +52,29 @@
 	}
 </script>
 
-<div class="flex items-end gap-2 border-t border-border bg-surface px-4 py-3">
-	<textarea
-		bind:this={textareaEl}
-		bind:value={text}
-		oninput={handleInput}
-		onkeydown={handleKeydown}
-		{disabled}
-		rows={1}
-		placeholder="Type a message..."
-		class="min-h-[40px] flex-1 resize-none rounded-lg border border-border bg-surface-secondary px-3 py-2.5 text-sm text-text-primary placeholder-text-secondary outline-none transition-colors focus:border-accent disabled:cursor-not-allowed disabled:opacity-50"
-	></textarea>
+<div class="px-4 pb-4 pt-0">
+	<div class="mx-auto max-w-3xl rounded-2xl border border-border bg-surface p-1 shadow-lg">
+		<div class="flex items-end gap-2">
+			<textarea
+				bind:this={textareaEl}
+				bind:value={text}
+				oninput={handleInput}
+				onkeydown={handleKeydown}
+				{disabled}
+				rows={1}
+				placeholder="Type a message..."
+				class="min-h-[40px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
+			></textarea>
 
-	<button
-		type="button"
-		onclick={handleSend}
-		disabled={!canSend}
-		class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-		aria-label="Send message"
-	>
-		<Send size={18} />
-	</button>
+			<button
+				type="button"
+				onclick={handleSend}
+				disabled={!canSend}
+				class="mb-1 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+				aria-label="Send message"
+			>
+				<Send size={16} />
+			</button>
+		</div>
+	</div>
 </div>

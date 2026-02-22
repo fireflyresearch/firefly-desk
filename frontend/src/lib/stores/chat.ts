@@ -11,6 +11,7 @@ import {
 	fetchMessages as apiFetchMessages,
 	createConversation as apiCreateConversation
 } from '$lib/services/conversations.js';
+import type { ToolExecution } from './tools.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +31,7 @@ export interface Message {
 	widgets: WidgetDirective[];
 	timestamp: Date;
 	isStreaming?: boolean;
+	toolExecutions?: ToolExecution[];
 }
 
 export interface Conversation {
@@ -86,9 +88,13 @@ export function appendWidget(widget: WidgetDirective): void {
 }
 
 /** Mark the currently-streaming assistant message as complete. */
-export function finishStreaming(): void {
+export function finishStreaming(toolExecutions?: ToolExecution[]): void {
 	messages.update((msgs) =>
-		msgs.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+		msgs.map((m) =>
+			m.isStreaming
+				? { ...m, isStreaming: false, ...(toolExecutions?.length ? { toolExecutions } : {}) }
+				: m
+		)
 	);
 	isStreaming.set(false);
 }

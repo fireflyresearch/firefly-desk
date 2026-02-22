@@ -8,7 +8,8 @@
  * Licensed under the Apache License, Version 2.0.
  */
 
-import { apiFetch } from './api.js';
+import { get } from 'svelte/store';
+import { apiFetch, apiJson } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
 import type { WidgetDirective } from '../stores/chat.js';
@@ -17,9 +18,11 @@ import {
 	updateStreamingMessage,
 	appendWidget,
 	finishStreaming,
-	isStreaming
+	isStreaming,
+	messages
 } from '../stores/chat.js';
 import { pushPanel } from '../stores/panel.js';
+import { startTool, endTool, clearToolState, completedTools } from '../stores/tools.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -93,6 +96,18 @@ export async function sendMessage(conversationId: string, message: string): Prom
 	}
 }
 
+/**
+ * Check whether this is a first-run instance (no seed data loaded).
+ */
+export async function checkFirstRun(): Promise<boolean> {
+	try {
+		const data = await apiJson<{ is_first_run: boolean }>('/setup/first-run');
+		return data.is_first_run;
+	} catch {
+		return false;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Internal SSE event handler
 // ---------------------------------------------------------------------------
@@ -100,7 +115,7 @@ export async function sendMessage(conversationId: string, message: string): Prom
 function handleSSEEvent(msg: SSEMessage): void {
 	switch (msg.event) {
 		case 'token': {
-			const content = msg.data.content;
+			const content = msg.data.content ?? msg.data.token;
 			if (typeof content === 'string') {
 				updateStreamingMessage(content);
 			}
@@ -128,12 +143,16 @@ function handleSSEEvent(msg: SSEMessage): void {
 		}
 
 		case 'tool_start': {
-			// Future: update a tool-progress store
+			const toolId = (msg.data.tool_call_id as string) ?? crypto.randomUUID();
+			const toolName = (msg.data.tool_name as string) ?? 'Unknown tool';
+			startTool(toolId, toolName);
 			break;
 		}
 
 		case 'tool_end': {
-			// Future: update a tool-progress store
+			const toolId = msg.data.tool_call_id as string;
+			const result = msg.data.result as Record<string, unknown> | undefined;
+			if (toolId) endTool(toolId, result);
 			break;
 		}
 
@@ -147,7 +166,9 @@ function handleSSEEvent(msg: SSEMessage): void {
 		}
 
 		case 'done': {
-			finishStreaming();
+			const tools = get(completedTools);
+			finishStreaming(tools.length > 0 ? tools : undefined);
+			clearToolState();
 			break;
 		}
 

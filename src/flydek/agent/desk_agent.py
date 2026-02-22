@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -46,7 +47,7 @@ class DeskAgent:
         tool_factory: ToolFactory,
         widget_parser: WidgetParser,
         audit_logger: AuditLogger,
-        agent_name: str = "Firefly Desk Assistant",
+        agent_name: str = "Ember",
         company_name: str | None = None,
     ) -> None:
         self._context_enricher = context_enricher
@@ -138,11 +139,35 @@ class DeskAgent:
         """Stream SSE events for a full agent turn.
 
         Yields:
+            SSEEventType.TOOL_START before context enrichment.
+            SSEEventType.TOOL_END after context enrichment completes.
             SSEEventType.TOKEN events for text chunks.
             SSEEventType.WIDGET events for each parsed widget.
             SSEEventType.DONE when complete.
         """
+        # Emit TOOL_START before context enrichment / LLM execution
+        tool_call_id = str(uuid.uuid4())
+        yield SSEEvent(
+            event=SSEEventType.TOOL_START,
+            data={
+                "tool_call_id": tool_call_id,
+                "tool_name": "knowledge_retrieval",
+            },
+        )
+
+        start = time.monotonic()
         response = await self.run(message, session, conversation_id, tools=tools)
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+
+        # Emit TOOL_END after context enrichment completes
+        yield SSEEvent(
+            event=SSEEventType.TOOL_END,
+            data={
+                "tool_call_id": tool_call_id,
+                "tool_name": "knowledge_retrieval",
+                "duration_ms": elapsed_ms,
+            },
+        )
 
         # Stream text as token events (chunked)
         text = response.text
@@ -150,7 +175,7 @@ class DeskAgent:
             chunk = text[i : i + _STREAM_CHUNK_SIZE]
             yield SSEEvent(
                 event=SSEEventType.TOKEN,
-                data={"token": chunk},
+                data={"content": chunk},
             )
 
         # Emit widget events

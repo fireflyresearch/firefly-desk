@@ -22,6 +22,7 @@ class SSEEventType(StrEnum):
     WIDGET = "widget"
     TOOL_START = "tool_start"
     TOOL_END = "tool_end"
+    TOOL_SUMMARY = "tool_summary"
     CONFIRMATION = "confirmation"
     ERROR = "error"
     DONE = "done"

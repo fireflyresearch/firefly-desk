@@ -1,13 +1,17 @@
 <!--
   StreamingMessage.svelte - Shows the currently streaming assistant response.
 
-  Displays a blinking cursor at the end of text and a "Thinking..." indicator
-  when no text has arrived yet.
+  Displays the ThinkingIndicator when no text has arrived yet, and a
+  blinking cursor at the end of text while content is streaming.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { Bot } from 'lucide-svelte';
+	import ThinkingIndicator from './ThinkingIndicator.svelte';
+	import MarkdownContent from './MarkdownContent.svelte';
+
 	interface StreamingMessageProps {
 		content: string;
 	}
@@ -18,16 +22,21 @@
 </script>
 
 <div class="flex w-full justify-start px-4 py-1">
-	<div class="flex max-w-[75%] flex-col items-start">
-		<div
-			class="rounded-2xl rounded-bl-sm border border-border bg-surface-secondary px-4 py-2.5 text-sm leading-relaxed text-text-primary"
-		>
+	<div class="flex gap-3">
+		<!-- Bot avatar -->
+		<div class="mt-1 shrink-0">
+			<Bot size={20} class="text-accent" />
+		</div>
+		<!-- Content area -->
+		<div class="flex flex-col items-start">
 			{#if hasContent}
-				<span class="whitespace-pre-wrap break-words">{content}</span><span
-					class="streaming-cursor ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-text-primary"
-				></span>
+				<div class="text-sm leading-relaxed">
+					<MarkdownContent content={content} /><span
+						class="streaming-cursor ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-text-primary"
+					></span>
+				</div>
 			{:else}
-				<span class="streaming-thinking text-text-secondary">Thinking...</span>
+				<ThinkingIndicator />
 			{/if}
 		</div>
 	</div>
@@ -44,21 +53,7 @@
 		}
 	}
 
-	@keyframes pulse {
-		0%,
-		100% {
-			opacity: 1;
-		}
-		50% {
-			opacity: 0.5;
-		}
-	}
-
 	.streaming-cursor {
 		animation: blink 1s step-end infinite;
-	}
-
-	.streaming-thinking {
-		animation: pulse 2s ease-in-out infinite;
 	}
 </style>

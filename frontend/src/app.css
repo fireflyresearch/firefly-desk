@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@plugin '@tailwindcss/typography';
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
@@ -43,4 +44,11 @@
         background-color: var(--color-surface);
         transition: background-color 0.2s ease, color 0.2s ease;
     }
+}
+
+[data-theme="dark"] .prose {
+    --tw-prose-body: var(--color-text-primary);
+    --tw-prose-headings: var(--color-text-primary);
+    --tw-prose-links: var(--color-accent);
+    --tw-prose-code: var(--color-text-primary);
 }
