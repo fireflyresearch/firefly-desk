@@ -37,17 +37,25 @@
 		scrollToBottom();
 	});
 
-	// Check first-run on mount
+	// Check first-run on mount (with retry for slow backend startup)
 	$effect(() => {
 		(async () => {
 			try {
-				const isFirstRun = await checkFirstRun();
+				let isFirstRun = await checkFirstRun();
+				// If first check returns false, wait and try once more
+				// (backend may still be initializing)
+				if (!isFirstRun) {
+					await new Promise((r) => setTimeout(r, 1500));
+					isFirstRun = await checkFirstRun();
+				}
 				if (isFirstRun) {
+					console.log('[Setup] First run detected, starting setup wizard');
 					const conversationId = crypto.randomUUID();
 					$activeConversationId = conversationId;
 					await sendMessage(conversationId, '__setup_init__');
 				}
-			} catch {
+			} catch (error) {
+				console.error('[Setup] Setup wizard failed:', error);
 				// Non-fatal -- continue with normal chat
 			} finally {
 				checkingFirstRun = false;
