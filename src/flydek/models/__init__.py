@@ -16,8 +16,10 @@ from flydek.models.file_upload import FileUploadRow
 from flydek.models.knowledge import EntityRow, RelationRow
 from flydek.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 from flydek.models.llm import LLMProviderRow
+from flydek.models.user_settings import AppSettingRow, UserSettingRow
 
 __all__ = [
+    "AppSettingRow",
     "AuditEventRow",
     "Base",
     "ConversationRow",
@@ -31,4 +33,5 @@ __all__ = [
     "MessageRow",
     "RelationRow",
     "ServiceEndpointRow",
+    "UserSettingRow",
 ]
