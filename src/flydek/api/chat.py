@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -293,6 +293,26 @@ async def send_message(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # Ownership guard: reject if conversation belongs to another user.
+    # Skipped for setup-init messages (handled above) so that new setup
+    # conversations can be created freely.
+    from flydek.conversation.repository import ConversationRepository
+
+    user_id = user_session.user_id if user_session else "anonymous"
+    repo: ConversationRepository | None = getattr(
+        request.app.state, "conversation_repo", None
+    )
+    if repo:
+        owned = await repo.get_conversation(conversation_id, user_id)
+        if owned is None:
+            exists = await repo.conversation_exists(conversation_id)
+            if exists:
+                raise HTTPException(
+                    status_code=404, detail="Conversation not found"
+                )
+        # If owned is not None → user owns it, proceed.
+        # If owned is None and exists is False → new conversation, proceed.
 
     # Handle confirmation responses (__confirm__:<id> or __reject__:<id>)
     confirmation_service = getattr(request.app.state, "confirmation_service", None)

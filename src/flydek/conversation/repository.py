@@ -113,6 +113,20 @@ class ConversationRepository:
             row.status = conversation.status
             await session.commit()
 
+    async def conversation_exists(self, conversation_id: str) -> bool:
+        """Check whether a conversation row exists (any owner).
+
+        This is safe because it only returns a boolean, never the
+        conversation data itself, so no information is leaked.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ConversationRow.id).where(
+                    ConversationRow.id == conversation_id,
+                )
+            )
+            return result.scalar_one_or_none() is not None
+
     async def delete_conversation(
         self, conversation_id: str, user_id: str
     ) -> None:
