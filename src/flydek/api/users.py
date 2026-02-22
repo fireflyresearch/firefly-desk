@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydek.models.audit import AuditEventRow
 from flydek.models.conversation import ConversationRow
+from flydek.rbac.guards import AdminUsers
+from flydek.config import get_config
 from flydek.settings.models import UserSettings
 from flydek.settings.repository import SettingsRepository
 
@@ -47,14 +49,6 @@ def get_settings_repo() -> SettingsRepository:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
@@ -86,6 +80,7 @@ class UserProfile(BaseModel):
     picture_url: str | None = None
     department: str | None = None
     title: str | None = None
+    dev_mode: bool = False
 
 
 class UpdatePreferencesRequest(BaseModel):
@@ -102,7 +97,7 @@ class UpdatePreferencesRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/admin/users", dependencies=[AdminGuard])
+@router.get("/api/admin/users", dependencies=[AdminUsers])
 async def list_users(session_factory: SessionFactory) -> list[UserSummary]:
     """List users derived from conversation and audit activity.
 
@@ -176,6 +171,7 @@ async def get_profile(request: Request) -> UserProfile:
         picture_url=user_session.picture_url,
         department=user_session.department,
         title=user_session.title,
+        dev_mode=get_config().dev_mode,
     )
 
 

@@ -70,27 +70,7 @@ class ExportService:
         If a *template* with ``column_mapping`` is provided the headers and
         values are remapped accordingly.
         """
-        columns: list[str] = source_data.get("columns", [])
-        rows: list[list[Any]] = source_data.get("rows", [])
-
-        # If no columns/rows structure, treat as list-of-dicts
-        if not columns and not rows:
-            items = source_data.get("items", [])
-            if items and isinstance(items[0], dict):
-                columns = list(items[0].keys())
-                rows = [list(item.get(c, "") for c in columns) for item in items]
-
-        # Apply column mapping from template
-        if template and template.column_mapping:
-            mapped_columns: list[str] = []
-            mapped_indices: list[int] = []
-            for idx, col in enumerate(columns):
-                if col in template.column_mapping:
-                    mapped_columns.append(template.column_mapping[col])
-                    mapped_indices.append(idx)
-            if mapped_columns:
-                columns = mapped_columns
-                rows = [[row[i] for i in mapped_indices if i < len(row)] for row in rows]
+        columns, rows = self._normalize_data(source_data, template)
 
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -110,29 +90,15 @@ class ExportService:
         If a *template* with ``column_mapping`` is provided the output keys
         are filtered/renamed.
         """
-        columns: list[str] = source_data.get("columns", [])
-        rows: list[list[Any]] = source_data.get("rows", [])
+        columns, rows = self._normalize_data(source_data, template)
 
-        # Convert tabular data to list-of-dicts
-        if columns and rows:
-            items = [dict(zip(columns, row)) for row in rows]
-        else:
-            items = source_data.get("items", [])
-            if not items:
-                # Fallback: export the entire source_data blob
-                content = json.dumps(source_data, indent=2, default=str).encode("utf-8")
-                return content, 0
+        # If normalize returned nothing useful, try list-of-dicts or fallback
+        if not columns and not rows:
+            content = json.dumps(source_data, indent=2, default=str).encode("utf-8")
+            return content, 0
 
-        # Apply column mapping from template (filter + rename keys)
-        if template and template.column_mapping:
-            filtered: list[dict[str, Any]] = []
-            for item in items:
-                new_item: dict[str, Any] = {}
-                for original_key, new_key in template.column_mapping.items():
-                    if original_key in item:
-                        new_item[new_key] = item[original_key]
-                filtered.append(new_item)
-            items = filtered
+        # Convert tabular data to list-of-dicts with final column names
+        items = [dict(zip(columns, row)) for row in rows]
 
         content = json.dumps(items, indent=2, default=str).encode("utf-8")
         return content, len(items)
@@ -148,26 +114,7 @@ class ExportService:
         *actual_format* is ``"pdf"`` when weasyprint is available, otherwise
         ``"html"``.
         """
-        columns: list[str] = source_data.get("columns", [])
-        rows: list[list[Any]] = source_data.get("rows", [])
-
-        if not columns and not rows:
-            items = source_data.get("items", [])
-            if items and isinstance(items[0], dict):
-                columns = list(items[0].keys())
-                rows = [list(item.get(c, "") for c in columns) for item in items]
-
-        # Apply column mapping from template
-        if template and template.column_mapping:
-            mapped_columns: list[str] = []
-            mapped_indices: list[int] = []
-            for idx, col in enumerate(columns):
-                if col in template.column_mapping:
-                    mapped_columns.append(template.column_mapping[col])
-                    mapped_indices.append(idx)
-            if mapped_columns:
-                columns = mapped_columns
-                rows = [[row[i] for i in mapped_indices if i < len(row)] for row in rows]
+        columns, rows = self._normalize_data(source_data, template)
 
         header_text = (template.header_text if template else None) or "Export"
         footer_text = (template.footer_text if template else None) or ""
@@ -275,6 +222,45 @@ class ExportService:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_data(
+        source_data: dict[str, Any],
+        template: ExportTemplate | None,
+    ) -> tuple[list[str], list[list[Any]]]:
+        """Extract columns and rows from *source_data*, applying template mapping.
+
+        Supports two input shapes:
+
+        * **Table format**: ``{"columns": [...], "rows": [[...], ...]}``
+        * **List-of-dicts**: ``{"items": [{...}, ...]}``
+
+        If a *template* with ``column_mapping`` is supplied, columns are
+        filtered and renamed accordingly.
+        """
+        columns: list[str] = source_data.get("columns", [])
+        rows: list[list[Any]] = source_data.get("rows", [])
+
+        # If no columns/rows structure, treat as list-of-dicts
+        if not columns and not rows:
+            items = source_data.get("items", [])
+            if items and isinstance(items[0], dict):
+                columns = list(items[0].keys())
+                rows = [list(item.get(c, "") for c in columns) for item in items]
+
+        # Apply column mapping from template
+        if template and template.column_mapping:
+            mapped_columns: list[str] = []
+            mapped_indices: list[int] = []
+            for idx, col in enumerate(columns):
+                if col in template.column_mapping:
+                    mapped_columns.append(template.column_mapping[col])
+                    mapped_indices.append(idx)
+            if mapped_columns:
+                columns = mapped_columns
+                rows = [[row[i] for i in mapped_indices if i < len(row)] for row in rows]
+
+        return columns, rows
 
     @staticmethod
     def _build_html_table(

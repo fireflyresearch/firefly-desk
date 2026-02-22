@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from flydek.catalog.models import Credential
+from flydek.rbac.guards import CredentialsRead, CredentialsWrite
 
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
@@ -63,14 +64,6 @@ def get_credential_store() -> CredentialStore:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Store = Annotated[CredentialStore, Depends(get_credential_store)]
 
 
@@ -91,35 +84,35 @@ def _strip_encrypted(credential: Credential) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("", dependencies=[AdminGuard])
+@router.get("", dependencies=[CredentialsRead])
 async def list_credentials(store: Store) -> list[dict[str, Any]]:
     """List all credentials (metadata only, encrypted values stripped)."""
     credentials = await store.list_credentials()
     return [_strip_encrypted(c) for c in credentials]
 
 
-@router.post("", status_code=201, dependencies=[AdminGuard])
-async def create_credential(credential: Credential, store: Store) -> Credential:
-    """Store a new credential."""
+@router.post("", status_code=201, dependencies=[CredentialsWrite])
+async def create_credential(credential: Credential, store: Store) -> dict[str, Any]:
+    """Store a new credential (encrypted value is never returned)."""
     await store.create_credential(credential)
-    return credential
+    return _strip_encrypted(credential)
 
 
-@router.put("/{credential_id}", dependencies=[AdminGuard])
+@router.put("/{credential_id}", dependencies=[CredentialsWrite])
 async def update_credential(
     credential_id: str, credential: Credential, store: Store
-) -> Credential:
-    """Update or rotate an existing credential."""
+) -> dict[str, Any]:
+    """Update or rotate an existing credential (encrypted value is never returned)."""
     existing = await store.get_credential(credential_id)
     if existing is None:
         raise HTTPException(
             status_code=404, detail=f"Credential {credential_id} not found"
         )
     await store.update_credential(credential)
-    return credential
+    return _strip_encrypted(credential)
 
 
-@router.delete("/{credential_id}", status_code=204, dependencies=[AdminGuard])
+@router.delete("/{credential_id}", status_code=204, dependencies=[CredentialsWrite])
 async def delete_credential(credential_id: str, store: Store) -> Response:
     """Revoke and delete a credential."""
     existing = await store.get_credential(credential_id)

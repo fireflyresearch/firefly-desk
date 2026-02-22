@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from flydek.auth.repository import OIDCProviderRepository
 from flydek.models.oidc import OIDCProviderRow
+from flydek.rbac.guards import AdminSSO
 
 logger = logging.getLogger(__name__)
 
@@ -88,14 +89,6 @@ def get_oidc_repo() -> OIDCProviderRepository:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Repo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 
 
@@ -145,14 +138,14 @@ def _parse_scopes(value: Any) -> list[str] | None:
 # ---------------------------------------------------------------------------
 
 
-@router.get("", dependencies=[AdminGuard])
+@router.get("", dependencies=[AdminSSO])
 async def list_providers(repo: Repo) -> list[OIDCProviderResponse]:
     """Return every registered OIDC provider (secrets stripped)."""
     rows = await repo.list_providers()
     return [_to_response(r) for r in rows]
 
 
-@router.post("", status_code=201, dependencies=[AdminGuard])
+@router.post("", status_code=201, dependencies=[AdminSSO])
 async def create_provider(
     body: OIDCProviderRequest, repo: Repo
 ) -> OIDCProviderResponse:
@@ -172,7 +165,7 @@ async def create_provider(
     return _to_response(row)
 
 
-@router.get("/{provider_id}", dependencies=[AdminGuard])
+@router.get("/{provider_id}", dependencies=[AdminSSO])
 async def get_provider(provider_id: str, repo: Repo) -> OIDCProviderResponse:
     """Retrieve a single OIDC provider by ID (secret stripped)."""
     row = await repo.get_provider(provider_id)
@@ -181,7 +174,7 @@ async def get_provider(provider_id: str, repo: Repo) -> OIDCProviderResponse:
     return _to_response(row)
 
 
-@router.put("/{provider_id}", dependencies=[AdminGuard])
+@router.put("/{provider_id}", dependencies=[AdminSSO])
 async def update_provider(
     provider_id: str, body: OIDCProviderRequest, repo: Repo
 ) -> OIDCProviderResponse:
@@ -211,7 +204,7 @@ async def update_provider(
     return _to_response(updated)
 
 
-@router.delete("/{provider_id}", status_code=204, dependencies=[AdminGuard])
+@router.delete("/{provider_id}", status_code=204, dependencies=[AdminSSO])
 async def delete_provider(provider_id: str, repo: Repo) -> Response:
     """Remove an OIDC provider."""
     existing = await repo.get_provider(provider_id)
@@ -221,7 +214,7 @@ async def delete_provider(provider_id: str, repo: Repo) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/{provider_id}/test", dependencies=[AdminGuard])
+@router.post("/{provider_id}/test", dependencies=[AdminSSO])
 async def test_provider(provider_id: str, repo: Repo) -> OIDCTestResult:
     """Test OIDC discovery endpoint connectivity for a provider."""
     row = await repo.get_provider(provider_id)
@@ -252,7 +245,7 @@ async def test_provider(provider_id: str, repo: Repo) -> OIDCTestResult:
         )
 
 
-@router.post("/test-url", dependencies=[AdminGuard])
+@router.post("/test-url", dependencies=[AdminSSO])
 async def test_issuer_url(request: Request) -> OIDCTestResult:
     """Test OIDC discovery for an arbitrary issuer URL (before saving)."""
     body = await request.json()

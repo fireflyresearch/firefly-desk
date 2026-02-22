@@ -32,6 +32,7 @@ class KnowledgeDocumentRow(Base):
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    document_type: Mapped[str] = mapped_column(String(50), nullable=False, default="other")
     source: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tags: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     metadata_: Mapped[dict] = mapped_column("metadata", _JSON, nullable=False, default=dict)

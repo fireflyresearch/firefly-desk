@@ -10,9 +10,22 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class DocumentType(StrEnum):
+    """Classification of knowledge documents."""
+
+    MANUAL = "manual"
+    TUTORIAL = "tutorial"
+    API_SPEC = "api_spec"
+    FAQ = "faq"
+    POLICY = "policy"
+    REFERENCE = "reference"
+    OTHER = "other"
 
 
 class KnowledgeDocument(BaseModel):
@@ -21,6 +34,7 @@ class KnowledgeDocument(BaseModel):
     id: str
     title: str
     content: str
+    document_type: DocumentType = DocumentType.OTHER
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

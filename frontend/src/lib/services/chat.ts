@@ -165,6 +165,26 @@ function handleSSEEvent(msg: SSEMessage): void {
 			break;
 		}
 
+		case 'confirmation': {
+			const widget: WidgetDirective = {
+				widget_id: (msg.data.confirmation_id as string) ?? crypto.randomUUID(),
+				type: 'confirmation',
+				props: {
+					confirmation_id: msg.data.confirmation_id as string,
+					tool_name: msg.data.tool_name as string,
+					tool_call_id: msg.data.tool_call_id as string | undefined,
+					risk_level: msg.data.risk_level as string,
+					message: msg.data.message as string | undefined,
+					parameters: msg.data.parameters as Record<string, unknown> | undefined,
+					description: msg.data.description as string | undefined,
+					expires_at: msg.data.expires_at as number | undefined
+				},
+				display: 'inline'
+			};
+			appendWidget(widget);
+			break;
+		}
+
 		case 'error': {
 			const errorMsg = msg.data.message;
 			if (typeof errorMsg === 'string') {

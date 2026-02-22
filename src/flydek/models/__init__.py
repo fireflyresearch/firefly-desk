@@ -18,6 +18,7 @@ from flydek.models.knowledge import EntityRow, RelationRow
 from flydek.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 from flydek.models.llm import LLMProviderRow
 from flydek.models.oidc import OIDCProviderRow
+from flydek.models.role import RoleRow
 from flydek.models.user_settings import AppSettingRow, UserSettingRow
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "MessageRow",
     "OIDCProviderRow",
     "RelationRow",
+    "RoleRow",
     "ServiceEndpointRow",
     "UserSettingRow",
 ]

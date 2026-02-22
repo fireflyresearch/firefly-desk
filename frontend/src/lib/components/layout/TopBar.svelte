@@ -72,6 +72,13 @@
 
 	<!-- Right: actions -->
 	<div class="flex items-center gap-2">
+		{#if $currentUser?.devMode}
+			<span
+				class="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+			>
+				Dev Mode
+			</span>
+		{/if}
 		<button
 			type="button"
 			onclick={toggleDarkMode}

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -59,11 +60,18 @@ def _build_dev_user() -> UserSession:
 class DevAuthMiddleware(BaseHTTPMiddleware):
     """Bypass authentication in dev mode by injecting a synthetic admin user.
 
+    The dev user is built once at ``__init__`` time (reading env vars) and
+    reused for every request, avoiding repeated ``os.environ`` lookups.
+
     If a ``user_session`` is already set (e.g. by a test fixture), it is
     left untouched so that tests can override the dev user.
     """
 
+    def __init__(self, app: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        super().__init__(app, **kwargs)
+        self._dev_user = _build_dev_user()
+
     async def dispatch(self, request: Request, call_next) -> Response:  # noqa: ANN001
         if not getattr(request.state, "user_session", None):
-            request.state.user_session = _build_dev_user()
+            request.state.user_session = self._dev_user
         return await call_next(request)

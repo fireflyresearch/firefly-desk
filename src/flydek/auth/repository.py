@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Must be a static, deterministic key so encrypted values survive restarts.
 import base64 as _b64
 
-_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydek-dev-encryption-key-32byt")
+_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydek-dev-encryption-key-32byte")
 
 
 def _to_json(value: Any) -> str | None:
@@ -41,6 +41,21 @@ def _from_json(value: Any) -> list | dict:
     if value is None:
         return []
     return value
+
+
+# Fields that may be modified via update_provider().  Anything outside
+# this set is silently ignored, preventing callers from overwriting
+# internal columns like ``id`` or ``client_secret_encrypted``.
+_UPDATABLE_FIELDS: frozenset[str] = frozenset({
+    "provider_type",
+    "display_name",
+    "issuer_url",
+    "client_id",
+    "tenant_id",
+    "roles_claim",
+    "permissions_claim",
+    "is_active",
+})
 
 
 class OIDCProviderRepository:
@@ -165,7 +180,7 @@ class OIDCProviderRepository:
                     row.scopes = _to_json(value) if value else None
                 elif key == "metadata":
                     row.metadata_ = _to_json(value) if value else None
-                elif hasattr(row, key):
+                elif key in _UPDATABLE_FIELDS:
                     setattr(row, key, value)
 
             await session.commit()

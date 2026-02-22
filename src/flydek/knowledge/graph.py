@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydek.models.knowledge import EntityRow, RelationRow
@@ -173,6 +173,84 @@ class KnowledgeGraph:
                 current_ids = next_ids
 
         return graph
+
+    async def list_entities(
+        self,
+        *,
+        query: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Entity]:
+        """List entities with optional search query and type filter."""
+        async with self._session_factory() as session:
+            stmt = select(EntityRow)
+            if query:
+                stmt = stmt.where(EntityRow.name.ilike(f"%{query}%"))
+            if entity_type:
+                stmt = stmt.where(EntityRow.entity_type == entity_type)
+            stmt = (
+                stmt.order_by(EntityRow.mention_count.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [self._row_to_entity(r) for r in result.scalars().all()]
+
+    async def delete_entity(self, entity_id: str) -> bool:
+        """Delete an entity and all its relations. Returns True if entity existed."""
+        async with self._session_factory() as session:
+            existing = await session.get(EntityRow, entity_id)
+            if existing is None:
+                return False
+            # Remove all relations involving this entity
+            await session.execute(
+                delete(RelationRow).where(RelationRow.source_id == entity_id)
+            )
+            await session.execute(
+                delete(RelationRow).where(RelationRow.target_id == entity_id)
+            )
+            await session.delete(existing)
+            await session.commit()
+            return True
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Return graph statistics: entity count, relation count, type breakdown."""
+        async with self._session_factory() as session:
+            # Total entity count
+            entity_count_result = await session.execute(
+                select(func.count()).select_from(EntityRow)
+            )
+            entity_count = entity_count_result.scalar() or 0
+
+            # Total relation count
+            relation_count_result = await session.execute(
+                select(func.count()).select_from(RelationRow)
+            )
+            relation_count = relation_count_result.scalar() or 0
+
+            # Entity type breakdown
+            type_result = await session.execute(
+                select(EntityRow.entity_type, func.count())
+                .group_by(EntityRow.entity_type)
+                .order_by(func.count().desc())
+            )
+            entity_types = {row[0]: row[1] for row in type_result.all()}
+
+            # Relation type breakdown
+            rel_type_result = await session.execute(
+                select(RelationRow.relation_type, func.count())
+                .group_by(RelationRow.relation_type)
+                .order_by(func.count().desc())
+            )
+            relation_types = {row[0]: row[1] for row in rel_type_result.all()}
+
+            return {
+                "entity_count": entity_count,
+                "relation_count": relation_count,
+                "entity_types": entity_types,
+                "relation_types": relation_types,
+            }
 
     @staticmethod
     def _to_json(value: Any) -> Any:

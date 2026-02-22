@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,6 +25,7 @@ from flydek.llm.health import LLMHealthChecker
 from flydek.llm.repository import LLMProviderRepository
 from flydek.models.audit import AuditEventRow
 from flydek.models.conversation import ConversationRow
+from flydek.rbac.guards import AdminDashboard
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +65,6 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 CatalogRepo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 Audit = Annotated[AuditLogger, Depends(get_audit_logger)]
 LLMRepo = Annotated[LLMProviderRepository, Depends(get_llm_repo)]
@@ -128,7 +121,7 @@ class AuditEventSummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/stats", dependencies=[AdminGuard])
+@router.get("/stats", dependencies=[AdminDashboard])
 async def get_stats(
     catalog_repo: CatalogRepo,
     audit: Audit,
@@ -190,7 +183,7 @@ async def get_stats(
     )
 
 
-@router.get("/health", dependencies=[AdminGuard])
+@router.get("/health", dependencies=[AdminDashboard])
 async def get_health(
     request: Request,
     llm_repo: LLMRepo,
@@ -272,7 +265,7 @@ async def get_health(
     )
 
 
-@router.get("/recent-events", dependencies=[AdminGuard])
+@router.get("/recent-events", dependencies=[AdminDashboard])
 async def get_recent_events(audit: Audit) -> list[AuditEventSummary]:
     """Return the 10 most recent audit events for the dashboard."""
     events = await audit.query(limit=10)

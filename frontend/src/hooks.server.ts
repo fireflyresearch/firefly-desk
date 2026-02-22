@@ -73,6 +73,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (token) {
 		const claims = decodeJwtPayload(token);
 		if (claims) {
+			// NOTE: The claim paths below (realm_access, resource_access) are
+			// intentionally Keycloak-specific.  This lightweight extraction is
+			// only used for the SvelteKit route guard and initial page render.
+			// The canonical, provider-agnostic user profile is loaded via
+			// `initCurrentUser()` which calls `/api/profile` and lets the
+			// backend resolve claims for any configured OIDC provider.
 			const realmAccess = claims['realm_access'] as { roles?: string[] } | undefined;
 			const resourceAccess = claims['resource_access'] as
 				| Record<string, { roles?: string[] }>
