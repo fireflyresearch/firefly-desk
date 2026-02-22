@@ -52,16 +52,19 @@ export async function sendMessage(
 	const userMessageId = crypto.randomUUID();
 	const assistantMessageId = crypto.randomUUID();
 
-	// 1. Add user message (with file metadata if present)
-	addMessage({
-		id: userMessageId,
-		role: 'user',
-		content: message,
-		widgets: [],
-		timestamp: new Date(),
-		...(fileIds?.length ? { fileIds } : {}),
-		...(files?.length ? { files } : {})
-	});
+	// 1. Add user message (skip internal messages like __setup_init__)
+	const isInternalMessage = message.startsWith('__') && message.endsWith('__');
+	if (!isInternalMessage) {
+		addMessage({
+			id: userMessageId,
+			role: 'user',
+			content: message,
+			widgets: [],
+			timestamp: new Date(),
+			...(fileIds?.length ? { fileIds } : {}),
+			...(files?.length ? { files } : {})
+		});
+	}
 
 	// 2. Set streaming flag
 	isStreaming.set(true);
@@ -110,9 +113,12 @@ export async function sendMessage(
  */
 export async function checkFirstRun(): Promise<boolean> {
 	try {
+		console.log('[Setup] Checking first-run status...');
 		const data = await apiJson<{ is_first_run: boolean }>('/setup/first-run');
+		console.log('[Setup] First-run check result:', data.is_first_run);
 		return data.is_first_run;
-	} catch {
+	} catch (error) {
+		console.error('[Setup] checkFirstRun failed:', error);
 		return false;
 	}
 }
