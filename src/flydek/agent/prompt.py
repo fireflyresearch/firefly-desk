@@ -172,6 +172,15 @@ class SystemPromptBuilder:
             "timeline widget.\n"
             "- When showing differences or changes, use a diff-viewer widget.\n"
             "- When showing images or visual content, use an image widget with a descriptive caption.\n"
+            "- When the user asks to visualize data or when numerical data would benefit from "
+            "a chart, use a chart widget. Supported chart types: bar, line, pie, doughnut, "
+            "radar, polarArea. Provide labels (string array) and datasets (each with label "
+            "and data array). Example:\n"
+            "  ```\n"
+            '  :::widget{type="chart"}\n'
+            '  {"chartType": "bar", "title": "API Calls by System", "labels": ["CRM", "HR", "Finance"], "datasets": [{"label": "Calls", "data": [150, 89, 234]}]}\n'
+            "  :::\n"
+            "  ```\n"
             "- Combine widgets with explanatory text -- never leave a widget without context."
         )
 
