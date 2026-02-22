@@ -27,6 +27,7 @@
 	import css from 'highlight.js/lib/languages/css';
 
 	import 'highlight.js/styles/github-dark-dimmed.css';
+	import ImageLightbox from './ImageLightbox.svelte';
 
 	hljs.registerLanguage('python', python);
 	hljs.registerLanguage('javascript', javascript);
@@ -80,6 +81,8 @@
 
 	let { content }: MarkdownContentProps = $props();
 	let container: HTMLDivElement;
+	let lightboxSrc = $state('');
+	let lightboxAlt = $state('');
 
 	// Parse markdown and sanitize with DOMPurify (XSS protection preserved)
 	let html = $derived(DOMPurify.sanitize(marked.parse(content) as string, purifyConfig));
@@ -132,6 +135,18 @@
 			pre.appendChild(btn);
 		});
 
+		// Make images clickable for lightbox
+		const imgs = container.querySelectorAll('img');
+		imgs.forEach((img) => {
+			if (img.dataset.lightboxReady) return;
+			img.dataset.lightboxReady = 'true';
+			img.style.cursor = 'pointer';
+			img.addEventListener('click', () => {
+				lightboxSrc = img.src;
+				lightboxAlt = img.alt || img.src.split('/').pop() || 'Image';
+			});
+		});
+
 		return () => {
 			timeouts.forEach(clearTimeout);
 		};
@@ -141,6 +156,10 @@
 <div class="markdown-content prose prose-sm max-w-none text-text-primary" bind:this={container}>
 	{@html html}
 </div>
+
+{#if lightboxSrc}
+	<ImageLightbox src={lightboxSrc} alt={lightboxAlt} onclose={() => { lightboxSrc = ''; }} />
+{/if}
 
 <style>
 	/* Code blocks */
@@ -213,6 +232,15 @@
 	.markdown-content :global(img) {
 		border-radius: 0.5rem;
 		box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
+		max-width: 100%;
+		height: auto;
+		cursor: pointer;
+		transition: box-shadow 150ms ease, transform 150ms ease;
+	}
+
+	.markdown-content :global(img:hover) {
+		box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+		transform: scale(1.01);
 	}
 
 	/* Copy button */

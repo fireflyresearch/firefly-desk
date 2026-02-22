@@ -135,7 +135,7 @@ class SystemPromptBuilder:
             ":::\n"
             "```\n\n"
             "Available widget types: status-badge, entity-card, data-table, key-value, "
-            "alert, timeline, diff-viewer, confirmation, export.\n\n"
+            "alert, timeline, diff-viewer, confirmation, export, image, chart.\n\n"
             "Use `panel=true` for detailed views that open in the side panel.\n"
             "Use `inline=true` (default) for small widgets embedded in chat.\n"
             "Use `blocking=true` with `action=\"action-name\"` for confirmations that "
@@ -171,6 +171,7 @@ class SystemPromptBuilder:
             "- When showing a timeline of events (audit log, deployment history), use a "
             "timeline widget.\n"
             "- When showing differences or changes, use a diff-viewer widget.\n"
+            "- When showing images or visual content, use an image widget with a descriptive caption.\n"
             "- Combine widgets with explanatory text -- never leave a widget without context."
         )
 

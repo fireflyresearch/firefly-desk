@@ -16,6 +16,7 @@
 	import MarkdownContent from './MarkdownContent.svelte';
 	import ToolSummary from './ToolSummary.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
+	import ImageLightbox from './ImageLightbox.svelte';
 
 	interface MessageBubbleProps {
 		message: Message;
@@ -61,6 +62,14 @@
 		}
 		return name.slice(0, maxLen - 3) + '...';
 	}
+
+	let lightboxSrc = $state('');
+	let lightboxAlt = $state('');
+
+	function openLightbox(src: string, alt: string) {
+		lightboxSrc = src;
+		lightboxAlt = alt;
+	}
 </script>
 
 {#if isUser}
@@ -77,23 +86,29 @@
 				<div class="mt-1.5 flex flex-wrap justify-end gap-1.5">
 					{#each message.files as file (file.id)}
 						{#if isImage(file)}
-							<a
-								href="/api/files/{file.id}/download"
-								target="_blank"
-								rel="noopener noreferrer"
+							<div
 								class="group/file flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 transition-colors hover:bg-surface-secondary"
 							>
-								<img
-									src="/api/files/{file.id}/download"
-									alt={file.filename}
-									class="h-10 w-10 rounded object-cover"
-								/>
+								<button type="button" class="block shrink-0" onclick={() => openLightbox(`/api/files/${file.id}/download`, file.filename)}>
+									<img
+										src="/api/files/{file.id}/download"
+										alt={file.filename}
+										class="h-20 w-auto max-w-48 rounded-lg object-cover cursor-pointer hover:shadow-md transition-shadow"
+									/>
+								</button>
 								<div class="flex flex-col">
 									<span class="text-xs font-medium text-text-primary">{truncateName(file.filename)}</span>
 									<span class="text-xs text-text-secondary">{formatSize(file.file_size)}</span>
 								</div>
-								<Download size={14} class="shrink-0 text-text-secondary opacity-0 transition-opacity group-hover/file:opacity-100" />
-							</a>
+								<a
+									href="/api/files/{file.id}/download"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="shrink-0"
+								>
+									<Download size={14} class="text-text-secondary opacity-0 transition-opacity group-hover/file:opacity-100" />
+								</a>
+							</div>
 						{:else}
 							<a
 								href="/api/files/{file.id}/download"
@@ -158,4 +173,8 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+{#if lightboxSrc}
+	<ImageLightbox src={lightboxSrc} alt={lightboxAlt} onclose={() => { lightboxSrc = ''; }} />
 {/if}
