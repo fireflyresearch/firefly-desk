@@ -14,9 +14,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import flydek
+from flydek.api.audit import router as audit_router
 from flydek.api.catalog import router as catalog_router
 from flydek.api.chat import router as chat_router
+from flydek.api.credentials import router as credentials_router
 from flydek.api.health import router as health_router
+from flydek.api.knowledge import router as knowledge_router
 
 
 def create_app() -> FastAPI:
@@ -38,5 +41,8 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(catalog_router)
+    app.include_router(credentials_router)
+    app.include_router(knowledge_router)
+    app.include_router(audit_router)
 
     return app
