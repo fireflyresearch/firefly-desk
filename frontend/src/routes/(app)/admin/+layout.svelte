@@ -9,16 +9,28 @@
 -->
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { Database, Key, BookOpen, FileText, ShieldAlert } from 'lucide-svelte';
+	import {
+		LayoutDashboard,
+		Database,
+		Key,
+		BookOpen,
+		FileText,
+		Bot,
+		Users,
+		ShieldAlert
+	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
 	let { children } = $props();
 
 	const navItems = [
+		{ href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
 		{ href: '/admin/catalog', label: 'Catalog', icon: Database },
 		{ href: '/admin/credentials', label: 'Credentials', icon: Key },
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
-		{ href: '/admin/audit', label: 'Audit Log', icon: FileText }
+		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
+		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
+		{ href: '/admin/users', label: 'Users', icon: Users }
 	];
 
 	let currentPath = $derived($page.url.pathname);
@@ -34,7 +46,9 @@
 
 			<ul class="flex flex-col gap-0.5 p-2">
 				{#each navItems as item}
-					{@const active = currentPath.startsWith(item.href)}
+					{@const active = item.exact
+						? currentPath === item.href
+						: currentPath.startsWith(item.href)}
 					<li>
 						<a
 							href={item.href}

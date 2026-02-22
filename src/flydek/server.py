@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,11 @@ from flydek.api.audit import get_audit_logger
 from flydek.api.audit import router as audit_router
 from flydek.api.catalog import get_catalog_repo
 from flydek.api.catalog import router as catalog_router
+from flydek.api.dashboard import get_audit_logger as dashboard_get_audit
+from flydek.api.dashboard import get_catalog_repo as dashboard_get_catalog
+from flydek.api.dashboard import get_llm_repo as dashboard_get_llm
+from flydek.api.dashboard import get_session_factory as dashboard_get_session
+from flydek.api.dashboard import router as dashboard_router
 from flydek.api.chat import router as chat_router
 from flydek.api.conversations import get_conversation_repo
 from flydek.api.conversations import router as conversations_router
@@ -37,6 +43,9 @@ from flydek.api.llm_providers import router as llm_providers_router
 from flydek.api.settings import get_settings_repo
 from flydek.api.settings import router as settings_router
 from flydek.api.setup import router as setup_router
+from flydek.api.users import get_session_factory as users_get_session
+from flydek.api.users import get_settings_repo as users_get_settings
+from flydek.api.users import router as users_router
 from flydek.audit.logger import AuditLogger
 from flydek.auth.middleware import AuthMiddleware
 from flydek.catalog.repository import CatalogRepository
@@ -174,10 +183,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.desk_agent = desk_agent
 
+    # Dashboard API dependency overrides
+    app.dependency_overrides[dashboard_get_catalog] = lambda: catalog_repo
+    app.dependency_overrides[dashboard_get_audit] = lambda: audit_logger
+    app.dependency_overrides[dashboard_get_llm] = lambda: llm_repo
+    app.dependency_overrides[dashboard_get_session] = lambda: session_factory
+
+    # Users API dependency overrides
+    app.dependency_overrides[users_get_session] = lambda: session_factory
+    app.dependency_overrides[users_get_settings] = lambda: settings_repo
+
     # Store config, session factory, and conversation repo in app state
     app.state.config = config
     app.state.session_factory = session_factory
     app.state.conversation_repo = conversation_repo
+    app.state.started_at = datetime.now(timezone.utc)
 
     # Auto-seed platform documentation into the knowledge base (idempotent)
     try:
@@ -245,5 +265,7 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
     app.include_router(llm_providers_router)
     app.include_router(settings_router)
+    app.include_router(dashboard_router)
+    app.include_router(users_router)
 
     return app
