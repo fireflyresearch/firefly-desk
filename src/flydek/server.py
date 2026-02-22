@@ -32,6 +32,8 @@ from flydek.api.files import router as files_router
 from flydek.api.health import router as health_router
 from flydek.api.knowledge import get_knowledge_doc_store, get_knowledge_indexer
 from flydek.api.knowledge import router as knowledge_router
+from flydek.api.llm_providers import get_llm_repo
+from flydek.api.llm_providers import router as llm_providers_router
 from flydek.api.setup import router as setup_router
 from flydek.audit.logger import AuditLogger
 from flydek.auth.middleware import AuthMiddleware
@@ -65,6 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
+
+    # LLM provider repository
+    from flydek.llm.repository import LLMProviderRepository
+
+    llm_repo = LLMProviderRepository(session_factory, config.credential_encryption_key)
+    app.dependency_overrides[get_llm_repo] = lambda: llm_repo
 
     # File upload dependencies
     from flydek.files.extractor import ContentExtractor
@@ -227,5 +235,6 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(audit_router)
     app.include_router(files_router)
+    app.include_router(llm_providers_router)
 
     return app

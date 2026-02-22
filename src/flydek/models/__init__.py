@@ -15,6 +15,7 @@ from flydek.models.conversation import ConversationRow, MessageRow
 from flydek.models.file_upload import FileUploadRow
 from flydek.models.knowledge import EntityRow, RelationRow
 from flydek.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
+from flydek.models.llm import LLMProviderRow
 
 __all__ = [
     "AuditEventRow",
@@ -26,6 +27,7 @@ __all__ = [
     "ExternalSystemRow",
     "FileUploadRow",
     "KnowledgeDocumentRow",
+    "LLMProviderRow",
     "MessageRow",
     "RelationRow",
     "ServiceEndpointRow",
