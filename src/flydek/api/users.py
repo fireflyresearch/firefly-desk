@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from flydek.models.audit import AuditEventRow
 from flydek.models.conversation import ConversationRow
 from flydek.rbac.guards import AdminUsers
+from flydek.config import get_config
 from flydek.settings.models import UserSettings
 from flydek.settings.repository import SettingsRepository
 
@@ -79,6 +80,7 @@ class UserProfile(BaseModel):
     picture_url: str | None = None
     department: str | None = None
     title: str | None = None
+    dev_mode: bool = False
 
 
 class UpdatePreferencesRequest(BaseModel):
@@ -169,6 +171,7 @@ async def get_profile(request: Request) -> UserProfile:
         picture_url=user_session.picture_url,
         department=user_session.department,
         title=user_session.title,
+        dev_mode=get_config().dev_mode,
     )
 
 
