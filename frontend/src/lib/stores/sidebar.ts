@@ -9,11 +9,12 @@
  */
 
 import { writable } from 'svelte/store';
+import { browser } from '$app/environment';
 
 const STORAGE_KEY = 'firefly_sidebar_open';
 
 function getInitialState(): boolean {
-	if (typeof localStorage === 'undefined') return true;
+	if (!browser) return true;
 	const stored = localStorage.getItem(STORAGE_KEY);
 	if (stored === null) return true;
 	return stored === 'true';
@@ -23,7 +24,7 @@ export const sidebarOpen = writable<boolean>(getInitialState());
 
 // Persist changes to localStorage
 sidebarOpen.subscribe((value) => {
-	if (typeof localStorage !== 'undefined') {
+	if (browser) {
 		localStorage.setItem(STORAGE_KEY, String(value));
 	}
 });
