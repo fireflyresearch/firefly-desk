@@ -174,25 +174,25 @@ class SetupConversationHandler:
         dev_mode = config.dev_mode if config else True
 
         text = (
-            f"Hello. I am {agent_name}, your Firefly Desk operations agent. "
+            f"# Welcome to Firefly Desk\n\n"
+            f"Hello. I am **{agent_name}**, your operations agent. "
             f"Welcome to a fresh installation.\n\n"
-            f"I will walk you through the initial setup. There are a few things "
-            f"to configure before we get started:\n\n"
-            f"1. Configure an LLM provider for AI capabilities\n"
-            f"2. Verify your database connection\n"
-            f"3. Optionally load sample data to explore the platform\n"
-            f"4. Review what is ready\n\n"
+            f"I will walk you through the initial setup. Here is what we will configure:\n\n"
+            f"1. **LLM Provider** -- Connect an AI model for intelligent operations\n"
+            f"2. **Database** -- Verify your data store is ready\n"
+            f"3. **Sample Data** -- Optionally load demo systems to explore\n"
+            f"4. **Review** -- Confirm everything is configured\n\n"
             f"This should only take a moment. "
         )
 
         if dev_mode:
             text += (
-                "You are currently running in development mode, "
+                "You are running in **development mode**, "
                 "which is a good starting point for getting familiar with the system."
             )
         else:
             text += (
-                "You are running in production mode. "
+                "You are running in **production mode**. "
                 "I will check that your core services are properly configured."
             )
 
@@ -361,8 +361,10 @@ class SetupConversationHandler:
             event=SSEEventType.TOKEN,
             data={
                 "content": (
+                    "### Step 1: LLM Provider\n\n"
                     "To enable AI-powered features, you need to configure an LLM provider. "
-                    "Firefly Desk supports OpenAI, Anthropic, Google, and Ollama.\n\n"
+                    "Firefly Desk supports **OpenAI**, **Anthropic**, **Google**, and "
+                    "**Ollama** (local).\n\n"
                     "Select a provider below and enter your API key, or skip this step "
                     "to configure it later."
                 )
@@ -761,7 +763,7 @@ class SetupConversationHandler:
 
         yield SSEEvent(
             event=SSEEventType.TOKEN,
-            data={"content": "Let me check your database connection."},
+            data={"content": "### Step 2: Database\n\nLet me check your database connection."},
         )
 
         # Emit a key-value widget showing database status
@@ -835,11 +837,15 @@ class SetupConversationHandler:
             event=SSEEventType.TOKEN,
             data={
                 "content": (
-                    "I can load the banking demo data, which includes five banking "
-                    "systems, sixteen service endpoints, and five knowledge base "
-                    "documents. This gives you a realistic environment to explore "
-                    "how Firefly Desk works.\n\n"
-                    "Would you like me to load the banking demo data?"
+                    "### Step 3: Sample Data\n\n"
+                    "I can load a banking demo environment that includes:\n\n"
+                    "| Resource | Count |\n"
+                    "|----------|-------|\n"
+                    "| Banking Systems | 5 |\n"
+                    "| Service Endpoints | 16 |\n"
+                    "| Knowledge Documents | 5 |\n\n"
+                    "This gives you a realistic environment to explore "
+                    "how Firefly Desk works. Would you like me to load it?"
                 )
             },
         )
@@ -910,33 +916,36 @@ class SetupConversationHandler:
         await self._seed_platform_docs()
 
         llm_status = (
-            "- LLM provider is configured and tested\n"
+            "- **LLM Provider** -- Configured and tested\n"
             if not self._llm_skipped
-            else "- LLM provider can be configured from the admin console\n"
+            else "- **LLM Provider** -- Can be configured from the admin console\n"
         )
 
         sso_status = ""
         if not self._dev_mode:
             sso_status = (
-                "- Single sign-on is configured and tested\n"
+                "- **Single Sign-On** -- Configured and tested\n"
                 if not self._sso_skipped
-                else "- SSO can be configured from the admin console\n"
+                else "- **SSO** -- Can be configured from the admin console\n"
             )
 
         yield SSEEvent(
             event=SSEEventType.TOKEN,
             data={
                 "content": (
-                    f"Setup is complete. Here is a summary of your {app_title} instance:\n\n"
-                    f"- Database is connected and tables are created\n"
+                    f"### Setup Complete\n\n"
+                    f"Here is a summary of your **{app_title}** instance:\n\n"
+                    f"- **Database** -- Connected and tables are created\n"
                     f"{llm_status}"
                     f"{sso_status}"
-                    f"- The knowledge base is ready to accept documents\n"
-                    f"- The service catalog is available for registering systems\n\n"
-                    f"You can manage your instance through the admin console, "
-                    f"which you will find in the navigation sidebar. From there "
-                    f"you can register external systems, manage credentials, "
-                    f"upload knowledge documents, and review the audit trail.\n\n"
+                    f"- **Knowledge Base** -- Ready to accept documents\n"
+                    f"- **Service Catalog** -- Available for registering systems\n\n"
+                    f"You can manage your instance through the **Admin** tab in the "
+                    f"navigation bar. From there you can:\n\n"
+                    f"1. **Register** external systems and API endpoints\n"
+                    f"2. **Manage** credentials and secrets\n"
+                    f"3. **Upload** knowledge documents\n"
+                    f"4. **Review** the audit trail\n\n"
                     f"If you have any questions about how things work, just ask. "
                     f"I have access to the platform documentation and can guide "
                     f"you through any feature."
