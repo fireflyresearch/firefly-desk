@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Settings, Sun, Moon } from 'lucide-svelte';
+	import logo from '$lib/assets/logo.svg';
 
 	interface TopBarProps {
 		title?: string;
@@ -27,9 +28,9 @@
 <header
 	class="flex h-14 shrink-0 items-center border-b border-border bg-surface px-4"
 >
-	<!-- Left: Title -->
-	<div class="flex items-center">
-		<span class="text-base font-semibold text-text-primary">{title}</span>
+	<!-- Left: Logo -->
+	<div class="flex items-center gap-2">
+		<img src={logo} alt={title} class="h-6" />
 	</div>
 
 	<!-- Center: empty for now (search will go here) -->

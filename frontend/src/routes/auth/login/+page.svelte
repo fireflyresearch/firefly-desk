@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { buildAuthUrl } from '$lib/services/auth';
-	import favicon from '$lib/assets/favicon.svg';
+	import logo from '$lib/assets/logo.svg';
 
 	let { data } = $props();
 
@@ -28,10 +28,10 @@
 		class="w-full max-w-sm rounded-xl border border-border bg-surface px-8 py-10 shadow-sm"
 	>
 		<!-- Branding -->
-		<div class="mb-8 flex flex-col items-center gap-3">
-			<img src={favicon} alt="Firefly Desk" class="h-10 w-10" />
+		<div class="mb-8 flex flex-col items-center gap-4">
+			<img src={logo} alt="Firefly Desk" class="h-8" />
 			<h1 class="text-xl font-semibold text-text-primary">
-				Sign in to Firefly Desk
+				Sign in
 			</h1>
 			<p class="text-sm text-text-secondary">
 				Authenticate with your organization account
