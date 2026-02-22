@@ -32,6 +32,108 @@ class ChatMessage(BaseModel):
     file_ids: list[str] = Field(default_factory=list)
 
 
+class SuggestionItem(BaseModel):
+    """A single chat suggestion chip."""
+
+    icon: str
+    title: str
+    description: str
+    text: str
+
+
+class SuggestionsResponse(BaseModel):
+    """Response payload for the suggestions endpoint."""
+
+    suggestions: list[SuggestionItem]
+
+
+# ---------------------------------------------------------------------------
+# Default suggestion sets by role
+# ---------------------------------------------------------------------------
+
+_ADMIN_SUGGESTIONS: list[dict[str, str]] = [
+    {
+        "icon": "heart-pulse",
+        "title": "System Health",
+        "description": "Review current status of all systems",
+        "text": "Review system health",
+    },
+    {
+        "icon": "shield",
+        "title": "Audit Events",
+        "description": "Check recent security and activity logs",
+        "text": "Check recent audit events",
+    },
+    {
+        "icon": "settings",
+        "title": "LLM Configuration",
+        "description": "Manage AI model providers",
+        "text": "Manage LLM providers",
+    },
+    {
+        "icon": "activity",
+        "title": "Active Sessions",
+        "description": "Monitor current agent activity",
+        "text": "Show active agent sessions",
+    },
+    {
+        "icon": "cpu",
+        "title": "Resources",
+        "description": "Check running resources and usage",
+        "text": "What resources are running?",
+    },
+    {
+        "icon": "help-circle",
+        "title": "Capabilities",
+        "description": "Learn what I can do for you",
+        "text": "What can you help me with?",
+    },
+]
+
+_DEFAULT_SUGGESTIONS: list[dict[str, str]] = [
+    {
+        "icon": "search",
+        "title": "Explore Systems",
+        "description": "View all registered systems and services",
+        "text": "Show me all registered systems",
+    },
+    {
+        "icon": "activity",
+        "title": "Service Status",
+        "description": "Check the health of your services",
+        "text": "What is the status of all services?",
+    },
+    {
+        "icon": "book-open",
+        "title": "Knowledge Base",
+        "description": "Search organizational knowledge",
+        "text": "How does the knowledge base work?",
+    },
+    {
+        "icon": "help-circle",
+        "title": "Get Help",
+        "description": "Learn what I can do for you",
+        "text": "What can you help me with?",
+    },
+]
+
+
+@router.get("/suggestions", response_model=SuggestionsResponse)
+async def get_suggestions(request: Request) -> SuggestionsResponse:
+    """Return role-based suggestions for the chat empty state."""
+    user_session = getattr(request.state, "user_session", None)
+    roles: list[str] = list(user_session.roles) if user_session and hasattr(user_session, "roles") else []
+
+    if "admin" in roles:
+        items = _ADMIN_SUGGESTIONS
+    else:
+        items = _DEFAULT_SUGGESTIONS
+
+    return SuggestionsResponse(
+        suggestions=[SuggestionItem(**s) for s in items],
+    )
+
+
 async def _persist_messages(
     request: Request,
     conversation_id: str,
