@@ -8,7 +8,17 @@
 
 """SQLAlchemy ORM models for Firefly Desk."""
 
+from flydek.models.audit import AuditEventRow
 from flydek.models.base import Base
 from flydek.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
+from flydek.models.knowledge import EntityRow, RelationRow
 
-__all__ = ["Base", "CredentialRow", "ExternalSystemRow", "ServiceEndpointRow"]
+__all__ = [
+    "AuditEventRow",
+    "Base",
+    "CredentialRow",
+    "EntityRow",
+    "ExternalSystemRow",
+    "RelationRow",
+    "ServiceEndpointRow",
+]
