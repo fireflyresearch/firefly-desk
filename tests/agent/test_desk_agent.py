@@ -228,7 +228,7 @@ class TestDeskAgentInit:
             widget_parser=widget_parser,
             audit_logger=audit_logger,
         )
-        assert agent._agent_name == "Firefly Desk Assistant"
+        assert agent._agent_name == "Ember"
 
     def test_custom_agent_name_and_company(
         self,
@@ -429,7 +429,7 @@ class TestDeskAgentStream:
             events.append(evt)
 
         token_events = [e for e in events if e.event == SSEEventType.TOKEN]
-        all_text = "".join(e.data.get("token", "") for e in token_events)
+        all_text = "".join(e.data.get("content", "") for e in token_events)
         assert len(all_text) > 0
 
     async def test_stream_done_includes_conversation_id(
@@ -462,3 +462,86 @@ class TestDeskAgentStream:
         assert len(widget_events) == 2
         types = {e.data["type"] for e in widget_events}
         assert types == {"status-badge", "key-value"}
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent file_ids integration tests
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentFileIds:
+    """Tests for file_ids wiring in DeskAgent.run() and _build_file_context."""
+
+    @pytest.fixture
+    def file_repo(self) -> AsyncMock:
+        from flydek.files.models import FileUpload
+
+        mock = AsyncMock()
+        mock.get = AsyncMock(
+            side_effect=lambda fid: FileUpload(
+                id=fid,
+                user_id="user-42",
+                filename=f"report-{fid}.pdf",
+                content_type="application/pdf",
+                file_size=1024,
+                storage_path=f"/tmp/{fid}",
+                extracted_text=f"Text from {fid}",
+            )
+        )
+        return mock
+
+    @pytest.fixture
+    def desk_agent_with_files(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        file_repo,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            file_repo=file_repo,
+        )
+
+    async def test_run_with_file_ids_populates_file_context(
+        self, desk_agent_with_files, prompt_builder, user_session
+    ):
+        """run() with file_ids should pass file_context into the PromptContext."""
+        await desk_agent_with_files.run(
+            "Summarize the reports", user_session, "conv-1",
+            file_ids=["f-1", "f-2"],
+        )
+
+        call_ctx: PromptContext = prompt_builder.build.call_args[0][0]
+        assert "- [report-f-1.pdf]: Text from f-1" in call_ctx.file_context
+        assert "- [report-f-2.pdf]: Text from f-2" in call_ctx.file_context
+
+    async def test_run_without_file_ids_has_empty_file_context(
+        self, desk_agent_with_files, prompt_builder, user_session
+    ):
+        """run() without file_ids should leave file_context as empty string."""
+        await desk_agent_with_files.run(
+            "Hello", user_session, "conv-1",
+        )
+
+        call_ctx: PromptContext = prompt_builder.build.call_args[0][0]
+        assert call_ctx.file_context == ""
+
+    async def test_build_file_context_with_mock_repo(
+        self, desk_agent_with_files, file_repo
+    ):
+        """_build_file_context fetches each file and formats the text."""
+        result = await desk_agent_with_files._build_file_context(["f-a", "f-b"])
+
+        assert file_repo.get.await_count == 2
+        file_repo.get.assert_any_await("f-a")
+        file_repo.get.assert_any_await("f-b")
+        assert "- [report-f-a.pdf]: Text from f-a" in result
+        assert "- [report-f-b.pdf]: Text from f-b" in result
