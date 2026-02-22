@@ -85,14 +85,19 @@
 	let resettingSetup = $state(false);
 	let refreshingIndex = $state(false);
 
-	// Confirmation dialog
+	// Confirmation dialogs
 	let showSeedConfirm = $state(false);
+	let showClearConfirm = $state(false);
+	let showResetConfirm = $state(false);
 
 	// -----------------------------------------------------------------------
 	// Data loading
 	// -----------------------------------------------------------------------
 
+	let loadSeq = 0;
+
 	async function loadDashboard() {
+		const seq = ++loadSeq;
 		loading = true;
 		error = '';
 		try {
@@ -101,13 +106,15 @@
 				apiJson<DetailedHealth>('/admin/dashboard/health'),
 				apiJson<AuditEventSummary[]>('/admin/dashboard/recent-events')
 			]);
+			if (seq !== loadSeq) return;
 			stats = statsData;
 			health = healthData;
 			recentEvents = eventsData;
 		} catch (e) {
+			if (seq !== loadSeq) return;
 			error = e instanceof Error ? e.message : 'Failed to load dashboard data';
 		} finally {
-			loading = false;
+			if (seq === loadSeq) loading = false;
 		}
 	}
 
@@ -168,6 +175,16 @@
 		seedData();
 	}
 
+	function confirmClear() {
+		showClearConfirm = false;
+		clearDemoData();
+	}
+
+	function confirmReset() {
+		showResetConfirm = false;
+		resetSetup();
+	}
+
 	async function clearDemoData() {
 		clearingData = true;
 		error = '';
@@ -209,16 +226,13 @@
 
 	function formatTimestamp(ts: string | null): string {
 		if (!ts) return '--';
-		try {
-			const date = new Date(ts);
-			return date.toLocaleTimeString(undefined, {
-				hour: '2-digit',
-				minute: '2-digit',
-				hour12: true
-			});
-		} catch {
-			return '--';
-		}
+		const date = new Date(ts);
+		if (isNaN(date.getTime())) return '--';
+		return date.toLocaleTimeString(undefined, {
+			hour: '2-digit',
+			minute: '2-digit',
+			hour12: true
+		});
 	}
 
 	function healthColor(status: string): string {
@@ -460,7 +474,7 @@
 
 					<button
 						type="button"
-						onclick={clearDemoData}
+						onclick={() => (showClearConfirm = true)}
 						disabled={clearingData}
 						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm font-medium text-danger transition-all hover:bg-danger/5 disabled:opacity-50"
 					>
@@ -474,7 +488,7 @@
 
 					<button
 						type="button"
-						onclick={resetSetup}
+						onclick={() => (showResetConfirm = true)}
 						disabled={resettingSetup}
 						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm font-medium text-danger transition-all hover:bg-danger/5 disabled:opacity-50"
 					>
@@ -525,12 +539,12 @@
 								<span class="text-sm font-medium text-text-primary">{component.name}</span>
 							</div>
 							<div class="flex items-center gap-2">
-								{#if component.latency_ms}
+								{#if component.latency_ms !== null}
 									<span class="text-xs text-text-secondary">
 										{component.latency_ms}ms
 									</span>
 								{/if}
-								<span class={healthDotClass(component.status)}></span>
+								<span class={healthDotClass(component.status)} aria-label="{component.status} status"></span>
 							</div>
 						</div>
 					{/each}
@@ -588,12 +602,18 @@
 
 <!-- Seed data confirmation dialog -->
 {#if showSeedConfirm}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-		<div
-			class="w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-xl"
-		>
-			<h3 class="text-base font-semibold text-text-primary">Load Demo Data</h3>
-			<p class="mt-2 text-sm text-text-secondary">
+	<div
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		aria-labelledby="seed-dialog-title"
+		aria-describedby="seed-dialog-desc"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		onkeydown={(e) => { if (e.key === 'Escape') showSeedConfirm = false; }}
+	>
+		<div class="w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-xl">
+			<h3 id="seed-dialog-title" class="text-base font-semibold text-text-primary">Load Demo Data</h3>
+			<p id="seed-dialog-desc" class="mt-2 text-sm text-text-secondary">
 				This loads sample banking systems and knowledge documents for demo purposes. Continue?
 			</p>
 			<div class="mt-5 flex justify-end gap-3">
@@ -610,6 +630,78 @@
 					class="btn-hover rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-all hover:bg-accent-hover"
 				>
 					Continue
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Clear demo data confirmation dialog -->
+{#if showClearConfirm}
+	<div
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		aria-labelledby="clear-dialog-title"
+		aria-describedby="clear-dialog-desc"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		onkeydown={(e) => { if (e.key === 'Escape') showClearConfirm = false; }}
+	>
+		<div class="w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-xl">
+			<h3 id="clear-dialog-title" class="text-base font-semibold text-danger">Clear Demo Data</h3>
+			<p id="clear-dialog-desc" class="mt-2 text-sm text-text-secondary">
+				This will remove all demo data including sample systems and knowledge documents. This action cannot be undone.
+			</p>
+			<div class="mt-5 flex justify-end gap-3">
+				<button
+					type="button"
+					onclick={() => (showClearConfirm = false)}
+					class="btn-hover rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					onclick={confirmClear}
+					class="btn-hover rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-all hover:bg-danger/90"
+				>
+					Clear Data
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Reset setup confirmation dialog -->
+{#if showResetConfirm}
+	<div
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		aria-labelledby="reset-dialog-title"
+		aria-describedby="reset-dialog-desc"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		onkeydown={(e) => { if (e.key === 'Escape') showResetConfirm = false; }}
+	>
+		<div class="w-full max-w-md rounded-xl border border-border bg-surface-elevated p-6 shadow-xl">
+			<h3 id="reset-dialog-title" class="text-base font-semibold text-danger">Reset Setup</h3>
+			<p id="reset-dialog-desc" class="mt-2 text-sm text-text-secondary">
+				This will reset the setup wizard and clear all configuration. You will need to complete setup again. This action cannot be undone.
+			</p>
+			<div class="mt-5 flex justify-end gap-3">
+				<button
+					type="button"
+					onclick={() => (showResetConfirm = false)}
+					class="btn-hover rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					onclick={confirmReset}
+					class="btn-hover rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-all hover:bg-danger/90"
+				>
+					Reset
 				</button>
 			</div>
 		</div>
