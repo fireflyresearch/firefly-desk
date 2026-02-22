@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import logo from '$lib/assets/logo.svg';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
-	import { isAdmin } from '$lib/stores/user.js';
+	import { currentUser, isAdmin } from '$lib/stores/user.js';
 
 	interface TopBarProps {
 		title?: string;
@@ -15,8 +15,11 @@
 
 	let dropdownOpen = $state(false);
 
+	/** Resolved display name -- prefer currentUser store, fall back to prop. */
+	let displayName = $derived($currentUser?.displayName ?? userName);
+
 	let initials = $derived(
-		userName
+		displayName
 			.split(' ')
 			.map((part) => part[0])
 			.join('')
@@ -96,12 +99,20 @@
 			<button
 				type="button"
 				onclick={toggleDropdown}
-				class="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-xs font-medium text-white select-none cursor-pointer transition-opacity hover:opacity-90"
-				title={userName}
+				class="flex h-8 w-8 items-center justify-center rounded-full select-none cursor-pointer transition-opacity hover:opacity-90 overflow-hidden {$currentUser?.pictureUrl ? '' : 'bg-accent text-xs font-medium text-white'}"
+				title={displayName}
 				aria-label="User menu"
 				aria-expanded={dropdownOpen}
 			>
-				{initials}
+				{#if $currentUser?.pictureUrl}
+					<img
+						src={$currentUser.pictureUrl}
+						alt={displayName}
+						class="h-8 w-8 rounded-full object-cover"
+					/>
+				{:else}
+					{initials}
+				{/if}
 			</button>
 
 			{#if dropdownOpen}
@@ -110,7 +121,7 @@
 					role="menu"
 				>
 					<div class="border-b border-border px-3 py-2">
-						<p class="text-sm font-medium text-text-primary">{userName}</p>
+						<p class="text-sm font-medium text-text-primary">{displayName}</p>
 					</div>
 					<ul class="py-1">
 						<li>

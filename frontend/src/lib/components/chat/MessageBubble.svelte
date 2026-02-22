@@ -1,18 +1,20 @@
 <!--
   MessageBubble.svelte - Displays a single chat message (user or assistant).
 
-  User messages: right-aligned bubble with accent background.
-  Assistant messages: full-width left-aligned with bot avatar and markdown rendering.
+  User messages: right-aligned bubble with accent background and user avatar.
+  Assistant messages: full-width left-aligned with Ember avatar and markdown rendering.
   Timestamps appear on hover for both message types.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Bot, FileText, Download } from 'lucide-svelte';
+	import { FileText, Download } from 'lucide-svelte';
 	import type { Message, MessageFile } from '$lib/stores/chat.js';
+	import { currentUser } from '$lib/stores/user.js';
 	import MarkdownContent from './MarkdownContent.svelte';
 	import ToolSummary from './ToolSummary.svelte';
+	import EmberAvatar from './EmberAvatar.svelte';
 
 	interface MessageBubbleProps {
 		message: Message;
@@ -28,6 +30,15 @@
 	);
 
 	let isUser = $derived(message.role === 'user');
+
+	let userInitials = $derived(
+		($currentUser?.displayName ?? 'U')
+			.split(' ')
+			.map((part) => part[0])
+			.join('')
+			.toUpperCase()
+			.slice(0, 2)
+	);
 
 	function isImage(file: MessageFile): boolean {
 		return file.content_type.startsWith('image/');
@@ -54,12 +65,13 @@
 {#if isUser}
 	<!-- User message: right-aligned bubble -->
 	<div class="group flex w-full justify-end px-4 py-1">
-		<div class="flex max-w-[75%] flex-col items-end">
-			<div
-				class="rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
-			>
-				{message.content}
-			</div>
+		<div class="flex items-start gap-2">
+			<div class="flex max-w-[75%] flex-col items-end">
+				<div
+					class="rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
+				>
+					{message.content}
+				</div>
 			{#if message.files?.length}
 				<div class="mt-1.5 flex flex-wrap justify-end gap-1.5">
 					{#each message.files as file (file.id)}
@@ -104,15 +116,30 @@
 			>
 				{formattedTime}
 			</span>
+			</div>
+			<!-- User avatar -->
+			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+				{#if $currentUser?.pictureUrl}
+					<img
+						src={$currentUser.pictureUrl}
+						alt={$currentUser.displayName}
+						class="h-7 w-7 rounded-full object-cover"
+					/>
+				{:else}
+					<div class="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-white select-none">
+						{userInitials}
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 {:else}
 	<!-- Assistant message: full-width left-aligned, no bubble background -->
 	<div class="group flex w-full justify-start px-4 py-1">
 		<div class="flex gap-3">
-			<!-- Bot avatar -->
-			<div class="mt-1 shrink-0">
-				<Bot size={20} class="text-accent" />
+			<!-- Ember avatar -->
+			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center">
+				<EmberAvatar size={20} />
 			</div>
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
