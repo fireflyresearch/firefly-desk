@@ -17,6 +17,7 @@
 		FileText,
 		Bot,
 		Users,
+		Download,
 		ShieldAlert
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
@@ -30,7 +31,8 @@
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
 		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
-		{ href: '/admin/users', label: 'Users', icon: Users }
+		{ href: '/admin/users', label: 'Users', icon: Users },
+		{ href: '/admin/exports', label: 'Exports', icon: Download }
 	];
 
 	let currentPath = $derived($page.url.pathname);

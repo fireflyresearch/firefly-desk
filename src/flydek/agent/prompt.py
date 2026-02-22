@@ -135,7 +135,7 @@ class SystemPromptBuilder:
             ":::\n"
             "```\n\n"
             "Available widget types: status-badge, entity-card, data-table, key-value, "
-            "alert, timeline, diff-viewer, confirmation.\n\n"
+            "alert, timeline, diff-viewer, confirmation, export.\n\n"
             "Use `panel=true` for detailed views that open in the side panel.\n"
             "Use `inline=true` (default) for small widgets embedded in chat.\n"
             "Use `blocking=true` with `action=\"action-name\"` for confirmations that "
