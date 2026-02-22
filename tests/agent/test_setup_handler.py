@@ -68,13 +68,14 @@ class TestSetupConversationHandler:
         welcome_text = token_events[0].data["content"]
         assert "LLM provider" in welcome_text
 
-    async def test_welcome_advances_to_llm_provider(self, handler):
+    async def test_welcome_advances_to_dev_user_profile(self, handler):
         await _collect(handler, "__setup_init__")
-        assert handler.current_step == SetupStep.LLM_PROVIDER
+        assert handler.current_step == SetupStep.DEV_USER_PROFILE
 
     async def test_llm_provider_emits_widget(self, handler):
         """LLM_PROVIDER step should emit an llm-provider-setup widget."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         events = await _collect(handler, "continue")
         widget_events = [e for e in events if e.event == SSEEventType.WIDGET]
@@ -86,6 +87,7 @@ class TestSetupConversationHandler:
     async def test_llm_provider_widget_has_provider_options(self, handler):
         """Widget should list available providers."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
         events = await _collect(handler, "continue")
 
         widget_events = [e for e in events if e.event == SSEEventType.WIDGET]
@@ -99,6 +101,7 @@ class TestSetupConversationHandler:
     async def test_llm_provider_skip_advances_past_llm_test(self, handler):
         """Skipping LLM config should auto-advance past LLM_TEST."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         skip_msg = json.dumps({"action": "skip"})
         await _collect(handler, skip_msg)
@@ -109,6 +112,7 @@ class TestSetupConversationHandler:
     async def test_llm_provider_skip_emits_skip_message(self, handler):
         """Skipping should inform the user they can configure later."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         skip_msg = json.dumps({"action": "skip"})
         events = await _collect(handler, skip_msg)
@@ -120,6 +124,7 @@ class TestSetupConversationHandler:
     async def test_llm_provider_configure_stores_pending(self, handler):
         """Configuring an LLM provider should store it for the test step."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -136,6 +141,7 @@ class TestSetupConversationHandler:
     async def test_llm_test_emits_tool_events(self, handler):
         """LLM_TEST step should emit TOOL_START and TOOL_END events."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -165,6 +171,7 @@ class TestSetupConversationHandler:
     async def test_llm_test_success_advances(self, handler):
         """Successful LLM test should advance to DATABASE_CHECK."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -189,6 +196,7 @@ class TestSetupConversationHandler:
     async def test_llm_test_failure_emits_retry_widget(self, handler):
         """Failed LLM test should offer retry or skip."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -216,6 +224,7 @@ class TestSetupConversationHandler:
     async def test_llm_test_skip_advances(self, handler):
         """Skipping after LLM test failure should advance."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -233,7 +242,8 @@ class TestSetupConversationHandler:
         """DATABASE_CHECK should emit a key-value widget."""
         # Advance to database_check using skip path
         await _collect(handler, "__setup_init__")
-        await _collect(handler, json.dumps({"action": "skip"}))
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip llm provider
 
         events = await _collect(handler, "continue")
 
@@ -242,10 +252,14 @@ class TestSetupConversationHandler:
         assert widget_events[0].data["type"] == "key-value"
 
     async def test_full_step_progression(self, handler):
-        """Steps progress: welcome -> llm_provider -> llm_test -> database_check -> sample_data -> ready -> done."""
+        """Steps progress: welcome -> dev_user_profile -> llm_provider -> llm_test -> database_check -> sample_data -> ready -> done."""
         assert handler.current_step == SetupStep.WELCOME
 
         await _collect(handler, "__setup_init__")
+        assert handler.current_step == SetupStep.DEV_USER_PROFILE
+
+        # Skip dev user profile
+        await _collect(handler, json.dumps({"action": "skip"}))
         assert handler.current_step == SetupStep.LLM_PROVIDER
 
         # Configure LLM provider
@@ -284,6 +298,9 @@ class TestSetupConversationHandler:
         assert handler.current_step == SetupStep.WELCOME
 
         await _collect(handler, "__setup_init__")
+        assert handler.current_step == SetupStep.DEV_USER_PROFILE
+
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
         assert handler.current_step == SetupStep.LLM_PROVIDER
 
         await _collect(handler, json.dumps({"action": "skip"}))
@@ -302,7 +319,8 @@ class TestSetupConversationHandler:
         """Each handle() call should end with a DONE event."""
         messages = [
             "__setup_init__",
-            json.dumps({"action": "skip"}),
+            json.dumps({"action": "skip"}),  # skip dev profile
+            json.dumps({"action": "skip"}),  # skip llm provider
             "continue",
             "yes",
             "ok",
@@ -316,7 +334,8 @@ class TestSetupConversationHandler:
     async def test_sample_data_emits_confirmation_widget(self, handler):
         # Advance to sample_data step via skip path
         await _collect(handler, "__setup_init__")
-        await _collect(handler, json.dumps({"action": "skip"}))
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip llm provider
         await _collect(handler, "continue")
 
         events = await _collect(handler, "yes")
@@ -330,7 +349,8 @@ class TestSetupConversationHandler:
     async def test_ready_step_mentions_admin_console(self, handler):
         # Advance to ready step via skip path
         await _collect(handler, "__setup_init__")
-        await _collect(handler, json.dumps({"action": "skip"}))
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip llm provider
         await _collect(handler, "continue")
         await _collect(handler, "yes")
 
@@ -343,7 +363,8 @@ class TestSetupConversationHandler:
     async def test_ready_step_mentions_llm_when_skipped(self, handler):
         """When LLM was skipped, ready summary should note it."""
         await _collect(handler, "__setup_init__")
-        await _collect(handler, json.dumps({"action": "skip"}))
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip llm provider
         await _collect(handler, "continue")
         await _collect(handler, "yes")
 
@@ -356,6 +377,7 @@ class TestSetupConversationHandler:
     async def test_ready_step_mentions_llm_when_configured(self, handler):
         """When LLM was configured, ready summary should mention it."""
         await _collect(handler, "__setup_init__")
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
 
         config_msg = json.dumps({
             "action": "configure_llm",
@@ -388,7 +410,8 @@ class TestSetupConversationHandler:
         """After reaching DONE, further messages should acknowledge completion."""
         # Advance through all steps
         await _collect(handler, "__setup_init__")
-        await _collect(handler, json.dumps({"action": "skip"}))
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip dev profile
+        await _collect(handler, json.dumps({"action": "skip"}))  # skip llm provider
         await _collect(handler, "continue")
         await _collect(handler, "yes")
         await _collect(handler, "ok")

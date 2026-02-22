@@ -22,6 +22,8 @@ class PromptContext:
     user_name: str = ""
     user_roles: list[str] = field(default_factory=list)
     user_permissions: list[str] = field(default_factory=list)
+    user_department: str = ""
+    user_title: str = ""
     tool_summaries: list[dict[str, str]] = field(default_factory=list)
     knowledge_context: str = ""
     conversation_summary: str = ""
@@ -95,12 +97,17 @@ class SystemPromptBuilder:
     @staticmethod
     def _user_context_section(context: PromptContext) -> str:
         roles_str = ", ".join(context.user_roles) if context.user_roles else "none"
-        return (
-            f"# Current User\n\n"
-            f"- Name: {context.user_name}\n"
-            f"- Roles: {roles_str}\n"
-            f"- You may only use tools this user has permission to access."
-        )
+        lines = [
+            "# Current User\n",
+            f"- Name: {context.user_name}",
+            f"- Roles: {roles_str}",
+        ]
+        if context.user_department:
+            lines.append(f"- Department: {context.user_department}")
+        if context.user_title:
+            lines.append(f"- Title: {context.user_title}")
+        lines.append("- You may only use tools this user has permission to access.")
+        return "\n".join(lines)
 
     @staticmethod
     def _available_tools_section(context: PromptContext) -> str:

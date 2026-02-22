@@ -83,6 +83,9 @@ class UserProfile(BaseModel):
     display_name: str
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+    picture_url: str | None = None
+    department: str | None = None
+    title: str | None = None
 
 
 class UpdatePreferencesRequest(BaseModel):
@@ -170,6 +173,9 @@ async def get_profile(request: Request) -> UserProfile:
         display_name=user_session.display_name,
         roles=user_session.roles,
         permissions=user_session.permissions,
+        picture_url=user_session.picture_url,
+        department=user_session.department,
+        title=user_session.title,
     )
 
 

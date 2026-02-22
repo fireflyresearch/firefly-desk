@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 class SetupStep(StrEnum):
     WELCOME = "welcome"
+    DEV_USER_PROFILE = "dev_user_profile"
     LLM_PROVIDER = "llm_provider"
     LLM_TEST = "llm_test"
     DATABASE_CHECK = "database_check"
@@ -36,9 +37,10 @@ class SetupStep(StrEnum):
     DONE = "done"
 
 
-# Step progression order
+# Step progression order (DEV_USER_PROFILE is conditionally skipped for non-dev mode)
 _STEP_ORDER = [
     SetupStep.WELCOME,
+    SetupStep.DEV_USER_PROFILE,
     SetupStep.LLM_PROVIDER,
     SetupStep.LLM_TEST,
     SetupStep.DATABASE_CHECK,
@@ -61,6 +63,8 @@ class SetupConversationHandler:
         self._current_step = SetupStep.WELCOME
         self._llm_skipped = False
         self._pending_provider: dict | None = None
+        config = getattr(app.state, "config", None)
+        self._dev_mode: bool = config.dev_mode if config else True
 
     @property
     def current_step(self) -> SetupStep:
@@ -70,6 +74,11 @@ class SetupConversationHandler:
         """Handle a message and yield SSE events for the current step."""
         if self._current_step == SetupStep.WELCOME:
             async for event in self._welcome():
+                yield event
+            self._advance()
+
+        elif self._current_step == SetupStep.DEV_USER_PROFILE:
+            async for event in self._dev_user_profile(message):
                 yield event
             self._advance()
 
@@ -115,6 +124,12 @@ class SetupConversationHandler:
         if idx + 1 < len(_STEP_ORDER):
             self._current_step = _STEP_ORDER[idx + 1]
 
+        # Auto-skip DEV_USER_PROFILE when not in dev mode
+        if self._current_step == SetupStep.DEV_USER_PROFILE and not self._dev_mode:
+            idx = _STEP_ORDER.index(self._current_step)
+            if idx + 1 < len(_STEP_ORDER):
+                self._current_step = _STEP_ORDER[idx + 1]
+
         # Auto-skip LLM_TEST if user skipped LLM provider configuration
         if self._current_step == SetupStep.LLM_TEST and self._llm_skipped:
             idx = _STEP_ORDER.index(self._current_step)
@@ -150,6 +165,127 @@ class SetupConversationHandler:
             )
 
         yield SSEEvent(event=SSEEventType.TOKEN, data={"content": text})
+
+    async def _dev_user_profile(self, message: str) -> AsyncGenerator[SSEEvent, None]:
+        """Ask the user to customize their dev profile."""
+        payload = _parse_json(message)
+
+        if payload and payload.get("action") == "skip":
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        "No problem. I will use the default developer profile. "
+                        "You can update your profile later from the settings page."
+                    )
+                },
+            )
+            return
+
+        if payload and payload.get("action") == "configure_dev_profile":
+            # Store the user profile settings via SettingsRepository
+            display_name = payload.get("display_name", "Dev Admin")
+            email = payload.get("email", "admin@localhost")
+            role = payload.get("role", "admin")
+            department = payload.get("department", "")
+            title = payload.get("title", "")
+
+            session_factory = getattr(self._app.state, "session_factory", None)
+            if session_factory:
+                try:
+                    from flydek.settings.repository import SettingsRepository
+
+                    settings_repo = SettingsRepository(session_factory)
+                    await settings_repo.set_app_setting(
+                        "dev_user_display_name", display_name, category="dev_profile"
+                    )
+                    await settings_repo.set_app_setting(
+                        "dev_user_email", email, category="dev_profile"
+                    )
+                    await settings_repo.set_app_setting(
+                        "dev_user_role", role, category="dev_profile"
+                    )
+                    if department:
+                        await settings_repo.set_app_setting(
+                            "dev_user_department", department, category="dev_profile"
+                        )
+                    if title:
+                        await settings_repo.set_app_setting(
+                            "dev_user_title", title, category="dev_profile"
+                        )
+                    logger.info("Dev user profile stored: %s (%s)", display_name, role)
+                except Exception:
+                    logger.warning(
+                        "Failed to persist dev user profile (non-fatal).", exc_info=True
+                    )
+
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        f"Got it. I have saved your profile as {display_name}. "
+                        f"Let us continue with the setup."
+                    )
+                },
+            )
+            return
+
+        # First time entering this step -- emit the prompt and widget
+        yield SSEEvent(
+            event=SSEEventType.TOKEN,
+            data={
+                "content": (
+                    "Before we begin, let me know a bit about you "
+                    "so I can personalize your experience."
+                )
+            },
+        )
+
+        yield SSEEvent(
+            event=SSEEventType.WIDGET,
+            data={
+                "widget_id": str(uuid.uuid4()),
+                "type": "dev-user-profile",
+                "props": {
+                    "fields": [
+                        {
+                            "name": "display_name",
+                            "label": "Display Name",
+                            "type": "text",
+                            "default": "Dev Admin",
+                        },
+                        {
+                            "name": "email",
+                            "label": "Email",
+                            "type": "text",
+                            "default": "admin@localhost",
+                        },
+                        {
+                            "name": "role",
+                            "label": "Role",
+                            "type": "select",
+                            "options": ["admin", "operator", "viewer"],
+                            "default": "admin",
+                        },
+                        {
+                            "name": "department",
+                            "label": "Department",
+                            "type": "text",
+                            "default": "",
+                        },
+                        {
+                            "name": "title",
+                            "label": "Title",
+                            "type": "text",
+                            "default": "",
+                        },
+                    ]
+                },
+                "display": "inline",
+                "blocking": True,
+                "action": "configure_dev_profile",
+            },
+        )
 
     async def _llm_provider(self, message: str) -> AsyncGenerator[SSEEvent, None]:
         """Ask the user to configure an LLM provider."""

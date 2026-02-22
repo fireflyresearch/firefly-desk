@@ -104,6 +104,8 @@ class DeskAgent:
             user_name=session.display_name,
             user_roles=list(session.roles),
             user_permissions=list(session.permissions),
+            user_department=session.department or "",
+            user_title=session.title or "",
             tool_summaries=tool_summaries,
             knowledge_context=knowledge_context,
             file_context=file_context,

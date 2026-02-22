@@ -21,6 +21,9 @@ class UserSession(BaseModel):
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     tenant_id: str | None = None
+    picture_url: str | None = None
+    department: str | None = None
+    title: str | None = None
     session_id: str
     token_expires_at: datetime
     raw_claims: dict[str, Any] = Field(default_factory=dict)
