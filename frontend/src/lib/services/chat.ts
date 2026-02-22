@@ -12,7 +12,7 @@ import { get } from 'svelte/store';
 import { apiFetch, apiJson } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
-import type { WidgetDirective } from '../stores/chat.js';
+import type { WidgetDirective, MessageFile } from '../stores/chat.js';
 import {
 	addMessage,
 	updateStreamingMessage,
@@ -40,18 +40,27 @@ import { startTool, endTool, clearToolState, completedTools } from '../stores/to
  *
  * @param conversationId - The conversation to send the message to.
  * @param message        - The user's message text.
+ * @param fileIds        - Optional file IDs to attach to the message.
+ * @param files          - Optional file metadata for display in message bubbles.
  */
-export async function sendMessage(conversationId: string, message: string): Promise<void> {
+export async function sendMessage(
+	conversationId: string,
+	message: string,
+	fileIds?: string[],
+	files?: MessageFile[]
+): Promise<void> {
 	const userMessageId = crypto.randomUUID();
 	const assistantMessageId = crypto.randomUUID();
 
-	// 1. Add user message
+	// 1. Add user message (with file metadata if present)
 	addMessage({
 		id: userMessageId,
 		role: 'user',
 		content: message,
 		widgets: [],
-		timestamp: new Date()
+		timestamp: new Date(),
+		...(fileIds?.length ? { fileIds } : {}),
+		...(files?.length ? { files } : {})
 	});
 
 	// 2. Set streaming flag
@@ -68,12 +77,12 @@ export async function sendMessage(conversationId: string, message: string): Prom
 	});
 
 	try {
-		// 4. POST to backend
+		// 4. POST to backend (include file_ids when present)
 		const response = await apiFetch(
 			`/chat/conversations/${encodeURIComponent(conversationId)}/send`,
 			{
 				method: 'POST',
-				body: JSON.stringify({ message })
+				body: JSON.stringify({ message, file_ids: fileIds ?? [] })
 			}
 		);
 

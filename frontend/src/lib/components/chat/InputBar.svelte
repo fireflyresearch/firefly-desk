@@ -17,9 +17,10 @@
 		onSend: (message: string, files?: UploadedFile[]) => void;
 		disabled?: boolean;
 		pendingFiles?: File[];
+		conversationId?: string | null;
 	}
 
-	let { onSend, disabled = false, pendingFiles = $bindable([]) }: InputBarProps = $props();
+	let { onSend, disabled = false, pendingFiles = $bindable([]), conversationId = null }: InputBarProps = $props();
 
 	let text = $state('');
 	let textareaEl: HTMLTextAreaElement | undefined = $state();
@@ -45,8 +46,8 @@
 		if (pendingFiles.length > 0) {
 			uploading = true;
 			try {
-				// We need a conversation ID for uploads -- generate if needed
-				const convId = crypto.randomUUID();
+				// Use the active conversation ID, or generate one as fallback
+				const convId = conversationId ?? crypto.randomUUID();
 				uploadedFiles = await Promise.all(
 					pendingFiles.map((f) => uploadFile(f, convId))
 				);
@@ -89,6 +90,14 @@
 		}
 	}
 
+	function handlePaste(e: ClipboardEvent) {
+		const clipboardFiles = e.clipboardData?.files;
+		if (clipboardFiles && clipboardFiles.length > 0) {
+			e.preventDefault();
+			pendingFiles = [...pendingFiles, ...Array.from(clipboardFiles)];
+		}
+	}
+
 	function removeFile(index: number) {
 		pendingFiles = pendingFiles.filter((_, i) => i !== index);
 	}
@@ -125,6 +134,7 @@
 					bind:value={text}
 					oninput={handleInput}
 					onkeydown={handleKeydown}
+					onpaste={handlePaste}
 					disabled={disabled || uploading}
 					rows={1}
 					placeholder={uploading ? 'Uploading files...' : 'Type a message...'}

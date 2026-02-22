@@ -21,6 +21,7 @@
 		isStreaming
 	} from '$lib/stores/chat.js';
 	import { sendMessage, checkFirstRun } from '$lib/services/chat.js';
+	import type { UploadedFile } from '$lib/services/files.js';
 
 	let scrollContainer: HTMLDivElement | undefined = $state();
 	let checkingFirstRun = $state(true);
@@ -62,13 +63,22 @@
 		});
 	}
 
-	async function handleSend(text: string) {
+	async function handleSend(text: string, files?: UploadedFile[]) {
 		let conversationId = $activeConversationId;
 		if (!conversationId) {
 			conversationId = crypto.randomUUID();
 			$activeConversationId = conversationId;
 		}
-		await sendMessage(conversationId, text);
+
+		const fileIds = files?.map((f) => f.id);
+		const fileMeta = files?.map((f) => ({
+			id: f.id,
+			filename: f.filename,
+			content_type: f.content_type,
+			file_size: f.file_size
+		}));
+
+		await sendMessage(conversationId, text, fileIds, fileMeta);
 	}
 
 	function handleDragEnter(e: DragEvent) {
@@ -145,5 +155,5 @@
 	<div class="pointer-events-none h-6 bg-gradient-to-t from-surface to-transparent"></div>
 
 	<!-- Input bar -->
-	<InputBar onSend={handleSend} disabled={$isStreaming} bind:pendingFiles />
+	<InputBar onSend={handleSend} disabled={$isStreaming} bind:pendingFiles conversationId={$activeConversationId} />
 </div>

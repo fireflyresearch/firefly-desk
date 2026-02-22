@@ -24,6 +24,13 @@ export interface WidgetDirective {
 	display: 'inline' | 'panel';
 }
 
+export interface MessageFile {
+	id: string;
+	filename: string;
+	content_type: string;
+	file_size: number;
+}
+
 export interface Message {
 	id: string;
 	role: 'user' | 'assistant';
@@ -32,6 +39,8 @@ export interface Message {
 	timestamp: Date;
 	isStreaming?: boolean;
 	toolExecutions?: ToolExecution[];
+	fileIds?: string[];
+	files?: MessageFile[];
 }
 
 export interface Conversation {
