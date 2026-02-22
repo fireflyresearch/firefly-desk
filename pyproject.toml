@@ -58,3 +58,8 @@ fireflyframework-genai = { path = "../fireflyframework-genai", editable = true }
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22.1",
+]
