@@ -20,14 +20,14 @@ from httpx import ASGITransport, AsyncClient
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
         transport = ASGITransport(app=app)

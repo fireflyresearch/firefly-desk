@@ -17,21 +17,21 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.models.base import Base
+from flydesk.models.base import Base
 
 
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
-        "FLYDEK_AGENT_NAME": "Ember",
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_AGENT_NAME": "Ember",
     }
     with patch.dict(os.environ, env):
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
         transport = ASGITransport(app=app)
@@ -47,16 +47,16 @@ async def db_client():
     engine, tables, and session factory and attach them to app.state.
     """
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
-        "FLYDEK_AGENT_NAME": "Ember",
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_AGENT_NAME": "Ember",
     }
     with patch.dict(os.environ, env):
-        from flydek.config import get_config
-        from flydek.server import create_app
+        from flydesk.config import get_config
+        from flydesk.server import create_app
 
         app = create_app()
 
@@ -226,7 +226,7 @@ class TestWizardState:
 
     async def test_wizard_state_with_active_handler(self, client):
         """When an active handler exists, return its current step."""
-        from flydek.agent.setup_handler import SetupStep
+        from flydesk.agent.setup_handler import SetupStep
 
         mock_handler = MagicMock()
         mock_handler.current_step = SetupStep.DATABASE_CHECK
@@ -248,7 +248,7 @@ class TestWizardState:
 
     async def test_wizard_state_done_handler(self, client):
         """When handler is at DONE step, completed should be True."""
-        from flydek.agent.setup_handler import SetupStep
+        from flydesk.agent.setup_handler import SetupStep
 
         mock_handler = MagicMock()
         mock_handler.current_step = SetupStep.DONE

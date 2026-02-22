@@ -10,8 +10,8 @@ import pytest
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from flydek.models.base import Base
-from flydek.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
+from flydesk.models.base import Base
+from flydesk.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
 
 
 class TestCatalogORM:

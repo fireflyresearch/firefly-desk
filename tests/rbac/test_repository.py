@@ -13,9 +13,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.models.base import Base
-from flydek.rbac.models import Role
-from flydek.rbac.repository import RoleRepository
+from flydesk.models.base import Base
+from flydesk.rbac.models import Role
+from flydesk.rbac.repository import RoleRepository
 
 
 @pytest.fixture

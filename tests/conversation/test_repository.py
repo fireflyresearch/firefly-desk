@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.conversation.models import Conversation, Message, MessageRole
-from flydek.conversation.repository import ConversationRepository
-from flydek.models.base import Base
+from flydesk.conversation.models import Conversation, Message, MessageRole
+from flydesk.conversation.repository import ConversationRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture

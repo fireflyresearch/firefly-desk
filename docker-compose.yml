@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: flydek-api
+    container_name: flydesk-api
     ports:
       - "8000:8000"
     env_file:
@@ -43,7 +43,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: flydek-front
+    container_name: flydesk-front
     ports:
       - "3000:3000"
     depends_on:
@@ -57,17 +57,17 @@ services:
   # ---------- PostgreSQL with pgvector ----------
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: flydek-postgres
+    container_name: flydesk-postgres
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: flydek
-      POSTGRES_USER: flydek
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flydek_dev}
+      POSTGRES_DB: flydesk
+      POSTGRES_USER: flydesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flydesk_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flydek -d flydek"]
+      test: ["CMD-SHELL", "pg_isready -U flydesk -d flydesk"]
       interval: 10s
       timeout: 5s
       start_period: 10s
@@ -77,7 +77,7 @@ services:
   # ---------- Redis ----------
   redis:
     image: redis:7-alpine
-    container_name: flydek-redis
+    container_name: flydesk-redis
     ports:
       - "6379:6379"
     volumes:

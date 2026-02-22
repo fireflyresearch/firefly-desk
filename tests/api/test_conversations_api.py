@@ -14,20 +14,20 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.auth.models import UserSession
-from flydek.conversation.repository import ConversationRepository
-from flydek.models.base import Base
+from flydesk.auth.models import UserSession
+from flydesk.conversation.repository import ConversationRepository
+from flydesk.models.base import Base
 
 # ---------------------------------------------------------------------------
 # Shared environment used by all fixtures
 # ---------------------------------------------------------------------------
 
 _TEST_ENV = {
-    "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-    "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-    "FLYDEK_OIDC_CLIENT_ID": "test",
-    "FLYDEK_OIDC_CLIENT_SECRET": "test",
-    "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+    "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+    "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+    "FLYDESK_OIDC_CLIENT_ID": "test",
+    "FLYDESK_OIDC_CLIENT_SECRET": "test",
+    "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
 }
 
 
@@ -76,8 +76,8 @@ class _TestUserMiddleware:
 @pytest.fixture
 async def client():
     with patch.dict(os.environ, _TEST_ENV):
-        from flydek.api.conversations import get_conversation_repo
-        from flydek.server import create_app
+        from flydesk.api.conversations import get_conversation_repo
+        from flydesk.server import create_app
 
         app = create_app()
 
@@ -104,8 +104,8 @@ async def isolation_client():
     header.  Used exclusively by the isolation test suite.
     """
     with patch.dict(os.environ, _TEST_ENV):
-        from flydek.api.conversations import get_conversation_repo
-        from flydek.server import create_app
+        from flydesk.api.conversations import get_conversation_repo
+        from flydesk.server import create_app
 
         app = create_app()
 

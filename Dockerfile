@@ -52,8 +52,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Create a non-root user for security.
-RUN groupadd --system flydek && \
-    useradd --system --gid flydek --create-home flydek
+RUN groupadd --system flydesk && \
+    useradd --system --gid flydesk --create-home flydesk
 
 WORKDIR /app
 
@@ -64,7 +64,7 @@ COPY --from=builder /build/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user.
-USER flydek
+USER flydesk
 
 EXPOSE 8000
 
@@ -73,4 +73,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
 
 # Start the FastAPI app via uvicorn with the application factory.
-CMD ["uvicorn", "flydek.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "flydesk.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

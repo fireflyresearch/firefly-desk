@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from flydek.llm.health import LLMHealthChecker
-from flydek.llm.models import LLMProvider, ProviderType
+from flydesk.llm.health import LLMHealthChecker
+from flydesk.llm.models import LLMProvider, ProviderType
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def ollama_provider() -> LLMProvider:
 class TestLLMHealthChecker:
     async def test_health_check_unreachable_provider(self, checker, openai_provider):
         """Verify that a connection failure returns reachable=False."""
-        with patch("flydek.llm.health.httpx.AsyncClient") as mock_client_cls:
+        with patch("flydesk.llm.health.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(
                 side_effect=httpx.ConnectError("Connection refused")
@@ -65,7 +65,7 @@ class TestLLMHealthChecker:
         mock_response = AsyncMock()
         mock_response.status_code = 200
 
-        with patch("flydek.llm.health.httpx.AsyncClient") as mock_client_cls:
+        with patch("flydesk.llm.health.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -83,7 +83,7 @@ class TestLLMHealthChecker:
         mock_response = AsyncMock()
         mock_response.status_code = 401
 
-        with patch("flydek.llm.health.httpx.AsyncClient") as mock_client_cls:
+        with patch("flydesk.llm.health.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -111,7 +111,7 @@ class TestLLMHealthChecker:
         mock_response = AsyncMock()
         mock_response.status_code = 200
 
-        with patch("flydek.llm.health.httpx.AsyncClient") as mock_client_cls:
+        with patch("flydesk.llm.health.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

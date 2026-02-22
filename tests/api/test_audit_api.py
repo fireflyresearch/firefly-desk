@@ -17,8 +17,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from flydek.audit.models import AuditEvent, AuditEventType
-from flydek.auth.models import UserSession
+from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.auth.models import UserSession
 
 
 # ---------------------------------------------------------------------------
@@ -66,15 +66,15 @@ def mock_audit_logger():
 async def admin_client(mock_audit_logger):
     """AsyncClient with an admin user session and mocked AuditLogger."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.audit import get_audit_logger
-        from flydek.server import create_app
+        from flydesk.api.audit import get_audit_logger
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_audit_logger] = lambda: mock_audit_logger
@@ -98,15 +98,15 @@ async def admin_client(mock_audit_logger):
 async def non_admin_client(mock_audit_logger):
     """AsyncClient with a non-admin user session."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.audit import get_audit_logger
-        from flydek.server import create_app
+        from flydesk.api.audit import get_audit_logger
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_audit_logger] = lambda: mock_audit_logger

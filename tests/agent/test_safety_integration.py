@@ -19,10 +19,10 @@ from unittest.mock import patch
 
 import pytest
 
-from flydek.agent.confirmation import ConfirmationService, PendingConfirmation
-from flydek.catalog.enums import RiskLevel
-from flydek.tools.executor import ToolCall
-from flydek.tools.factory import ToolDefinition
+from flydesk.agent.confirmation import ConfirmationService, PendingConfirmation
+from flydesk.catalog.enums import RiskLevel
+from flydesk.tools.executor import ToolCall
+from flydesk.tools.factory import ToolDefinition
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ class TestSafetyIntegration:
         assert pc.confirmation_id  # non-empty
 
         # Simulate time passing beyond the timeout
-        with patch("flydek.agent.confirmation.time") as mock_time:
+        with patch("flydesk.agent.confirmation.time") as mock_time:
             mock_time.monotonic.return_value = pc.expires_at + 10
 
             # Approval should fail because the entry expired

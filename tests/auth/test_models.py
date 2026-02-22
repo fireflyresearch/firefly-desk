@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from flydek.auth.models import UserSession
+from flydesk.auth.models import UserSession
 
 
 class TestUserSessionCreation:

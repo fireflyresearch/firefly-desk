@@ -10,8 +10,8 @@ import json
 
 import pytest
 
-from flydek.knowledge.models import DocumentType
-from flydek.knowledge.openapi_parser import OpenAPIParser
+from flydesk.knowledge.models import DocumentType
+from flydesk.knowledge.openapi_parser import OpenAPIParser
 
 MINIMAL_SPEC: dict = {
     "openapi": "3.0.3",

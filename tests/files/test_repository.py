@@ -13,9 +13,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.files.models import FileUpload
-from flydek.files.repository import FileUploadRepository
-from flydek.models.base import Base
+from flydesk.files.models import FileUpload
+from flydesk.files.repository import FileUploadRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture

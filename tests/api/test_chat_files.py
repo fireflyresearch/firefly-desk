@@ -17,9 +17,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from flydek.api.chat import ChatMessage, _persist_messages
-from flydek.conversation.models import Conversation, Message, MessageRole
-from flydek.files.models import FileUpload
+from flydesk.api.chat import ChatMessage, _persist_messages
+from flydesk.conversation.models import Conversation, Message, MessageRole
+from flydesk.files.models import FileUpload
 
 
 # ---------------------------------------------------------------------------
@@ -30,14 +30,14 @@ from flydek.files.models import FileUpload
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
         transport = ASGITransport(app=app)
@@ -177,7 +177,7 @@ class TestBuildFileContext:
 
     def _make_agent(self, file_repo=None):
         """Create a DeskAgent with minimal mocked dependencies."""
-        from flydek.agent.desk_agent import DeskAgent
+        from flydesk.agent.desk_agent import DeskAgent
 
         return DeskAgent(
             context_enricher=MagicMock(enrich=AsyncMock()),
@@ -279,7 +279,7 @@ class TestFileContextInPrompt:
 
     def test_file_context_section_included_when_set(self):
         """File context section appears in the prompt when file_context is non-empty."""
-        from flydek.agent.prompt import PromptContext, SystemPromptBuilder
+        from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
 
         builder = SystemPromptBuilder()
         ctx = PromptContext(
@@ -293,7 +293,7 @@ class TestFileContextInPrompt:
 
     def test_file_context_section_excluded_when_empty(self):
         """File context section is omitted when file_context is empty."""
-        from flydek.agent.prompt import PromptContext, SystemPromptBuilder
+        from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
 
         builder = SystemPromptBuilder()
         ctx = PromptContext(file_context="")

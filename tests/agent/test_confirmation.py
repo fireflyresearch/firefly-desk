@@ -15,10 +15,10 @@ from unittest.mock import patch
 
 import pytest
 
-from flydek.agent.confirmation import ConfirmationService, PendingConfirmation
-from flydek.catalog.enums import RiskLevel
-from flydek.tools.executor import ToolCall
-from flydek.tools.factory import ToolDefinition
+from flydesk.agent.confirmation import ConfirmationService, PendingConfirmation
+from flydesk.catalog.enums import RiskLevel
+from flydesk.tools.executor import ToolCall
+from flydesk.tools.factory import ToolDefinition
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ class TestApproveReject:
         pc = svc.create_confirmation(tool_call, tool_def, "user-1", "conv-1")
 
         # Simulate time passing beyond the timeout.
-        with patch("flydek.agent.confirmation.time") as mock_time:
+        with patch("flydesk.agent.confirmation.time") as mock_time:
             mock_time.monotonic.return_value = pc.expires_at + 1
             assert svc.approve(pc.confirmation_id) is None
 
@@ -214,6 +214,6 @@ class TestGetPending:
             _make_tool_call("t1"), tool_def, "user-1", "conv-1",
         )
 
-        with patch("flydek.agent.confirmation.time") as mock_time:
+        with patch("flydesk.agent.confirmation.time") as mock_time:
             mock_time.monotonic.return_value = pc.expires_at + 1
             assert svc.get_pending("conv-1") == []

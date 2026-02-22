@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from flydek.auth.providers import (
+from flydesk.auth.providers import (
     PROVIDER_REGISTRY,
     extract_user_claims,
     get_provider,

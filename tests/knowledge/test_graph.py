@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.knowledge.graph import Entity, KnowledgeGraph, Relation
-from flydek.models.base import Base
+from flydesk.knowledge.graph import Entity, KnowledgeGraph, Relation
+from flydesk.models.base import Base
 
 
 @pytest.fixture

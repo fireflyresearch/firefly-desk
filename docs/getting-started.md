@@ -35,7 +35,7 @@ This creates a virtual environment and installs all required packages. The `uv s
 Launch the FastAPI backend server:
 
 ```bash
-uvicorn flydek.server:create_app --factory --port 8000
+uvicorn flydesk.server:create_app --factory --port 8000
 ```
 
 The `--factory` flag tells uvicorn to call `create_app()` as a factory function, which initializes the application lifespan, wires dependency injection, and runs database migrations. The server will be available at `http://localhost:8000`.
@@ -57,7 +57,7 @@ The frontend development server starts at `http://localhost:5173` and proxies AP
 To explore Firefly Desk with realistic data, seed the banking demo scenario:
 
 ```bash
-flydek-seed banking
+flydesk-seed banking
 ```
 
 This populates the Service Catalog with a sample banking system, registers endpoints for common operations like account lookups and transaction queries, and loads knowledge documents with operational procedures. The seed data is designed to demonstrate the full range of platform capabilities without requiring you to connect a real backend system.

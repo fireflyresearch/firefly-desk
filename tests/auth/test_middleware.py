@@ -13,8 +13,8 @@ import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
-from flydek.auth.middleware import AuthMiddleware
-from flydek.auth.models import UserSession
+from flydesk.auth.middleware import AuthMiddleware
+from flydesk.auth.models import UserSession
 
 # ---------------------------------------------------------------------------
 # Helpers

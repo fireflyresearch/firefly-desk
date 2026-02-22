@@ -9,26 +9,26 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-from flydek.auth.dev import _build_dev_user
+from flydesk.auth.dev import _build_dev_user
 
 
 class TestBuildDevUserDefaults:
     """Tests for _build_dev_user with default environment (no env vars set)."""
 
     def test_default_display_name(self):
-        """Display name defaults to 'Dev Admin' when FLYDEK_DEV_USER_NAME is unset."""
+        """Display name defaults to 'Dev Admin' when FLYDESK_DEV_USER_NAME is unset."""
         with patch.dict(os.environ, {}, clear=True):
             user = _build_dev_user()
         assert user.display_name == "Dev Admin"
 
     def test_default_email(self):
-        """Email defaults to 'admin@localhost' when FLYDEK_DEV_USER_EMAIL is unset."""
+        """Email defaults to 'admin@localhost' when FLYDESK_DEV_USER_EMAIL is unset."""
         with patch.dict(os.environ, {}, clear=True):
             user = _build_dev_user()
         assert user.email == "admin@localhost"
 
     def test_default_roles(self):
-        """Roles default to ['admin', 'operator'] when FLYDEK_DEV_USER_ROLES is unset."""
+        """Roles default to ['admin', 'operator'] when FLYDESK_DEV_USER_ROLES is unset."""
         with patch.dict(os.environ, {}, clear=True):
             user = _build_dev_user()
         assert user.roles == ["admin", "operator"]
@@ -54,43 +54,43 @@ class TestBuildDevUserCustomEnv:
     """Tests for _build_dev_user with custom env vars."""
 
     def test_custom_display_name(self):
-        """FLYDEK_DEV_USER_NAME overrides display_name."""
-        env = {"FLYDEK_DEV_USER_NAME": "Jane Doe"}
+        """FLYDESK_DEV_USER_NAME overrides display_name."""
+        env = {"FLYDESK_DEV_USER_NAME": "Jane Doe"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.display_name == "Jane Doe"
 
     def test_custom_email(self):
-        """FLYDEK_DEV_USER_EMAIL overrides email."""
-        env = {"FLYDEK_DEV_USER_EMAIL": "jane@example.com"}
+        """FLYDESK_DEV_USER_EMAIL overrides email."""
+        env = {"FLYDESK_DEV_USER_EMAIL": "jane@example.com"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.email == "jane@example.com"
 
     def test_custom_roles(self):
-        """FLYDEK_DEV_USER_ROLES overrides roles with a comma-separated list."""
-        env = {"FLYDEK_DEV_USER_ROLES": "viewer,billing"}
+        """FLYDESK_DEV_USER_ROLES overrides roles with a comma-separated list."""
+        env = {"FLYDESK_DEV_USER_ROLES": "viewer,billing"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.roles == ["viewer", "billing"]
 
     def test_custom_picture_url(self):
-        """FLYDEK_DEV_USER_PICTURE sets picture_url."""
-        env = {"FLYDEK_DEV_USER_PICTURE": "https://example.com/avatar.png"}
+        """FLYDESK_DEV_USER_PICTURE sets picture_url."""
+        env = {"FLYDESK_DEV_USER_PICTURE": "https://example.com/avatar.png"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.picture_url == "https://example.com/avatar.png"
 
     def test_custom_department(self):
-        """FLYDEK_DEV_USER_DEPARTMENT sets department."""
-        env = {"FLYDEK_DEV_USER_DEPARTMENT": "Engineering"}
+        """FLYDESK_DEV_USER_DEPARTMENT sets department."""
+        env = {"FLYDESK_DEV_USER_DEPARTMENT": "Engineering"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.department == "Engineering"
 
     def test_custom_title(self):
-        """FLYDEK_DEV_USER_TITLE sets title."""
-        env = {"FLYDEK_DEV_USER_TITLE": "Staff Engineer"}
+        """FLYDESK_DEV_USER_TITLE sets title."""
+        env = {"FLYDESK_DEV_USER_TITLE": "Staff Engineer"}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.title == "Staff Engineer"
@@ -98,12 +98,12 @@ class TestBuildDevUserCustomEnv:
     def test_all_custom_fields_together(self):
         """All env vars can be set simultaneously."""
         env = {
-            "FLYDEK_DEV_USER_NAME": "Alice Smith",
-            "FLYDEK_DEV_USER_EMAIL": "alice@corp.com",
-            "FLYDEK_DEV_USER_ROLES": "admin,support,billing",
-            "FLYDEK_DEV_USER_PICTURE": "https://cdn.example.com/alice.jpg",
-            "FLYDEK_DEV_USER_DEPARTMENT": "Customer Success",
-            "FLYDEK_DEV_USER_TITLE": "VP of Support",
+            "FLYDESK_DEV_USER_NAME": "Alice Smith",
+            "FLYDESK_DEV_USER_EMAIL": "alice@corp.com",
+            "FLYDESK_DEV_USER_ROLES": "admin,support,billing",
+            "FLYDESK_DEV_USER_PICTURE": "https://cdn.example.com/alice.jpg",
+            "FLYDESK_DEV_USER_DEPARTMENT": "Customer Success",
+            "FLYDESK_DEV_USER_TITLE": "VP of Support",
         }
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
@@ -115,22 +115,22 @@ class TestBuildDevUserCustomEnv:
         assert user.title == "VP of Support"
 
     def test_empty_string_picture_becomes_none(self):
-        """An empty FLYDEK_DEV_USER_PICTURE is treated as None."""
-        env = {"FLYDEK_DEV_USER_PICTURE": ""}
+        """An empty FLYDESK_DEV_USER_PICTURE is treated as None."""
+        env = {"FLYDESK_DEV_USER_PICTURE": ""}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.picture_url is None
 
     def test_empty_string_department_becomes_none(self):
-        """An empty FLYDEK_DEV_USER_DEPARTMENT is treated as None."""
-        env = {"FLYDEK_DEV_USER_DEPARTMENT": ""}
+        """An empty FLYDESK_DEV_USER_DEPARTMENT is treated as None."""
+        env = {"FLYDESK_DEV_USER_DEPARTMENT": ""}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.department is None
 
     def test_empty_string_title_becomes_none(self):
-        """An empty FLYDEK_DEV_USER_TITLE is treated as None."""
-        env = {"FLYDEK_DEV_USER_TITLE": ""}
+        """An empty FLYDESK_DEV_USER_TITLE is treated as None."""
+        env = {"FLYDESK_DEV_USER_TITLE": ""}
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()
         assert user.title is None
@@ -138,8 +138,8 @@ class TestBuildDevUserCustomEnv:
     def test_raw_claims_reflect_custom_name_and_email(self):
         """raw_claims sub, name, and email match the configured env vars."""
         env = {
-            "FLYDEK_DEV_USER_NAME": "Custom Name",
-            "FLYDEK_DEV_USER_EMAIL": "custom@test.io",
+            "FLYDESK_DEV_USER_NAME": "Custom Name",
+            "FLYDESK_DEV_USER_EMAIL": "custom@test.io",
         }
         with patch.dict(os.environ, env, clear=True):
             user = _build_dev_user()

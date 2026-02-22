@@ -23,11 +23,11 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.auth.models import UserSession
-from flydek.models.base import Base
-from flydek.rbac.guards import require_permission
-from flydek.rbac.models import Role
-from flydek.rbac.repository import RoleRepository
+from flydesk.auth.models import UserSession
+from flydesk.models.base import Base
+from flydesk.rbac.guards import require_permission
+from flydesk.rbac.models import Role
+from flydesk.rbac.repository import RoleRepository
 
 
 # ---------------------------------------------------------------------------

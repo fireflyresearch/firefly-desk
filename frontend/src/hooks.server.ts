@@ -1,7 +1,7 @@
 /**
  * SvelteKit server hooks -- authentication guard.
  *
- * In dev mode (FLYDEK_DEV_MODE=true), authentication is bypassed
+ * In dev mode (FLYDESK_DEV_MODE=true), authentication is bypassed
  * and a synthetic admin user is injected into locals.
  *
  * In production, the hook reads the auth cookie, decodes the JWT
@@ -16,13 +16,13 @@ import { redirect, type Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 /** Name of the cookie that carries the access token. */
-const AUTH_COOKIE = 'flydek_token';
+const AUTH_COOKIE = 'flydesk_token';
 
 /** Route prefixes that do not require authentication. */
 const PUBLIC_PREFIXES = ['/auth', '/setup'];
 
 function isDevMode(): boolean {
-	return (env.FLYDEK_DEV_MODE ?? 'true').toLowerCase() === 'true';
+	return (env.FLYDESK_DEV_MODE ?? 'true').toLowerCase() === 'true';
 }
 
 // ---------------------------------------------------------------------------

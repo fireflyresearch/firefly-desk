@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from flydek.catalog.enums import AuthType
-from flydek.catalog.models import AuthConfig, Credential, ExternalSystem
-from flydek.tools.auth_resolver import AuthResolver
+from flydesk.catalog.enums import AuthType
+from flydesk.catalog.models import AuthConfig, Credential, ExternalSystem
+from flydesk.tools.auth_resolver import AuthResolver
 
 
 # ---------------------------------------------------------------------------

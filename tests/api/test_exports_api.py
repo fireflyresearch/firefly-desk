@@ -18,10 +18,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.exports.models import ExportFormat, ExportRecord, ExportStatus, ExportTemplate
-from flydek.exports.repository import ExportRepository
-from flydek.exports.service import ExportService
-from flydek.models.base import Base
+from flydesk.exports.models import ExportFormat, ExportRecord, ExportStatus, ExportTemplate
+from flydesk.exports.repository import ExportRepository
+from flydesk.exports.service import ExportService
+from flydesk.models.base import Base
 
 
 class _InMemoryStorage:
@@ -47,14 +47,14 @@ class _InMemoryStorage:
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_DEV_MODE": "true",
-        "FLYDEK_AGENT_NAME": "Ember",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_DEV_MODE": "true",
+        "FLYDESK_AGENT_NAME": "Ember",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.exports import get_export_repo, get_export_service, get_export_storage
-        from flydek.server import create_app
+        from flydesk.api.exports import get_export_repo, get_export_service, get_export_storage
+        from flydesk.server import create_app
 
         app = create_app()
 

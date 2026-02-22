@@ -21,24 +21,24 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.agent.context import ContextEnricher
-from flydek.agent.desk_agent import DeskAgent
-from flydek.agent.prompt import SystemPromptBuilder
-from flydek.agent.response import AgentResponse
-from flydek.api.events import SSEEvent, SSEEventType
-from flydek.audit.logger import AuditLogger
-from flydek.audit.models import AuditEventType
-from flydek.auth.models import UserSession
-from flydek.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
-from flydek.catalog.models import AuthConfig, ExternalSystem, ParamSchema, ServiceEndpoint
-from flydek.catalog.repository import CatalogRepository
-from flydek.knowledge.graph import Entity, KnowledgeGraph
-from flydek.knowledge.indexer import KnowledgeIndexer
-from flydek.knowledge.models import KnowledgeDocument
-from flydek.knowledge.retriever import KnowledgeRetriever
-from flydek.models.base import Base
-from flydek.tools.factory import ToolFactory
-from flydek.widgets.parser import WidgetParser
+from flydesk.agent.context import ContextEnricher
+from flydesk.agent.desk_agent import DeskAgent
+from flydesk.agent.prompt import SystemPromptBuilder
+from flydesk.agent.response import AgentResponse
+from flydesk.api.events import SSEEvent, SSEEventType
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEventType
+from flydesk.auth.models import UserSession
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ParamSchema, ServiceEndpoint
+from flydesk.catalog.repository import CatalogRepository
+from flydesk.knowledge.graph import Entity, KnowledgeGraph
+from flydesk.knowledge.indexer import KnowledgeIndexer
+from flydesk.knowledge.models import KnowledgeDocument
+from flydesk.knowledge.retriever import KnowledgeRetriever
+from flydesk.models.base import Base
+from flydesk.tools.factory import ToolFactory
+from flydesk.widgets.parser import WidgetParser
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ class TestFullAgentLifecycle:
         assert len(token_events) >= 1
 
         # Reconstruct text from token chunks
-        reconstructed = "".join(e.data["token"] for e in token_events)
+        reconstructed = "".join(e.data["content"] for e in token_events)
         assert len(reconstructed) > 0
 
         # DONE must be the last event

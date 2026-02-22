@@ -111,7 +111,7 @@ For complex operations that involve multiple steps or affect multiple resources,
 
 ## Credential Encryption
 
-All credentials stored in the Credential Vault are encrypted at rest using the `FLYDEK_CREDENTIAL_ENCRYPTION_KEY`. This includes API keys, OAuth client secrets, bearer tokens, and any other sensitive values associated with external system integrations. LLM provider API keys and OIDC provider client secrets are also encrypted using this key.
+All credentials stored in the Credential Vault are encrypted at rest using the `FLYDESK_CREDENTIAL_ENCRYPTION_KEY`. This includes API keys, OAuth client secrets, bearer tokens, and any other sensitive values associated with external system integrations. LLM provider API keys and OIDC provider client secrets are also encrypted using this key.
 
 Credentials are decrypted only at the moment they are needed for an API call and are never logged, cached in plaintext, or exposed through the API. The credential list endpoint returns only metadata and identifiers; the actual secret values are always redacted.
 
@@ -139,7 +139,7 @@ Each audit event includes:
 
 ### Retention
 
-Audit records are retained for the number of days specified by `FLYDEK_AUDIT_RETENTION_DAYS` (default: 365 days). The retention period should be set according to your organization's compliance requirements. Records beyond the retention period are eligible for cleanup.
+Audit records are retained for the number of days specified by `FLYDESK_AUDIT_RETENTION_DAYS` (default: 365 days). The retention period should be set according to your organization's compliance requirements. Records beyond the retention period are eligible for cleanup.
 
 ### Why This Matters
 
@@ -149,6 +149,6 @@ The audit trail is append-only, meaning records cannot be modified or deleted th
 
 ## Rate Limiting
 
-The `FLYDEK_RATE_LIMIT_PER_USER` configuration controls the maximum number of API requests a single user can make per minute. The default is 60 requests per minute. Rate limiting is enforced in production mode and disabled in development mode.
+The `FLYDESK_RATE_LIMIT_PER_USER` configuration controls the maximum number of API requests a single user can make per minute. The default is 60 requests per minute. Rate limiting is enforced in production mode and disabled in development mode.
 
 Rate limiting exists as a safety measure against both accidental abuse (such as a script making rapid API calls) and malicious activity. When a user exceeds the rate limit, subsequent requests receive a 429 Too Many Requests response until the rate limit window resets.

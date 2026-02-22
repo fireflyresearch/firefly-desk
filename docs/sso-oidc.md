@@ -4,14 +4,14 @@
 
 Firefly Desk authenticates users through OpenID Connect (OIDC), a standard authentication protocol built on top of OAuth 2.0. Any identity provider that implements the OIDC specification can be used with Firefly Desk, including Keycloak, Google, Microsoft Entra ID, Auth0, Amazon Cognito, and Okta.
 
-OIDC authentication is enforced only when `FLYDEK_DEV_MODE=false`. In development mode, the platform bypasses authentication entirely and uses a synthetic development user with admin privileges, which removes the need to configure an identity provider for local development.
+OIDC authentication is enforced only when `FLYDESK_DEV_MODE=false`. In development mode, the platform bypasses authentication entirely and uses a synthetic development user with admin privileges, which removes the need to configure an identity provider for local development.
 
 ## How Authentication Works
 
 1. The user navigates to the Firefly Desk frontend and clicks "Sign In."
 2. The frontend redirects the user to `GET /api/auth/login`, which redirects to the identity provider's authorization endpoint.
 3. The user authenticates with the identity provider (username/password, SSO, MFA, etc.).
-4. The identity provider redirects the user back to `FLYDEK_OIDC_REDIRECT_URI` with an authorization code.
+4. The identity provider redirects the user back to `FLYDESK_OIDC_REDIRECT_URI` with an authorization code.
 5. The backend exchanges the authorization code for an ID token and access token.
 6. The backend extracts the user's identity, roles, and permissions from the JWT claims.
 7. A session is established and the user is redirected to the application.
@@ -24,15 +24,15 @@ These environment variables control OIDC authentication:
 
 | Variable | Description |
 |----------|-------------|
-| `FLYDEK_OIDC_ISSUER_URL` | The OIDC discovery endpoint base URL. Must end with the realm/tenant path. |
-| `FLYDEK_OIDC_CLIENT_ID` | The client ID registered with the identity provider. |
-| `FLYDEK_OIDC_CLIENT_SECRET` | The client secret for confidential client authentication. |
-| `FLYDEK_OIDC_SCOPES` | Comma-separated OIDC scopes. Default: `openid,profile,email,roles`. |
-| `FLYDEK_OIDC_REDIRECT_URI` | The callback URL the provider redirects to after authentication. |
-| `FLYDEK_OIDC_ROLES_CLAIM` | The dot-path to the roles array in the JWT. Default: `roles`. |
-| `FLYDEK_OIDC_PERMISSIONS_CLAIM` | The dot-path to the permissions array in the JWT. Default: `permissions`. |
-| `FLYDEK_OIDC_PROVIDER_TYPE` | Provider type for specialized handling. Options: `keycloak`, `google`, `microsoft`, `auth0`, `cognito`, `okta`. |
-| `FLYDEK_OIDC_TENANT_ID` | Tenant or realm ID, required by some providers. |
+| `FLYDESK_OIDC_ISSUER_URL` | The OIDC discovery endpoint base URL. Must end with the realm/tenant path. |
+| `FLYDESK_OIDC_CLIENT_ID` | The client ID registered with the identity provider. |
+| `FLYDESK_OIDC_CLIENT_SECRET` | The client secret for confidential client authentication. |
+| `FLYDESK_OIDC_SCOPES` | Comma-separated OIDC scopes. Default: `openid,profile,email,roles`. |
+| `FLYDESK_OIDC_REDIRECT_URI` | The callback URL the provider redirects to after authentication. |
+| `FLYDESK_OIDC_ROLES_CLAIM` | The dot-path to the roles array in the JWT. Default: `roles`. |
+| `FLYDESK_OIDC_PERMISSIONS_CLAIM` | The dot-path to the permissions array in the JWT. Default: `permissions`. |
+| `FLYDESK_OIDC_PROVIDER_TYPE` | Provider type for specialized handling. Options: `keycloak`, `google`, `microsoft`, `auth0`, `cognito`, `okta`. |
+| `FLYDESK_OIDC_TENANT_ID` | Tenant or realm ID, required by some providers. |
 
 ## Provider Setup Guides
 
@@ -63,13 +63,13 @@ Ensure the "realm roles" mapper is active on the client so that roles appear in 
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://keycloak.example.com/realms/operations
-FLYDEK_OIDC_CLIENT_ID=firefly-desk
-FLYDEK_OIDC_CLIENT_SECRET=your-client-secret-from-keycloak
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_ROLES_CLAIM=realm_access.roles
-FLYDEK_OIDC_PERMISSIONS_CLAIM=resource_access.firefly-desk.roles
-FLYDEK_OIDC_PROVIDER_TYPE=keycloak
+FLYDESK_OIDC_ISSUER_URL=https://keycloak.example.com/realms/operations
+FLYDESK_OIDC_CLIENT_ID=firefly-desk
+FLYDESK_OIDC_CLIENT_SECRET=your-client-secret-from-keycloak
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_ROLES_CLAIM=realm_access.roles
+FLYDESK_OIDC_PERMISSIONS_CLAIM=resource_access.firefly-desk.roles
+FLYDESK_OIDC_PROVIDER_TYPE=keycloak
 ```
 
 ### Google
@@ -94,12 +94,12 @@ Since Google does not include roles in tokens, you have two options:
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://accounts.google.com
-FLYDEK_OIDC_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-FLYDEK_OIDC_CLIENT_SECRET=your-google-client-secret
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_SCOPES=openid,profile,email
-FLYDEK_OIDC_PROVIDER_TYPE=google
+FLYDESK_OIDC_ISSUER_URL=https://accounts.google.com
+FLYDESK_OIDC_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+FLYDESK_OIDC_CLIENT_SECRET=your-google-client-secret
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_SCOPES=openid,profile,email
+FLYDESK_OIDC_PROVIDER_TYPE=google
 ```
 
 ### Microsoft Entra ID (Azure AD)
@@ -132,13 +132,13 @@ In Enterprise Applications, find the Firefly Desk app and assign users to the ro
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://login.microsoftonline.com/your-tenant-id/v2.0
-FLYDEK_OIDC_CLIENT_ID=your-application-client-id
-FLYDEK_OIDC_CLIENT_SECRET=your-client-secret-value
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_ROLES_CLAIM=roles
-FLYDEK_OIDC_TENANT_ID=your-tenant-id
-FLYDEK_OIDC_PROVIDER_TYPE=microsoft
+FLYDESK_OIDC_ISSUER_URL=https://login.microsoftonline.com/your-tenant-id/v2.0
+FLYDESK_OIDC_CLIENT_ID=your-application-client-id
+FLYDESK_OIDC_CLIENT_SECRET=your-client-secret-value
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_ROLES_CLAIM=roles
+FLYDESK_OIDC_TENANT_ID=your-tenant-id
+FLYDESK_OIDC_PROVIDER_TYPE=microsoft
 ```
 
 ### Auth0
@@ -172,12 +172,12 @@ exports.onExecutePostLogin = async (event, api) => {
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://your-domain.auth0.com/
-FLYDEK_OIDC_CLIENT_ID=your-auth0-client-id
-FLYDEK_OIDC_CLIENT_SECRET=your-auth0-client-secret
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_ROLES_CLAIM=https://desk.example.com/roles
-FLYDEK_OIDC_PROVIDER_TYPE=auth0
+FLYDESK_OIDC_ISSUER_URL=https://your-domain.auth0.com/
+FLYDESK_OIDC_CLIENT_ID=your-auth0-client-id
+FLYDESK_OIDC_CLIENT_SECRET=your-auth0-client-secret
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_ROLES_CLAIM=https://desk.example.com/roles
+FLYDESK_OIDC_PROVIDER_TYPE=auth0
 ```
 
 ### Amazon Cognito
@@ -203,12 +203,12 @@ If using Cognito's hosted UI, configure it with the appropriate callback URLs.
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxxxxxxxx
-FLYDEK_OIDC_CLIENT_ID=your-cognito-app-client-id
-FLYDEK_OIDC_CLIENT_SECRET=your-cognito-app-client-secret
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_ROLES_CLAIM=cognito:groups
-FLYDEK_OIDC_PROVIDER_TYPE=cognito
+FLYDESK_OIDC_ISSUER_URL=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxxxxxxxx
+FLYDESK_OIDC_CLIENT_ID=your-cognito-app-client-id
+FLYDESK_OIDC_CLIENT_SECRET=your-cognito-app-client-secret
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_ROLES_CLAIM=cognito:groups
+FLYDESK_OIDC_PROVIDER_TYPE=cognito
 ```
 
 ### Okta
@@ -238,12 +238,12 @@ Create Okta groups that map to Firefly Desk roles and assign users to them.
 **Configuration:**
 
 ```bash
-FLYDEK_OIDC_ISSUER_URL=https://your-domain.okta.com/oauth2/default
-FLYDEK_OIDC_CLIENT_ID=your-okta-client-id
-FLYDEK_OIDC_CLIENT_SECRET=your-okta-client-secret
-FLYDEK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
-FLYDEK_OIDC_ROLES_CLAIM=groups
-FLYDEK_OIDC_PROVIDER_TYPE=okta
+FLYDESK_OIDC_ISSUER_URL=https://your-domain.okta.com/oauth2/default
+FLYDESK_OIDC_CLIENT_ID=your-okta-client-id
+FLYDESK_OIDC_CLIENT_SECRET=your-okta-client-secret
+FLYDESK_OIDC_REDIRECT_URI=https://desk.example.com/auth/callback
+FLYDESK_OIDC_ROLES_CLAIM=groups
+FLYDESK_OIDC_PROVIDER_TYPE=okta
 ```
 
 ## Claim Mapping
@@ -252,7 +252,7 @@ Claim mapping is the process of telling Firefly Desk where to find roles and per
 
 ### How Claim Paths Work
 
-The `FLYDEK_OIDC_ROLES_CLAIM` value is a dot-separated path into the JWT payload. For example:
+The `FLYDESK_OIDC_ROLES_CLAIM` value is a dot-separated path into the JWT payload. For example:
 
 - `roles` -- looks for a top-level `roles` array
 - `realm_access.roles` -- looks for `roles` inside the `realm_access` object
@@ -268,7 +268,7 @@ If role extraction is not working, decode a JWT token from your provider and ins
 echo "YOUR_JWT_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | python -m json.tool
 ```
 
-Look for the array that contains role names and use its path as the `FLYDEK_OIDC_ROLES_CLAIM` value.
+Look for the array that contains role names and use its path as the `FLYDESK_OIDC_ROLES_CLAIM` value.
 
 ### Role Name Mapping
 
@@ -288,7 +288,7 @@ Firefly Desk expects role names that match the names defined in its role system:
 ### User authenticates but has no permissions
 
 - Decode the JWT and verify that the roles claim exists at the expected path
-- Check that `FLYDEK_OIDC_ROLES_CLAIM` matches the actual token structure
+- Check that `FLYDESK_OIDC_ROLES_CLAIM` matches the actual token structure
 - Verify that the user is assigned to the correct roles/groups in the provider
 - Use `GET /api/auth/me` to see what roles the system extracted
 

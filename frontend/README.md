@@ -221,7 +221,7 @@ Runs `svelte-check` for TypeScript type validation across all components and mod
 
 ## Environment Configuration
 
-The frontend reads its configuration from the backend API at runtime. No environment variables are required for the frontend itself. The backend's `FLYDEK_APP_TITLE`, `FLYDEK_APP_LOGO_URL`, and `FLYDEK_ACCENT_COLOR` values are fetched and applied as CSS custom properties.
+The frontend reads its configuration from the backend API at runtime. No environment variables are required for the frontend itself. The backend's `FLYDESK_APP_TITLE`, `FLYDESK_APP_LOGO_URL`, and `FLYDESK_ACCENT_COLOR` values are fetched and applied as CSS custom properties.
 
 The Vite configuration proxies `/api` requests to the backend during development. This is configured in `vite.config.ts` and requires no manual setup.
 

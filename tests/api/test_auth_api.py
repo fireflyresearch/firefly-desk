@@ -15,9 +15,9 @@ from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.auth.oidc import OIDCClient, OIDCDiscoveryDocument
-from flydek.auth.repository import OIDCProviderRepository
-from flydek.models.base import Base
+from flydesk.auth.oidc import OIDCClient, OIDCDiscoveryDocument
+from flydesk.auth.repository import OIDCProviderRepository
+from flydesk.models.base import Base
 
 ISSUER = "https://idp.example.com"
 DISCOVERY_DOC = OIDCDiscoveryDocument(
@@ -63,16 +63,16 @@ async def client(_auth_fixtures):
     repo, encryption_key = _auth_fixtures
 
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_DEV_MODE": "true",
-        "FLYDEK_OIDC_ISSUER_URL": ISSUER,
-        "FLYDEK_OIDC_CLIENT_ID": "test-client",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test-secret",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": encryption_key,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_DEV_MODE": "true",
+        "FLYDESK_OIDC_ISSUER_URL": ISSUER,
+        "FLYDESK_OIDC_CLIENT_ID": "test-client",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test-secret",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": encryption_key,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.auth import get_oidc_client, get_oidc_repo
-        from flydek.server import create_app
+        from flydesk.api.auth import get_oidc_client, get_oidc_repo
+        from flydesk.server import create_app
 
         app = create_app()
 
@@ -179,13 +179,13 @@ class TestLogout:
         assert body["status"] == "logged_out"
         assert body["end_session_url"] == DISCOVERY_DOC.end_session_endpoint
 
-        # The Set-Cookie header should delete flydek_token
+        # The Set-Cookie header should delete flydesk_token
         set_cookie = response.headers.get("set-cookie", "")
-        assert "flydek_token" in set_cookie
+        assert "flydesk_token" in set_cookie
 
     async def test_logout_without_oidc_client(self, client: AsyncClient):
         """POST /api/auth/logout works even without an OIDCClient."""
-        from flydek.api.auth import get_oidc_client
+        from flydesk.api.auth import get_oidc_client
 
         # Temporarily override to return None
         original = client._transport.app.dependency_overrides.get(get_oidc_client)  # type: ignore[attr-defined]

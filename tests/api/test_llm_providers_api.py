@@ -17,8 +17,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from flydek.auth.models import UserSession
-from flydek.llm.models import LLMProvider, ProviderHealthStatus, ProviderType
+from flydesk.auth.models import UserSession
+from flydesk.llm.models import LLMProvider, ProviderHealthStatus, ProviderType
 
 
 # ---------------------------------------------------------------------------
@@ -72,15 +72,15 @@ def mock_repo():
 async def admin_client(mock_repo):
     """AsyncClient with an admin user session and mocked LLMProviderRepository."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.llm_providers import get_llm_repo
-        from flydek.server import create_app
+        from flydesk.api.llm_providers import get_llm_repo
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_llm_repo] = lambda: mock_repo
@@ -105,15 +105,15 @@ async def admin_client(mock_repo):
 async def non_admin_client(mock_repo):
     """AsyncClient with a non-admin user session."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.llm_providers import get_llm_repo
-        from flydek.server import create_app
+        from flydesk.api.llm_providers import get_llm_repo
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_llm_repo] = lambda: mock_repo

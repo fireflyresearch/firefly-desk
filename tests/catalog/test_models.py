@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from flydek.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
-from flydek.catalog.models import AuthConfig, ExternalSystem, ParamSchema, ServiceEndpoint
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ParamSchema, ServiceEndpoint
 
 
 class TestExternalSystem:

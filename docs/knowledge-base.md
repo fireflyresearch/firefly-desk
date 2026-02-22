@@ -116,7 +116,7 @@ The `KnowledgeIndexer` orchestrates the full indexing pipeline: it receives a do
 
 ## Retrieval
 
-The `KnowledgeRetriever` performs vector similarity search to find chunks that are semantically related to a query. When the agent processes a user message, the message text is embedded using the same model that indexed the documents, and the resulting vector is compared against all stored chunk vectors. The top-k most similar chunks (default: 3, configurable via `FLYDEK_RAG_TOP_K`) are returned as candidate context.
+The `KnowledgeRetriever` performs vector similarity search to find chunks that are semantically related to a query. When the agent processes a user message, the message text is embedded using the same model that indexed the documents, and the resulting vector is compared against all stored chunk vectors. The top-k most similar chunks (default: 3, configurable via `FLYDESK_RAG_TOP_K`) are returned as candidate context.
 
 Similarity search is the right approach here because operational queries are often phrased differently from the documentation they relate to. A user asking "how do I fix a stuck payment" should match documentation titled "Payment Processing Error Recovery," even though the words are different. Vector similarity captures this semantic relationship in a way that keyword search cannot.
 
@@ -166,7 +166,7 @@ The merged results are formatted and injected into the agent's system prompt as 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FLYDEK_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | The embedding model for document vectorization. |
-| `FLYDEK_EMBEDDING_DIMENSIONS` | `1536` | Dimensionality of embedding vectors. |
-| `FLYDEK_RAG_TOP_K` | `3` | Number of document chunks retrieved during RAG. |
-| `FLYDEK_KG_MAX_ENTITIES_IN_CONTEXT` | `5` | Maximum knowledge graph entities in context enrichment. |
+| `FLYDESK_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | The embedding model for document vectorization. |
+| `FLYDESK_EMBEDDING_DIMENSIONS` | `1536` | Dimensionality of embedding vectors. |
+| `FLYDESK_RAG_TOP_K` | `3` | Number of document chunks retrieved during RAG. |
+| `FLYDESK_KG_MAX_ENTITIES_IN_CONTEXT` | `5` | Maximum knowledge graph entities in context enrichment. |

@@ -6,25 +6,25 @@ The most common cause of startup failures is a Python version mismatch. Firefly 
 
 If the Python version is correct, the next likely cause is missing dependencies. Run `uv sync` to ensure all packages are installed. The `uv sync` command uses the lockfile to install exact dependency versions, so if the lockfile was generated on a different platform, you may need to run `uv lock` first to regenerate it for your environment.
 
-Database connection errors at startup indicate a problem with `FLYDEK_DATABASE_URL`. In development mode, the default SQLite URL creates a file in the current working directory. If the application does not have write permissions to that directory, the connection will fail. For PostgreSQL, verify that the database server is running, the database exists, and the credentials in the URL are correct. The application logs the connection URL (with the password redacted) on startup, so check the console output for the exact URL being used.
+Database connection errors at startup indicate a problem with `FLYDESK_DATABASE_URL`. In development mode, the default SQLite URL creates a file in the current working directory. If the application does not have write permissions to that directory, the connection will fail. For PostgreSQL, verify that the database server is running, the database exists, and the credentials in the URL are correct. The application logs the connection URL (with the password redacted) on startup, so check the console output for the exact URL being used.
 
 ## Frontend Cannot Reach the API
 
-When the frontend displays connection errors or shows empty data, the issue is typically a CORS misconfiguration or a network connectivity problem. The backend must include the frontend's origin in the `FLYDEK_CORS_ORIGINS` list. The default value includes both `http://localhost:3000` and `http://localhost:5173`, which covers the standard SvelteKit development server port.
+When the frontend displays connection errors or shows empty data, the issue is typically a CORS misconfiguration or a network connectivity problem. The backend must include the frontend's origin in the `FLYDESK_CORS_ORIGINS` list. The default value includes both `http://localhost:3000` and `http://localhost:5173`, which covers the standard SvelteKit development server port.
 
 Verify that the backend is actually running on the expected port. The default is port 8000. If you started uvicorn without specifying `--port 8000`, it may be running on a different port. Check the uvicorn startup output for the actual address and port.
 
-If both the backend and frontend are running but requests still fail, check your browser's developer console for specific CORS error messages. The most common issue is that the frontend origin URL does not exactly match an entry in `FLYDEK_CORS_ORIGINS`. The match is exact and includes the protocol, hostname, and port. `http://localhost:5173` is not the same as `http://127.0.0.1:5173`.
+If both the backend and frontend are running but requests still fail, check your browser's developer console for specific CORS error messages. The most common issue is that the frontend origin URL does not exactly match an entry in `FLYDESK_CORS_ORIGINS`. The match is exact and includes the protocol, hostname, and port. `http://localhost:5173` is not the same as `http://127.0.0.1:5173`.
 
 ## OIDC Authentication Failures
 
 ### Callback Redirect Mismatch
 
-OIDC callback failures occur when the redirect URI configured in Firefly Desk does not exactly match the redirect URI registered with your identity provider. Both values must be identical, including trailing slashes. Check `FLYDEK_OIDC_REDIRECT_URI` and compare it character-by-character with the redirect URI in your OIDC provider's client configuration.
+OIDC callback failures occur when the redirect URI configured in Firefly Desk does not exactly match the redirect URI registered with your identity provider. Both values must be identical, including trailing slashes. Check `FLYDESK_OIDC_REDIRECT_URI` and compare it character-by-character with the redirect URI in your OIDC provider's client configuration.
 
 ### Missing Roles or Permissions
 
-If the callback succeeds but the user has no roles or permissions, verify that `FLYDEK_OIDC_ROLES_CLAIM` and `FLYDEK_OIDC_PERMISSIONS_CLAIM` point to the correct fields in your provider's JWT tokens. You can decode a token at jwt.io to inspect its claims and find the correct paths.
+If the callback succeeds but the user has no roles or permissions, verify that `FLYDESK_OIDC_ROLES_CLAIM` and `FLYDESK_OIDC_PERMISSIONS_CLAIM` point to the correct fields in your provider's JWT tokens. You can decode a token at jwt.io to inspect its claims and find the correct paths.
 
 Common claim paths by provider:
 
@@ -39,7 +39,7 @@ Common claim paths by provider:
 
 ### Issuer URL Unreachable
 
-If the OIDC issuer URL is unreachable, the application will fail to start because it needs to fetch the provider's discovery document during initialization. Ensure that the `FLYDEK_OIDC_ISSUER_URL` is accessible from the machine running the backend, including through any firewalls or network policies.
+If the OIDC issuer URL is unreachable, the application will fail to start because it needs to fetch the provider's discovery document during initialization. Ensure that the `FLYDESK_OIDC_ISSUER_URL` is accessible from the machine running the backend, including through any firewalls or network policies.
 
 ### Token Expiration and Refresh
 
@@ -56,8 +56,8 @@ If users are unexpectedly logged out, verify that the OIDC provider's token expi
 ### Microsoft Entra ID
 
 - The issuer URL format is `https://login.microsoftonline.com/{tenant-id}/v2.0`.
-- Set `FLYDEK_OIDC_TENANT_ID` to your Azure AD tenant ID.
-- App roles must be defined in the app registration and assigned to users. Group claims alone are not sufficient unless the `FLYDEK_OIDC_ROLES_CLAIM` is set to `groups`.
+- Set `FLYDESK_OIDC_TENANT_ID` to your Azure AD tenant ID.
+- App roles must be defined in the app registration and assigned to users. Group claims alone are not sufficient unless the `FLYDESK_OIDC_ROLES_CLAIM` is set to `groups`.
 
 ### Auth0
 
@@ -91,8 +91,8 @@ For PostgreSQL deployments, ensure the pgvector extension is installed before st
 If the banking seed scenario fails or produces incomplete data, the cleanest resolution is to remove and re-seed:
 
 ```bash
-flydek-seed banking --remove
-flydek-seed banking
+flydesk-seed banking --remove
+flydesk-seed banking
 ```
 
 The remove command identifies seed data by its metadata tags, so it only deletes data that was created by the seeding process. Manually created systems, endpoints, and documents are unaffected. If the seed command itself fails, check the console output for specific error messages. The most common cause is a database connection issue.
@@ -118,7 +118,7 @@ PDF generation requires the `weasyprint` library, which depends on system-level 
 
 ### Export File Not Found on Download
 
-If a completed export returns a 404 on download, verify that the `FLYDEK_FILE_STORAGE_PATH` directory exists and is writable. Also check that the path is consistent between the process that generated the export and the process serving the download request. In multi-instance deployments, all instances must have access to the same file storage.
+If a completed export returns a 404 on download, verify that the `FLYDESK_FILE_STORAGE_PATH` directory exists and is writable. Also check that the path is consistent between the process that generated the export and the process serving the download request. In multi-instance deployments, all instances must have access to the same file storage.
 
 ### Export Template Column Mapping Not Applied
 
@@ -166,7 +166,7 @@ After creating or modifying a custom role, the user must start a new session (lo
 
 ### Upload Rejected with Size Error
 
-The default maximum file size is 50 MB, controlled by `FLYDEK_FILE_MAX_SIZE_MB`. If users need to upload larger files, increase this limit. Note that very large files may cause memory pressure during content extraction.
+The default maximum file size is 50 MB, controlled by `FLYDESK_FILE_MAX_SIZE_MB`. If users need to upload larger files, increase this limit. Note that very large files may cause memory pressure during content extraction.
 
 ### Content Extraction Returns Empty Text
 
@@ -174,10 +174,10 @@ Content extraction is supported for text-based formats (plain text, markdown, HT
 
 ### Upload Directory Permission Errors
 
-Ensure the `FLYDEK_FILE_STORAGE_PATH` directory exists and the application process has write permissions. In containerized deployments, this often requires mounting a volume with appropriate permissions.
+Ensure the `FLYDESK_FILE_STORAGE_PATH` directory exists and the application process has write permissions. In containerized deployments, this often requires mounting a volume with appropriate permissions.
 
 ```bash
 # Create the upload directory with correct permissions
-mkdir -p /data/flydek/uploads
-chown -R appuser:appgroup /data/flydek/uploads
+mkdir -p /data/flydesk/uploads
+chown -R appuser:appgroup /data/flydesk/uploads
 ```
