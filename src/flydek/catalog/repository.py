@@ -202,6 +202,132 @@ class CatalogRepository:
             )
             await session.commit()
 
+    # -- Credentials --
+
+    async def list_credentials(self) -> list:
+        """Return all stored credentials."""
+        from flydek.catalog.models import Credential
+        from flydek.models.catalog import CredentialRow
+
+        async with self._session_factory() as session:
+            result = await session.execute(select(CredentialRow))
+            return [
+                Credential(
+                    id=r.id,
+                    system_id=r.system_id,
+                    name=r.name,
+                    encrypted_value=r.encrypted_value,
+                    credential_type=r.credential_type,
+                    expires_at=r.expires_at,
+                    last_rotated=r.last_rotated,
+                )
+                for r in result.scalars().all()
+            ]
+
+    async def get_credential(self, credential_id: str):
+        """Retrieve a credential by ID."""
+        from flydek.catalog.models import Credential
+        from flydek.models.catalog import CredentialRow
+
+        async with self._session_factory() as session:
+            row = await session.get(CredentialRow, credential_id)
+            if row is None:
+                return None
+            return Credential(
+                id=row.id,
+                system_id=row.system_id,
+                name=row.name,
+                encrypted_value=row.encrypted_value,
+                credential_type=row.credential_type,
+                expires_at=row.expires_at,
+                last_rotated=row.last_rotated,
+            )
+
+    async def create_credential(self, credential) -> None:
+        """Persist a new credential."""
+        from flydek.models.catalog import CredentialRow
+
+        async with self._session_factory() as session:
+            row = CredentialRow(
+                id=credential.id,
+                system_id=credential.system_id,
+                name=credential.name,
+                encrypted_value=credential.encrypted_value,
+                credential_type=credential.credential_type,
+                expires_at=credential.expires_at,
+                last_rotated=credential.last_rotated,
+            )
+            session.add(row)
+            await session.commit()
+
+    async def update_credential(self, credential) -> None:
+        """Update an existing credential."""
+        from flydek.models.catalog import CredentialRow
+
+        async with self._session_factory() as session:
+            row = await session.get(CredentialRow, credential.id)
+            if row is None:
+                msg = f"Credential {credential.id} not found"
+                raise ValueError(msg)
+            row.system_id = credential.system_id
+            row.name = credential.name
+            row.encrypted_value = credential.encrypted_value
+            row.credential_type = credential.credential_type
+            row.expires_at = credential.expires_at
+            row.last_rotated = credential.last_rotated
+            await session.commit()
+
+    async def delete_credential(self, credential_id: str) -> None:
+        """Delete a credential by ID."""
+        from flydek.models.catalog import CredentialRow
+
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(CredentialRow).where(CredentialRow.id == credential_id)
+            )
+            await session.commit()
+
+    # -- Knowledge Documents --
+
+    async def list_knowledge_documents(self) -> list:
+        """Return all knowledge documents."""
+        from flydek.knowledge.models import DocumentType, KnowledgeDocument
+        from flydek.models.knowledge_base import KnowledgeDocumentRow
+
+        async with self._session_factory() as session:
+            result = await session.execute(select(KnowledgeDocumentRow))
+            return [
+                KnowledgeDocument(
+                    id=r.id,
+                    title=r.title,
+                    content=r.content,
+                    document_type=DocumentType(r.document_type) if r.document_type else DocumentType.OTHER,
+                    source=r.source,
+                    tags=_from_json(r.tags) if r.tags else [],
+                    metadata=_from_json(r.metadata_) if r.metadata_ else {},
+                )
+                for r in result.scalars().all()
+            ]
+
+    async def get_knowledge_document(self, document_id: str):
+        """Retrieve a knowledge document by ID."""
+        from flydek.knowledge.models import DocumentType, KnowledgeDocument
+        from flydek.models.knowledge_base import KnowledgeDocumentRow
+
+        async with self._session_factory() as session:
+            row = await session.get(KnowledgeDocumentRow, document_id)
+            if row is None:
+                return None
+            return KnowledgeDocument(
+                id=row.id,
+                title=row.title,
+                content=row.content,
+                document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
+                source=row.source,
+                tags=_from_json(row.tags) if row.tags else [],
+                metadata=_from_json(row.metadata_) if row.metadata_ else {},
+            )
+
     # -- Mapping helpers --
 
     @staticmethod
