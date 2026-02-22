@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Settings, Sun, Moon } from 'lucide-svelte';
+	import { goto } from '$app/navigation';
 	import logo from '$lib/assets/logo.svg';
+	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 
 	interface TopBarProps {
 		title?: string;
@@ -8,8 +10,6 @@
 	}
 
 	let { title = 'Firefly Desk', userName = 'User' }: TopBarProps = $props();
-
-	let darkMode = $state(false);
 
 	let initials = $derived(
 		userName
@@ -21,7 +21,7 @@
 	);
 
 	function toggleDarkMode() {
-		darkMode = !darkMode;
+		setTheme($resolvedTheme === 'dark' ? 'light' : 'dark');
 	}
 </script>
 
@@ -42,9 +42,9 @@
 			type="button"
 			onclick={toggleDarkMode}
 			class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-			aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+			aria-label={$resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
 		>
-			{#if darkMode}
+			{#if $resolvedTheme === 'dark'}
 				<Sun size={18} />
 			{:else}
 				<Moon size={18} />
@@ -53,6 +53,7 @@
 
 		<button
 			type="button"
+			onclick={() => goto('/settings')}
 			class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
 			aria-label="Settings"
 		>
