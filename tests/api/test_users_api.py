@@ -17,27 +17,27 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.audit.logger import AuditLogger
-from flydek.audit.models import AuditEvent, AuditEventType
-from flydek.conversation.models import Conversation
-from flydek.conversation.repository import ConversationRepository
-from flydek.models.base import Base
-from flydek.settings.repository import SettingsRepository
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.conversation.models import Conversation
+from flydesk.conversation.repository import ConversationRepository
+from flydesk.models.base import Base
+from flydesk.settings.repository import SettingsRepository
 
 
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
-        "FLYDEK_AGENT_NAME": "Ember",
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_AGENT_NAME": "Ember",
     }
     with patch.dict(os.environ, env):
-        from flydek.api.users import get_session_factory, get_settings_repo
-        from flydek.server import create_app
+        from flydesk.api.users import get_session_factory, get_settings_repo
+        from flydesk.server import create_app
 
         app = create_app()
 
@@ -218,19 +218,19 @@ class TestProfileWithPersonalization:
     @pytest.fixture
     async def personalized_client(self):
         env = {
-            "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-            "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-            "FLYDEK_OIDC_CLIENT_ID": "test",
-            "FLYDEK_OIDC_CLIENT_SECRET": "test",
-            "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
-            "FLYDEK_AGENT_NAME": "Ember",
-            "FLYDEK_DEV_USER_PICTURE": "https://cdn.example.com/photo.png",
-            "FLYDEK_DEV_USER_DEPARTMENT": "Engineering",
-            "FLYDEK_DEV_USER_TITLE": "Staff Engineer",
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+            "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+            "FLYDESK_OIDC_CLIENT_ID": "test",
+            "FLYDESK_OIDC_CLIENT_SECRET": "test",
+            "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+            "FLYDESK_AGENT_NAME": "Ember",
+            "FLYDESK_DEV_USER_PICTURE": "https://cdn.example.com/photo.png",
+            "FLYDESK_DEV_USER_DEPARTMENT": "Engineering",
+            "FLYDESK_DEV_USER_TITLE": "Staff Engineer",
         }
         with patch.dict(os.environ, env):
-            from flydek.api.users import get_session_factory, get_settings_repo
-            from flydek.server import create_app
+            from flydesk.api.users import get_session_factory, get_settings_repo
+            from flydesk.server import create_app
 
             app = create_app()
 

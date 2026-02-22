@@ -17,23 +17,23 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.files.extractor import ContentExtractor
-from flydek.files.repository import FileUploadRepository
-from flydek.files.storage import LocalFileStorage
-from flydek.models.base import Base
+from flydesk.files.extractor import ContentExtractor
+from flydesk.files.repository import FileUploadRepository
+from flydesk.files.storage import LocalFileStorage
+from flydesk.models.base import Base
 
 
 @pytest.fixture
 async def client(tmp_path):
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_DEV_MODE": "true",
-        "FLYDEK_AGENT_NAME": "Ember",
-        "FLYDEK_FILE_STORAGE_PATH": str(tmp_path / "uploads"),
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_DEV_MODE": "true",
+        "FLYDESK_AGENT_NAME": "Ember",
+        "FLYDESK_FILE_STORAGE_PATH": str(tmp_path / "uploads"),
     }
     with patch.dict(os.environ, env):
-        from flydek.api.files import get_content_extractor, get_file_repo, get_file_storage
-        from flydek.server import create_app
+        from flydesk.api.files import get_content_extractor, get_file_repo, get_file_storage
+        from flydesk.server import create_app
 
         app = create_app()
 

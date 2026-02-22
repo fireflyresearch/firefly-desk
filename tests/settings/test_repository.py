@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.models.base import Base
-from flydek.settings.models import UserSettings
-from flydek.settings.repository import SettingsRepository
+from flydesk.models.base import Base
+from flydesk.settings.models import UserSettings
+from flydesk.settings.repository import SettingsRepository
 
 
 @pytest.fixture

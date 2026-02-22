@@ -86,20 +86,20 @@ For files that exceed a reasonable text length, the extracted content may be tru
 
 ## File Storage
 
-Uploaded files are stored on the local filesystem at the path configured by `FLYDEK_FILE_STORAGE_PATH` (default: `./uploads`). Each file is stored with a unique identifier to prevent name collisions.
+Uploaded files are stored on the local filesystem at the path configured by `FLYDESK_FILE_STORAGE_PATH` (default: `./uploads`). Each file is stored with a unique identifier to prevent name collisions.
 
 ### Storage Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FLYDEK_FILE_STORAGE_PATH` | `./uploads` | Directory where uploaded files are stored |
-| `FLYDEK_FILE_MAX_SIZE_MB` | `50` | Maximum allowed file size in megabytes |
+| `FLYDESK_FILE_STORAGE_PATH` | `./uploads` | Directory where uploaded files are stored |
+| `FLYDESK_FILE_MAX_SIZE_MB` | `50` | Maximum allowed file size in megabytes |
 
 ### Production Considerations
 
 In production deployments:
 
-- Use an absolute path for `FLYDEK_FILE_STORAGE_PATH` to avoid ambiguity
+- Use an absolute path for `FLYDESK_FILE_STORAGE_PATH` to avoid ambiguity
 - Ensure the application process has read and write permissions to the storage directory
 - For multi-instance deployments, use a shared filesystem (NFS, EFS) or object storage so all instances can access uploaded files
 - Back up the storage directory as part of your regular backup procedures
@@ -145,9 +145,9 @@ Deletes the file record and its stored content.
 
 ### Upload Rejected
 
-If an upload fails with a size error, the file exceeds the `FLYDEK_FILE_MAX_SIZE_MB` limit. Increase the limit if larger files are expected.
+If an upload fails with a size error, the file exceeds the `FLYDESK_FILE_MAX_SIZE_MB` limit. Increase the limit if larger files are expected.
 
-If an upload fails with a permission error, the `FLYDEK_FILE_STORAGE_PATH` directory may not exist or may not be writable by the application process.
+If an upload fails with a permission error, the `FLYDESK_FILE_STORAGE_PATH` directory may not exist or may not be writable by the application process.
 
 ### Content Not Available to Agent
 
@@ -155,4 +155,4 @@ If Ember cannot access the content of an uploaded file, verify that the file's c
 
 ### Files Missing After Restart
 
-In development mode with the default storage path (`./uploads`), files are stored relative to the working directory. If the application is started from a different directory, previously uploaded files will not be found. Use an absolute path for `FLYDEK_FILE_STORAGE_PATH` to avoid this issue.
+In development mode with the default storage path (`./uploads`), files are stored relative to the working directory. If the application is started from a different directory, previously uploaded files will not be found. Use an absolute path for `FLYDESK_FILE_STORAGE_PATH` to avoid this issue.

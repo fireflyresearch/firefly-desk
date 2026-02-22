@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.audit.logger import AuditLogger
-from flydek.audit.models import AuditEvent, AuditEventType
-from flydek.models.base import Base
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.models.base import Base
 
 
 @pytest.fixture

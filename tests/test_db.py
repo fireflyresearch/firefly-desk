@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from flydek.db import create_engine_from_url
+from flydesk.db import create_engine_from_url
 
 
 class TestDatabaseEngine:

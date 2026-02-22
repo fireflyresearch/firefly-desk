@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from flydek.knowledge.importer import KnowledgeImporter, _strip_extension
-from flydek.knowledge.models import DocumentType, KnowledgeDocument
+from flydesk.knowledge.importer import KnowledgeImporter, _strip_extension
+from flydesk.knowledge.models import DocumentType, KnowledgeDocument
 
 
 @pytest.fixture

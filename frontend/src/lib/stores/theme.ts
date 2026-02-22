@@ -18,7 +18,7 @@ export type ResolvedTheme = 'light' | 'dark';
 // Constants
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'flydek_theme';
+const STORAGE_KEY = 'flydesk_theme';
 
 // ---------------------------------------------------------------------------
 // Stores

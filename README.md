@@ -77,7 +77,7 @@ cp .env.example .env
 uv sync
 
 # Start the backend server
-uvicorn flydek.server:create_app --factory --port 8000
+uvicorn flydesk.server:create_app --factory --port 8000
 ```
 
 In a separate terminal:
@@ -93,7 +93,7 @@ npm run dev
 
 ```bash
 # Populate the catalog with a sample banking system and knowledge documents
-flydek-seed banking
+flydesk-seed banking
 ```
 
 ### Open the Application
@@ -102,24 +102,24 @@ Navigate to `http://localhost:5173`. Ember will be ready to assist. Try asking "
 
 ## Configuration Reference
 
-All configuration uses environment variables with the `FLYDEK_` prefix, or a `.env` file at the project root.
+All configuration uses environment variables with the `FLYDESK_` prefix, or a `.env` file at the project root.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `FLYDEK_DEV_MODE` | `true` | Development mode (SQLite, no auth) |
-| `FLYDEK_DATABASE_URL` | `sqlite+aiosqlite:///flydek_dev.db` | Database connection URL |
-| `FLYDEK_REDIS_URL` | -- | Redis URL for caching and rate limiting |
-| `FLYDEK_OIDC_ISSUER_URL` | -- | OIDC provider issuer URL |
-| `FLYDEK_OIDC_CLIENT_ID` | -- | OIDC client identifier |
-| `FLYDEK_OIDC_CLIENT_SECRET` | -- | OIDC client secret |
-| `FLYDEK_OIDC_PROVIDER_TYPE` | `keycloak` | Provider type for claim mapping |
-| `FLYDEK_AGENT_NAME` | `Ember` | Conversational agent display name |
-| `FLYDEK_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model for knowledge indexing |
-| `FLYDEK_CREDENTIAL_ENCRYPTION_KEY` | -- | Encryption key for stored credentials |
-| `FLYDEK_FILE_STORAGE_PATH` | `./uploads` | File upload storage directory |
-| `FLYDEK_FILE_MAX_SIZE_MB` | `50` | Maximum file upload size |
-| `FLYDEK_AUDIT_RETENTION_DAYS` | `365` | Audit log retention period |
-| `FLYDEK_RATE_LIMIT_PER_USER` | `60` | API requests per user per minute |
+| `FLYDESK_DEV_MODE` | `true` | Development mode (SQLite, no auth) |
+| `FLYDESK_DATABASE_URL` | `sqlite+aiosqlite:///flydesk_dev.db` | Database connection URL |
+| `FLYDESK_REDIS_URL` | -- | Redis URL for caching and rate limiting |
+| `FLYDESK_OIDC_ISSUER_URL` | -- | OIDC provider issuer URL |
+| `FLYDESK_OIDC_CLIENT_ID` | -- | OIDC client identifier |
+| `FLYDESK_OIDC_CLIENT_SECRET` | -- | OIDC client secret |
+| `FLYDESK_OIDC_PROVIDER_TYPE` | `keycloak` | Provider type for claim mapping |
+| `FLYDESK_AGENT_NAME` | `Ember` | Conversational agent display name |
+| `FLYDESK_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model for knowledge indexing |
+| `FLYDESK_CREDENTIAL_ENCRYPTION_KEY` | -- | Encryption key for stored credentials |
+| `FLYDESK_FILE_STORAGE_PATH` | `./uploads` | File upload storage directory |
+| `FLYDESK_FILE_MAX_SIZE_MB` | `50` | Maximum file upload size |
+| `FLYDESK_AUDIT_RETENTION_DAYS` | `365` | Audit log retention period |
+| `FLYDESK_RATE_LIMIT_PER_USER` | `60` | API requests per user per minute |
 
 See [docs/configuration.md](docs/configuration.md) for the complete reference.
 
@@ -143,7 +143,7 @@ See [docs/configuration.md](docs/configuration.md) for the complete reference.
 
 ```
 firefly-desk/
-  src/flydek/              # Python backend
+  src/flydesk/              # Python backend
     agent/                 # Agent pipeline: context, prompt, confirmation
     api/                   # FastAPI route handlers
     audit/                 # Audit logging system

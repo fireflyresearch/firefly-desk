@@ -19,9 +19,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from flydek.auth.models import UserSession
-from flydek.knowledge.graph import Entity, EntityGraph, Relation
-from flydek.knowledge.models import DocumentChunk, DocumentType, KnowledgeDocument
+from flydesk.auth.models import UserSession
+from flydesk.knowledge.graph import Entity, EntityGraph, Relation
+from flydesk.knowledge.models import DocumentChunk, DocumentType, KnowledgeDocument
 
 
 # ---------------------------------------------------------------------------
@@ -127,20 +127,20 @@ def mock_graph():
 async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
     """AsyncClient with an admin user session and mocked dependencies."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.knowledge import (
+        from flydesk.api.knowledge import (
             get_knowledge_doc_store,
             get_knowledge_graph,
             get_knowledge_importer,
             get_knowledge_indexer,
         )
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_knowledge_indexer] = lambda: mock_indexer
@@ -167,20 +167,20 @@ async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
 async def non_admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
     """AsyncClient with a non-admin user session."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.knowledge import (
+        from flydesk.api.knowledge import (
             get_knowledge_doc_store,
             get_knowledge_graph,
             get_knowledge_importer,
             get_knowledge_indexer,
         )
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_knowledge_indexer] = lambda: mock_indexer

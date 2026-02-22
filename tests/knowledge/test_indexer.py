@@ -12,10 +12,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.knowledge.indexer import KnowledgeIndexer
-from flydek.knowledge.models import KnowledgeDocument
-from flydek.models.base import Base
-from flydek.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
+from flydesk.knowledge.indexer import KnowledgeIndexer
+from flydesk.knowledge.models import KnowledgeDocument
+from flydesk.models.base import Base
+from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 
 class FakeEmbeddingProvider:

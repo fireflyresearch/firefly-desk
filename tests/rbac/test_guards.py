@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from flydek.auth.models import UserSession
-from flydek.rbac.guards import require_permission
+from flydesk.auth.models import UserSession
+from flydesk.rbac.guards import require_permission
 
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,7 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 
 # Create a non-root user for security.
-RUN addgroup -S flydek && adduser -S flydek -G flydek
+RUN addgroup -S flydesk && adduser -S flydesk -G flydesk
 
 WORKDIR /app
 
@@ -56,7 +56,7 @@ COPY --from=builder /build/package.json ./
 RUN npm ci --omit=dev 2>/dev/null || true
 
 # Switch to non-root user.
-USER flydek
+USER flydesk
 
 EXPOSE 3000
 

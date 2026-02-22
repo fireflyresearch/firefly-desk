@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from flydek.agent.context import ContextEnricher, EnrichedContext
-from flydek.knowledge.graph import Entity, KnowledgeGraph
-from flydek.knowledge.models import DocumentChunk, RetrievalResult
-from flydek.knowledge.retriever import KnowledgeRetriever
+from flydesk.agent.context import ContextEnricher, EnrichedContext
+from flydesk.knowledge.graph import Entity, KnowledgeGraph
+from flydesk.knowledge.models import DocumentChunk, RetrievalResult
+from flydesk.knowledge.retriever import KnowledgeRetriever
 
 
 @pytest.fixture

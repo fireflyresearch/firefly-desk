@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.llm.models import LLMProvider, ProviderType
-from flydek.llm.repository import LLMProviderRepository
-from flydek.models.base import Base
+from flydesk.llm.models import LLMProvider, ProviderType
+from flydesk.llm.repository import LLMProviderRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture

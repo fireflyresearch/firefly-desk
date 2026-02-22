@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.catalog.enums import AuthType, HttpMethod, RiskLevel
-from flydek.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
-from flydek.catalog.repository import CatalogRepository
-from flydek.models.base import Base
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
+from flydesk.catalog.repository import CatalogRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture

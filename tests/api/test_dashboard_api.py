@@ -18,33 +18,33 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.audit.logger import AuditLogger
-from flydek.audit.models import AuditEvent, AuditEventType
-from flydek.catalog.repository import CatalogRepository
-from flydek.conversation.repository import ConversationRepository
-from flydek.conversation.models import Conversation
-from flydek.llm.repository import LLMProviderRepository
-from flydek.models.base import Base
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.catalog.repository import CatalogRepository
+from flydesk.conversation.repository import ConversationRepository
+from flydesk.conversation.models import Conversation
+from flydesk.llm.repository import LLMProviderRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture
 async def client():
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
-        "FLYDEK_AGENT_NAME": "Ember",
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_AGENT_NAME": "Ember",
     }
     with patch.dict(os.environ, env):
-        from flydek.api.dashboard import (
+        from flydesk.api.dashboard import (
             get_audit_logger,
             get_catalog_repo,
             get_llm_repo,
             get_session_factory,
         )
-        from flydek.server import create_app
+        from flydesk.server import create_app
 
         app = create_app()
 

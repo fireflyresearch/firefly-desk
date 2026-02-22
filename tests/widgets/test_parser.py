@@ -10,8 +10,8 @@
 
 from __future__ import annotations
 
-from flydek.widgets.parser import WidgetParser
-from flydek.widgets.schema import WidgetDisplay
+from flydesk.widgets.parser import WidgetParser
+from flydesk.widgets.schema import WidgetDisplay
 
 
 class TestWidgetParser:

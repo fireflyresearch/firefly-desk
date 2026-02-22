@@ -10,7 +10,7 @@ Firefly Desk has two operational modes with different infrastructure requirement
 - **Node.js 22+** -- Required by the SvelteKit frontend build toolchain.
 - **uv** -- The fast Python package manager. No other Python tooling is required.
 
-In development mode, the platform uses SQLite for persistence and operates without Redis or an OIDC provider. Authentication is bypassed with a development user, and all data is stored in a local `flydek_dev.db` file.
+In development mode, the platform uses SQLite for persistence and operates without Redis or an OIDC provider. Authentication is bypassed with a development user, and all data is stored in a local `flydesk_dev.db` file.
 
 ### Production Requirements
 
@@ -40,7 +40,7 @@ cd firefly-desk
 cp .env.example .env
 ```
 
-The default `.env` file sets `FLYDEK_DEV_MODE=true` and `FLYDEK_DATABASE_URL=sqlite+aiosqlite:///flydek_dev.db`. These defaults mean you need no further configuration.
+The default `.env` file sets `FLYDESK_DEV_MODE=true` and `FLYDESK_DATABASE_URL=sqlite+aiosqlite:///flydesk_dev.db`. These defaults mean you need no further configuration.
 
 Install Python dependencies:
 
@@ -51,7 +51,7 @@ uv sync
 Start the backend server:
 
 ```bash
-uvicorn flydek.server:create_app --factory --port 8000
+uvicorn flydesk.server:create_app --factory --port 8000
 ```
 
 In a second terminal, set up and start the frontend:
@@ -65,7 +65,7 @@ npm run dev
 Seed the development database with demo data:
 
 ```bash
-flydek-seed banking
+flydesk-seed banking
 ```
 
 Navigate to `http://localhost:5173` to begin using Firefly Desk.
@@ -79,15 +79,15 @@ Production deployment requires PostgreSQL with the pgvector extension for embedd
 Install PostgreSQL 16 or later and enable the pgvector extension:
 
 ```sql
-CREATE DATABASE flydek;
-\c flydek
+CREATE DATABASE flydesk;
+\c flydesk
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 Set the database URL in your environment:
 
 ```bash
-FLYDEK_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/flydek
+FLYDESK_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/flydesk
 ```
 
 ### Redis
@@ -95,12 +95,12 @@ FLYDEK_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/flydek
 Install Redis 7 or later. Redis is used for rate limiting, session caching, and cross-instance communication in multi-node deployments. Set the connection URL:
 
 ```bash
-FLYDEK_REDIS_URL=redis://localhost:6379/0
+FLYDESK_REDIS_URL=redis://localhost:6379/0
 ```
 
 ### Disabling Development Mode
 
-Set `FLYDEK_DEV_MODE=false` in your environment. This activates OIDC authentication enforcement, enables rate limiting, and switches to production-grade session management. See the [Configuration](configuration.md) guide for the full list of environment variables.
+Set `FLYDESK_DEV_MODE=false` in your environment. This activates OIDC authentication enforcement, enables rate limiting, and switches to production-grade session management. See the [Configuration](configuration.md) guide for the full list of environment variables.
 
 ## Docker Deployment
 
@@ -112,4 +112,4 @@ docker-compose up -d
 
 The Compose file defines services for the Firefly Desk application, PostgreSQL with pgvector, and Redis. All environment variables can be set in a `.env` file alongside the `docker-compose.yml`. This approach is recommended for staging environments and production deployments where container orchestration simplifies scaling and lifecycle management.
 
-Ensure that the `FLYDEK_CREDENTIAL_ENCRYPTION_KEY` environment variable is set to a securely generated key before starting the containers. This key encrypts stored credentials for external systems and must remain consistent across restarts to avoid losing access to registered system credentials.
+Ensure that the `FLYDESK_CREDENTIAL_ENCRYPTION_KEY` environment variable is set to a securely generated key before starting the containers. This key encrypts stored credentials for external systems and must remain consistent across restarts to avoid losing access to registered system credentials.

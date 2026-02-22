@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from flydek.agent.prompt import PromptContext, SystemPromptBuilder
+from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
 
 
 class TestSystemPromptBuilder:

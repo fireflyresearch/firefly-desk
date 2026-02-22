@@ -18,10 +18,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.auth.models import UserSession
-from flydek.models.base import Base
-from flydek.rbac.permissions import Permission
-from flydek.rbac.repository import RoleRepository
+from flydesk.auth.models import UserSession
+from flydesk.models.base import Base
+from flydesk.rbac.permissions import Permission
+from flydesk.rbac.repository import RoleRepository
 
 
 # ---------------------------------------------------------------------------
@@ -53,15 +53,15 @@ def _make_user_session(*, permissions: list[str]) -> UserSession:
 async def admin_client():
     """AsyncClient backed by a real SQLite database with admin permissions."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.roles import get_role_repo
-        from flydek.server import create_app
+        from flydesk.api.roles import get_role_repo
+        from flydesk.server import create_app
 
         app = create_app()
 
@@ -95,15 +95,15 @@ async def admin_client():
 async def non_admin_client():
     """AsyncClient with a non-admin user session (no admin:roles permission)."""
     env = {
-        "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-        "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
-        "FLYDEK_OIDC_CLIENT_ID": "test",
-        "FLYDEK_OIDC_CLIENT_SECRET": "test",
-        "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+        "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "FLYDESK_OIDC_ISSUER_URL": "https://idp.example.com",
+        "FLYDESK_OIDC_CLIENT_ID": "test",
+        "FLYDESK_OIDC_CLIENT_SECRET": "test",
+        "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydek.api.roles import get_role_repo
-        from flydek.server import create_app
+        from flydesk.api.roles import get_role_repo
+        from flydesk.server import create_app
 
         app = create_app()
 

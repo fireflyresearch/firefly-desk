@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from flydek.catalog.enums import HttpMethod, RiskLevel
-from flydek.catalog.models import ServiceEndpoint
-from flydek.tools.factory import ToolFactory
+from flydesk.catalog.enums import HttpMethod, RiskLevel
+from flydesk.catalog.models import ServiceEndpoint
+from flydesk.tools.factory import ToolFactory
 
 
 def _make_endpoint(

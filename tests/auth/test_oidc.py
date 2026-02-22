@@ -16,7 +16,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from flydek.auth.oidc import OIDCClient, OIDCDiscoveryDocument, generate_pkce_pair
+from flydesk.auth.oidc import OIDCClient, OIDCDiscoveryDocument, generate_pkce_pair
 
 # ---------------------------------------------------------------------------
 # RSA key pair for JWT signing/verification in tests
@@ -110,7 +110,7 @@ class TestOIDCDiscovery:
         mock_http.__aexit__ = AsyncMock(return_value=False)
         mock_http.get = AsyncMock(return_value=_httpx_response(DISCOVERY_DATA))
 
-        with patch("flydek.auth.oidc.httpx.AsyncClient", return_value=mock_http):
+        with patch("flydesk.auth.oidc.httpx.AsyncClient", return_value=mock_http):
             doc = await client.discover()
 
         assert isinstance(doc, OIDCDiscoveryDocument)
@@ -130,7 +130,7 @@ class TestOIDCDiscovery:
         mock_http.__aexit__ = AsyncMock(return_value=False)
         mock_http.get = AsyncMock(return_value=_httpx_response(DISCOVERY_DATA))
 
-        with patch("flydek.auth.oidc.httpx.AsyncClient", return_value=mock_http):
+        with patch("flydesk.auth.oidc.httpx.AsyncClient", return_value=mock_http):
             doc1 = await client.discover()
             doc2 = await client.discover()
 
@@ -211,7 +211,7 @@ class TestJWTValidation:
         mock_http.__aexit__ = AsyncMock(return_value=False)
         mock_http.get = AsyncMock(return_value=_httpx_response(TEST_JWKS))
 
-        with patch("flydek.auth.oidc.httpx.AsyncClient", return_value=mock_http):
+        with patch("flydesk.auth.oidc.httpx.AsyncClient", return_value=mock_http):
             claims = await client.validate_token(token)
 
         assert claims["sub"] == "user-1"
@@ -240,7 +240,7 @@ class TestTokenExchange:
         mock_http.__aexit__ = AsyncMock(return_value=False)
         mock_http.post = AsyncMock(return_value=_httpx_response(token_response))
 
-        with patch("flydek.auth.oidc.httpx.AsyncClient", return_value=mock_http):
+        with patch("flydesk.auth.oidc.httpx.AsyncClient", return_value=mock_http):
             result = await client.exchange_code(
                 code="auth-code-xyz",
                 redirect_uri="http://localhost:3000/callback",

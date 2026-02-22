@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from flydek.agent.setup_handler import SetupConversationHandler, SetupStep
-from flydek.api.events import SSEEventType
+from flydesk.agent.setup_handler import SetupConversationHandler, SetupStep
+from flydesk.api.events import SSEEventType
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def mock_app() -> MagicMock:
     app.state.config = MagicMock()
     app.state.config.agent_name = "Ember"
     app.state.config.dev_mode = True
-    app.state.config.database_url = "sqlite+aiosqlite:///flydek_dev.db"
+    app.state.config.database_url = "sqlite+aiosqlite:///flydesk_dev.db"
     app.state.config.app_title = "Firefly Desk"
     app.state.config.credential_encryption_key = "a" * 32
     app.state.session_factory = None  # No DB for unit tests
@@ -157,7 +157,7 @@ class TestSetupConversationHandler:
         mock_status.error = None
 
         with patch(
-            "flydek.llm.health.LLMHealthChecker"
+            "flydesk.llm.health.LLMHealthChecker"
         ) as MockChecker:
             MockChecker.return_value.check = AsyncMock(return_value=mock_status)
             events = await _collect(handler, "continue")
@@ -186,7 +186,7 @@ class TestSetupConversationHandler:
         mock_status.error = None
 
         with patch(
-            "flydek.llm.health.LLMHealthChecker"
+            "flydesk.llm.health.LLMHealthChecker"
         ) as MockChecker:
             MockChecker.return_value.check = AsyncMock(return_value=mock_status)
             await _collect(handler, "continue")
@@ -211,7 +211,7 @@ class TestSetupConversationHandler:
         mock_status.error = "HTTP 401"
 
         with patch(
-            "flydek.llm.health.LLMHealthChecker"
+            "flydesk.llm.health.LLMHealthChecker"
         ) as MockChecker:
             MockChecker.return_value.check = AsyncMock(return_value=mock_status)
             events = await _collect(handler, "continue")
@@ -278,7 +278,7 @@ class TestSetupConversationHandler:
         mock_status.error = None
 
         with patch(
-            "flydek.llm.health.LLMHealthChecker"
+            "flydesk.llm.health.LLMHealthChecker"
         ) as MockChecker:
             MockChecker.return_value.check = AsyncMock(return_value=mock_status)
             await _collect(handler, "continue")
@@ -392,7 +392,7 @@ class TestSetupConversationHandler:
         mock_status.error = None
 
         with patch(
-            "flydek.llm.health.LLMHealthChecker"
+            "flydesk.llm.health.LLMHealthChecker"
         ) as MockChecker:
             MockChecker.return_value.check = AsyncMock(return_value=mock_status)
             await _collect(handler, "continue")

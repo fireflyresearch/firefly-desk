@@ -10,8 +10,8 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.auth.repository import OIDCProviderRepository
-from flydek.models.base import Base
+from flydesk.auth.repository import OIDCProviderRepository
+from flydesk.models.base import Base
 
 
 @pytest.fixture

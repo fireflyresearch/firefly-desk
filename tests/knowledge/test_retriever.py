@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.knowledge.indexer import KnowledgeIndexer
-from flydek.knowledge.models import KnowledgeDocument
-from flydek.knowledge.retriever import KnowledgeRetriever
-from flydek.models.base import Base
+from flydesk.knowledge.indexer import KnowledgeIndexer
+from flydesk.knowledge.models import KnowledgeDocument
+from flydesk.knowledge.retriever import KnowledgeRetriever
+from flydesk.models.base import Base
 
 
 class SteerableEmbeddingProvider:

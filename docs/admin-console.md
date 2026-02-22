@@ -26,7 +26,7 @@ The Catalog Manager is the primary way that Firefly Desk's capabilities grow. Ev
 
 **Route:** `/admin/credentials`
 
-The Credential Vault manages the authentication credentials used to connect to external systems. Credentials are encrypted at rest using the `FLYDEK_CREDENTIAL_ENCRYPTION_KEY` and are never exposed in plaintext through the API or the UI after initial entry.
+The Credential Vault manages the authentication credentials used to connect to external systems. Credentials are encrypted at rest using the `FLYDESK_CREDENTIAL_ENCRYPTION_KEY` and are never exposed in plaintext through the API or the UI after initial entry.
 
 Administrators can create new credentials, update existing ones, and delete credentials that are no longer needed. Each credential is associated with an authentication type (OAuth2, API key, basic, bearer, or mutual TLS) and is referenced by the systems that use it. The vault interface shows which systems depend on each credential, making it clear which integrations would be affected by a credential change.
 
@@ -141,7 +141,7 @@ API keys are encrypted at rest using the same encryption key as the credential v
 
 The Audit Viewer provides a searchable interface for the platform's audit trail. Every conversation turn, tool invocation, and administrative action is recorded with timestamps, user identities, and full request and response details.
 
-Administrators can filter audit events by user, event type, and date range. This capability is essential for compliance, incident investigation, and understanding how the platform is being used. The audit trail is append-only and retained according to the `FLYDEK_AUDIT_RETENTION_DAYS` configuration, which defaults to 365 days.
+Administrators can filter audit events by user, event type, and date range. This capability is essential for compliance, incident investigation, and understanding how the platform is being used. The audit trail is append-only and retained according to the `FLYDESK_AUDIT_RETENTION_DAYS` configuration, which defaults to 365 days.
 
 The Audit Viewer is particularly valuable when investigating why the agent took a specific action. Each audit record includes the enriched context that was available to the agent at the time of the interaction, making it possible to understand not just what happened but why the agent made the decisions it did.
 

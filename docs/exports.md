@@ -172,7 +172,7 @@ The built-in Administrator role has all export permissions. The Operator role ha
 
 ## Storage
 
-Export files are stored using the same file storage system as file uploads, configured by `FLYDEK_FILE_STORAGE_PATH`. Each export file is named with the export ID and the appropriate file extension. Files remain available for download until the export record is deleted.
+Export files are stored using the same file storage system as file uploads, configured by `FLYDESK_FILE_STORAGE_PATH`. Each export file is named with the export ID and the appropriate file extension. Files remain available for download until the export record is deleted.
 
 In multi-instance deployments, ensure that all application instances have access to the same file storage location so that exports created by one instance can be downloaded through another.
 
@@ -180,6 +180,6 @@ In multi-instance deployments, ensure that all application instances have access
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FLYDEK_FILE_STORAGE_PATH` | `./uploads` | Directory where export files are stored |
+| `FLYDESK_FILE_STORAGE_PATH` | `./uploads` | Directory where export files are stored |
 
 No additional configuration is required for the export system. PDF generation quality depends on whether the `weasyprint` library and its system dependencies are installed.

@@ -15,18 +15,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from flydek.agent.context import ContextEnricher, EnrichedContext
-from flydek.agent.desk_agent import DeskAgent
-from flydek.agent.prompt import PromptContext, SystemPromptBuilder
-from flydek.agent.response import AgentResponse
-from flydek.api.events import SSEEvent, SSEEventType
-from flydek.audit.logger import AuditLogger
-from flydek.audit.models import AuditEvent
-from flydek.auth.models import UserSession
-from flydek.catalog.enums import RiskLevel
-from flydek.tools.factory import ToolDefinition, ToolFactory
-from flydek.widgets.parser import ParseResult, WidgetParser
-from flydek.widgets.schema import WidgetDirective, WidgetDisplay
+from flydesk.agent.context import ContextEnricher, EnrichedContext
+from flydesk.agent.desk_agent import DeskAgent
+from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
+from flydesk.agent.response import AgentResponse
+from flydesk.api.events import SSEEvent, SSEEventType
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent
+from flydesk.auth.models import UserSession
+from flydesk.catalog.enums import RiskLevel
+from flydesk.tools.factory import ToolDefinition, ToolFactory
+from flydesk.widgets.parser import ParseResult, WidgetParser
+from flydesk.widgets.schema import WidgetDirective, WidgetDisplay
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ class TestDeskAgentFileIds:
 
     @pytest.fixture
     def file_repo(self) -> AsyncMock:
-        from flydek.files.models import FileUpload
+        from flydesk.files.models import FileUpload
 
         mock = AsyncMock()
         mock.get = AsyncMock(
@@ -558,7 +558,7 @@ class TestDeskAgentConversationHistory:
 
     @pytest.fixture
     def conversation_repo(self) -> AsyncMock:
-        from flydek.conversation.models import Message, MessageRole
+        from flydesk.conversation.models import Message, MessageRole
 
         mock = AsyncMock()
         mock.get_messages = AsyncMock(return_value=[

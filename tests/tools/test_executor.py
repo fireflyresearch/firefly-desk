@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from flydek.catalog.enums import AuthType, HttpMethod, RiskLevel
-from flydek.catalog.models import AuthConfig, Credential, ExternalSystem, ServiceEndpoint
-from flydek.tools.executor import ToolCall, ToolExecutor, ToolResult
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel
+from flydesk.catalog.models import AuthConfig, Credential, ExternalSystem, ServiceEndpoint
+from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 
 
 # ---------------------------------------------------------------------------

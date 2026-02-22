@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from flydek.files.storage import LocalFileStorage
+from flydesk.files.storage import LocalFileStorage
 
 
 @pytest.fixture

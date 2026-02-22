@@ -18,10 +18,10 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.exports.models import ExportFormat, ExportStatus, ExportTemplate
-from flydek.exports.repository import ExportRepository
-from flydek.exports.service import ExportService
-from flydek.models.base import Base
+from flydesk.exports.models import ExportFormat, ExportStatus, ExportTemplate
+from flydesk.exports.repository import ExportRepository
+from flydesk.exports.service import ExportService
+from flydesk.models.base import Base
 
 
 @pytest.fixture

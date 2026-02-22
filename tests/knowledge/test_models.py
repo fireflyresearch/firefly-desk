@@ -12,9 +12,9 @@ import pytest
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydek.knowledge.models import DocumentType, KnowledgeDocument
-from flydek.models.base import Base
-from flydek.models.knowledge_base import KnowledgeDocumentRow
+from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+from flydesk.models.base import Base
+from flydesk.models.knowledge_base import KnowledgeDocumentRow
 
 
 # ---------------------------------------------------------------------------
