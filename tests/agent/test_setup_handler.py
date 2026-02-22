@@ -66,7 +66,7 @@ class TestSetupConversationHandler:
         events = await _collect(handler, "__setup_init__")
         token_events = [e for e in events if e.event == SSEEventType.TOKEN]
         welcome_text = token_events[0].data["content"]
-        assert "LLM provider" in welcome_text
+        assert "LLM Provider" in welcome_text
 
     async def test_welcome_advances_to_dev_user_profile(self, handler):
         await _collect(handler, "__setup_init__")
@@ -404,7 +404,7 @@ class TestSetupConversationHandler:
 
         token_events = [e for e in events if e.event == SSEEventType.TOKEN]
         all_text = " ".join(e.data["content"] for e in token_events)
-        assert "configured and tested" in all_text
+        assert "Configured and tested" in all_text
 
     async def test_done_step_acknowledges(self, handler):
         """After reaching DONE, further messages should acknowledge completion."""
