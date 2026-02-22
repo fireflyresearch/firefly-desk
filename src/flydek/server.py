@@ -47,6 +47,8 @@ from flydek.api.llm_providers import get_llm_repo
 from flydek.api.llm_providers import router as llm_providers_router
 from flydek.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
 from flydek.api.oidc_providers import router as oidc_providers_router
+from flydek.api.roles import get_role_repo
+from flydek.api.roles import router as roles_router
 from flydek.api.settings import get_settings_repo
 from flydek.api.settings import router as settings_router
 from flydek.api.setup import router as setup_router
@@ -83,6 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     role_repo = RoleRepository(session_factory)
     await role_repo.seed_builtin_roles()
     app.state.role_repo = role_repo
+    app.dependency_overrides[get_role_repo] = lambda: role_repo
 
     # Wire dependency overrides
     catalog_repo = CatalogRepository(session_factory)
@@ -341,5 +344,6 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(dashboard_router)
     app.include_router(users_router)
+    app.include_router(roles_router)
 
     return app
