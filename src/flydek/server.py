@@ -153,11 +153,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
     # Wire the DeskAgent and its dependencies
+    import httpx
+
     from flydek.agent.context import ContextEnricher
     from flydek.agent.desk_agent import DeskAgent
     from flydek.agent.prompt import SystemPromptBuilder
     from flydek.knowledge.graph import KnowledgeGraph
     from flydek.knowledge.retriever import KnowledgeRetriever
+    from flydek.tools.executor import ToolExecutor
     from flydek.tools.factory import ToolFactory
     from flydek.widgets.parser import WidgetParser
 
@@ -173,6 +176,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tool_factory = ToolFactory()
     widget_parser = WidgetParser()
 
+    # HTTP client for external tool calls (shared across all tool executions).
+    http_client = httpx.AsyncClient()
+    app.state.http_client = http_client
+
+    tool_executor = ToolExecutor(
+        http_client=http_client,
+        catalog_repo=catalog_repo,
+        credential_store=cred_store,
+        audit_logger=audit_logger,
+        max_parallel=config.max_tools_per_turn,
+    )
+
     desk_agent = DeskAgent(
         context_enricher=context_enricher,
         prompt_builder=prompt_builder,
@@ -180,6 +195,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         widget_parser=widget_parser,
         audit_logger=audit_logger,
         agent_name=config.agent_name,
+        tool_executor=tool_executor,
     )
     app.state.desk_agent = desk_agent
 
@@ -217,6 +233,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Shutdown
+    await http_client.aclose()
     await engine.dispose()
     logger.info("Firefly Desk shutdown complete.")
 

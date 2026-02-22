@@ -13,6 +13,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from flydek.agent.context import ContextEnricher
 from flydek.agent.prompt import PromptContext, SystemPromptBuilder
@@ -23,6 +24,9 @@ from flydek.audit.models import AuditEvent, AuditEventType
 from flydek.auth.models import UserSession
 from flydek.tools.factory import ToolDefinition, ToolFactory
 from flydek.widgets.parser import WidgetParser
+
+if TYPE_CHECKING:
+    from flydek.tools.executor import ToolCall, ToolExecutor, ToolResult
 
 # Token chunk size for simulated streaming (number of characters per token event).
 _STREAM_CHUNK_SIZE = 20
@@ -49,6 +53,7 @@ class DeskAgent:
         audit_logger: AuditLogger,
         agent_name: str = "Ember",
         company_name: str | None = None,
+        tool_executor: ToolExecutor | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -57,6 +62,7 @@ class DeskAgent:
         self._audit_logger = audit_logger
         self._agent_name = agent_name
         self._company_name = company_name
+        self._tool_executor = tool_executor
 
     # ------------------------------------------------------------------
     # Public API
@@ -192,12 +198,101 @@ class DeskAgent:
                 },
             )
 
+        # Emit TOOL_SUMMARY (no tool calls executed in placeholder flow, but
+        # the event is always emitted so the frontend can rely on its presence).
+        yield SSEEvent(
+            event=SSEEventType.TOOL_SUMMARY,
+            data={
+                "tool_calls": [],
+                "total_duration_ms": 0,
+                "success_count": 0,
+                "failure_count": 0,
+            },
+        )
+
         # Final done event
         yield SSEEvent(
             event=SSEEventType.DONE,
             data={
                 "conversation_id": response.conversation_id,
                 "turn_id": response.turn_id,
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Tool execution infrastructure
+    # ------------------------------------------------------------------
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: list[ToolCall],
+        session: UserSession,
+        conversation_id: str,
+    ) -> AsyncGenerator[SSEEvent, None]:
+        """Execute tool calls and yield SSE events for each.
+
+        For every tool call:
+        1. Emit ``TOOL_START`` with the call metadata.
+        2. Execute via :class:`ToolExecutor` (parallel when possible).
+        3. Emit ``TOOL_END`` per completed call with result summary.
+        4. Emit ``TOOL_SUMMARY`` with aggregated results for the batch.
+
+        Requires ``self._tool_executor`` to be set; raises
+        :class:`RuntimeError` otherwise.
+        """
+        if self._tool_executor is None:
+            msg = "ToolExecutor is not configured"
+            raise RuntimeError(msg)
+
+        # Emit TOOL_START for each call.
+        for call in tool_calls:
+            yield SSEEvent(
+                event=SSEEventType.TOOL_START,
+                data={
+                    "tool_call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                },
+            )
+
+        # Execute with automatic parallelism classification.
+        results: list[ToolResult] = await self._tool_executor.execute_parallel(
+            tool_calls, session, conversation_id,
+        )
+
+        # Emit TOOL_END for each result.
+        for result in results:
+            yield SSEEvent(
+                event=SSEEventType.TOOL_END,
+                data={
+                    "tool_call_id": result.call_id,
+                    "tool_name": result.tool_name,
+                    "success": result.success,
+                    "duration_ms": result.duration_ms,
+                    "error": result.error,
+                },
+            )
+
+        # Emit TOOL_SUMMARY with aggregated statistics.
+        success_count = sum(1 for r in results if r.success)
+        failure_count = sum(1 for r in results if not r.success)
+        total_duration = sum(r.duration_ms for r in results)
+
+        yield SSEEvent(
+            event=SSEEventType.TOOL_SUMMARY,
+            data={
+                "tool_calls": [
+                    {
+                        "call_id": r.call_id,
+                        "tool_name": r.tool_name,
+                        "success": r.success,
+                        "duration_ms": r.duration_ms,
+                        "error": r.error,
+                    }
+                    for r in results
+                ],
+                "total_duration_ms": round(total_duration, 1),
+                "success_count": success_count,
+                "failure_count": failure_count,
             },
         )
 
