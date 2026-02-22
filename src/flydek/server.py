@@ -41,7 +41,12 @@ from flydek.api.exports import router as exports_router
 from flydek.api.files import get_content_extractor, get_file_repo, get_file_storage
 from flydek.api.files import router as files_router
 from flydek.api.health import router as health_router
-from flydek.api.knowledge import get_knowledge_doc_store, get_knowledge_indexer
+from flydek.api.knowledge import (
+    get_knowledge_doc_store,
+    get_knowledge_graph,
+    get_knowledge_importer,
+    get_knowledge_indexer,
+)
 from flydek.api.knowledge import router as knowledge_router
 from flydek.api.llm_providers import get_llm_repo
 from flydek.api.llm_providers import router as llm_providers_router
@@ -163,6 +168,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)
 
+        async def update_document(self, document_id, *, title=None, document_type=None, tags=None):
+            return await catalog_repo.update_knowledge_document(
+                document_id, title=title, document_type=document_type, tags=tags
+            )
+
     doc_store = _LiveDocStore()
     app.dependency_overrides[get_knowledge_doc_store] = lambda: doc_store
 
@@ -206,6 +216,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # HTTP client for external tool calls (shared across all tool executions).
     http_client = httpx.AsyncClient()
     app.state.http_client = http_client
+
+    # Knowledge graph + importer dependency overrides
+    app.dependency_overrides[get_knowledge_graph] = lambda: knowledge_graph
+
+    from flydek.knowledge.importer import KnowledgeImporter
+
+    knowledge_importer = KnowledgeImporter(indexer=indexer, http_client=http_client)
+    app.dependency_overrides[get_knowledge_importer] = lambda: knowledge_importer
 
     tool_executor = ToolExecutor(
         http_client=http_client,

@@ -328,6 +328,37 @@ class CatalogRepository:
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
 
+    async def update_knowledge_document(
+        self, document_id: str, *, title=None, document_type=None, tags=None
+    ):
+        """Update a knowledge document's metadata fields."""
+        import json as _json
+
+        from flydek.knowledge.models import DocumentType, KnowledgeDocument
+        from flydek.models.knowledge_base import KnowledgeDocumentRow
+
+        async with self._session_factory() as session:
+            row = await session.get(KnowledgeDocumentRow, document_id)
+            if row is None:
+                return None
+            if title is not None:
+                row.title = title
+            if document_type is not None:
+                row.document_type = str(document_type)
+            if tags is not None:
+                row.tags = _json.dumps(tags)
+            await session.commit()
+            await session.refresh(row)
+            return KnowledgeDocument(
+                id=row.id,
+                title=row.title,
+                content=row.content,
+                document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
+                source=row.source,
+                tags=_from_json(row.tags) if row.tags else [],
+                metadata=_from_json(row.metadata_) if row.metadata_ else {},
+            )
+
     # -- Mapping helpers --
 
     @staticmethod
