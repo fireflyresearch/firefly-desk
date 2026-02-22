@@ -1,0 +1,96 @@
+# Copyright 2026 Firefly Software Solutions Inc
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# ---------------------------------------------------------------------------
+# Firefly Desk -- Docker Compose for development and production
+# ---------------------------------------------------------------------------
+# Usage:
+#   cp .env.example .env   # fill in real values
+#   docker compose up -d
+#
+# Services:
+#   api       -- FastAPI backend (port 8000)
+#   frontend  -- SvelteKit frontend (port 3000)
+#   postgres  -- PostgreSQL 16 with pgvector (port 5432)
+#   redis     -- Redis 7 for sessions and rate limiting (port 6379)
+# ---------------------------------------------------------------------------
+
+services:
+  # ---------- API backend ----------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flydek-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------- SvelteKit frontend ----------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: flydek-front
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - ORIGIN=http://localhost:3000
+      - API_URL=http://api:8000
+    restart: unless-stopped
+
+  # ---------- PostgreSQL with pgvector ----------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: flydek-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: flydek
+      POSTGRES_USER: flydek
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flydek_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flydek -d flydek"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    container_name: flydek-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local

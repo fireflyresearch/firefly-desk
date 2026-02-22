@@ -13,5 +13,10 @@ build/
 .vscode/
 *.swp
 
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
 # OS
 .DS_Store

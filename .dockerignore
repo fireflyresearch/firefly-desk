@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# .dockerignore -- Firefly Desk API
+# ---------------------------------------------------------------------------
+# Exclude everything that is not needed in the Docker build context to keep
+# the build fast and the image small.
+# ---------------------------------------------------------------------------
+
+# Version control
+.git
+.gitignore
+
+# Virtual environments (host-side; the image creates its own)
+.venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Test and CI artefacts
+tests/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# IDE and editor config
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Frontend (built separately via frontend/Dockerfile)
+frontend/
+
+# Docker and environment files
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md

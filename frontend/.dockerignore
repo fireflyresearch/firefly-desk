@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# .dockerignore -- Firefly Desk Frontend
+# ---------------------------------------------------------------------------
+
+# Version control
+.git
+.gitignore
+
+# Dependencies (reinstalled in the image)
+node_modules/
+
+# Build output (rebuilt in the image)
+build/
+.svelte-kit/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE and editor config
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Documentation
+*.md
