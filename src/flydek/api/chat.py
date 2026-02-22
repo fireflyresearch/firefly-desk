@@ -69,10 +69,7 @@ async def _persist_messages(
             )
             await repo.create_conversation(conversation)
 
-        # Persist user message
-        user_metadata: dict[str, object] = {}
-        if file_ids:
-            user_metadata["file_ids"] = file_ids
+        # Persist user message (file_ids embedded into metadata by the repository)
         await repo.add_message(
             Message(
                 id=str(uuid.uuid4()),
@@ -80,7 +77,6 @@ async def _persist_messages(
                 role=MessageRole.USER,
                 content=user_message,
                 file_ids=file_ids or [],
-                metadata=user_metadata,
             )
         )
 
@@ -157,7 +153,7 @@ async def send_message(
             # Persist after stream completes
             await _persist_messages(
                 request, conversation_id, body.message, "".join(collected),
-                file_ids=body.file_ids,
+                file_ids=body.file_ids or None,
             )
 
         return StreamingResponse(
@@ -195,7 +191,7 @@ async def send_message(
         # Persist after stream completes
         await _persist_messages(
             request, conversation_id, body.message, "".join(collected),
-            file_ids=body.file_ids,
+            file_ids=body.file_ids or None,
         )
 
     return StreamingResponse(
