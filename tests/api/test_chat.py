@@ -128,3 +128,27 @@ class TestSendMessage:
         )
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-accel-buffering") == "no"
+
+
+class TestGetSuggestions:
+    async def test_suggestions_returns_list(self, client):
+        """GET /api/chat/suggestions returns a suggestions list."""
+        response = await client.get("/api/chat/suggestions")
+        assert response.status_code == 200
+        data = response.json()
+        assert "suggestions" in data
+        assert isinstance(data["suggestions"], list)
+        assert len(data["suggestions"]) >= 1
+
+    async def test_suggestion_items_have_required_fields(self, client):
+        """Each suggestion item has icon, title, description, and text."""
+        response = await client.get("/api/chat/suggestions")
+        data = response.json()
+        for item in data["suggestions"]:
+            assert "icon" in item
+            assert "title" in item
+            assert "description" in item
+            assert "text" in item
+            assert isinstance(item["icon"], str)
+            assert isinstance(item["title"], str)
+            assert isinstance(item["text"], str)
