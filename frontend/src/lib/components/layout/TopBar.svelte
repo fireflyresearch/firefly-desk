@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Settings, Sun, Moon } from 'lucide-svelte';
+	import { Menu, Settings, Sun, Moon } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import logo from '$lib/assets/logo.svg';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
@@ -7,9 +7,10 @@
 	interface TopBarProps {
 		title?: string;
 		userName?: string;
+		onToggleSidebar?: () => void;
 	}
 
-	let { title = 'Firefly Desk', userName = 'User' }: TopBarProps = $props();
+	let { title = 'Firefly Desk', userName = 'User', onToggleSidebar }: TopBarProps = $props();
 
 	let initials = $derived(
 		userName
@@ -28,8 +29,18 @@
 <header
 	class="flex h-14 shrink-0 items-center border-b border-border bg-surface px-4"
 >
-	<!-- Left: Logo -->
+	<!-- Left: Sidebar toggle + Logo -->
 	<div class="flex items-center gap-2">
+		{#if onToggleSidebar}
+			<button
+				type="button"
+				onclick={onToggleSidebar}
+				class="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+				aria-label="Toggle sidebar"
+			>
+				<Menu size={18} />
+			</button>
+		{/if}
 		<img src={logo} alt={title} class="h-6" />
 	</div>
 

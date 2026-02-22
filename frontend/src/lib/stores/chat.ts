@@ -6,6 +6,11 @@
  */
 
 import { writable } from 'svelte/store';
+import {
+	fetchConversations as apiFetchConversations,
+	fetchMessages as apiFetchMessages,
+	createConversation as apiCreateConversation
+} from '$lib/services/conversations.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,4 +96,76 @@ export function finishStreaming(): void {
 /** Clear all messages (e.g. when switching conversations). */
 export function clearMessages(): void {
 	messages.set([]);
+}
+
+// ---------------------------------------------------------------------------
+// Conversation management
+// ---------------------------------------------------------------------------
+
+/**
+ * Load conversations from the backend and populate the conversations store.
+ */
+export async function loadConversations(): Promise<void> {
+	try {
+		const apiConversations = await apiFetchConversations();
+		conversations.set(
+			apiConversations.map((c) => ({
+				id: c.id,
+				title: c.title ?? 'Untitled',
+				lastMessage: '',
+				updatedAt: c.updated_at ? new Date(c.updated_at) : new Date()
+			}))
+		);
+	} catch (error) {
+		console.error('[ChatStore] Failed to load conversations:', error);
+	}
+}
+
+/**
+ * Select a conversation and load its messages from the backend.
+ */
+export async function selectConversation(id: string): Promise<void> {
+	activeConversationId.set(id);
+	clearMessages();
+
+	try {
+		const apiMessages = await apiFetchMessages(id);
+		messages.set(
+			apiMessages.map((m) => ({
+				id: m.id,
+				role: m.role,
+				content: m.content,
+				widgets: [],
+				timestamp: m.created_at ? new Date(m.created_at) : new Date()
+			}))
+		);
+	} catch (error) {
+		console.error('[ChatStore] Failed to load messages:', error);
+	}
+}
+
+/**
+ * Create a new conversation on the backend and set it as active.
+ */
+export async function createNewConversation(): Promise<string> {
+	try {
+		const apiConv = await apiCreateConversation();
+		const conv: Conversation = {
+			id: apiConv.id,
+			title: apiConv.title ?? 'New Conversation',
+			lastMessage: '',
+			updatedAt: apiConv.updated_at ? new Date(apiConv.updated_at) : new Date()
+		};
+		conversations.update((convs) => [conv, ...convs]);
+		activeConversationId.set(conv.id);
+		clearMessages();
+		return conv.id;
+	} catch (error) {
+		console.error('[ChatStore] Failed to create conversation:', error);
+		// Fallback: generate a local ID so the UI can still function
+		const fallbackId = crypto.randomUUID();
+		activeConversationId.set(fallbackId);
+		clearMessages();
+		return fallbackId;
+	}
 }

@@ -11,17 +11,20 @@
 from flydek.models.audit import AuditEventRow
 from flydek.models.base import Base
 from flydek.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
+from flydek.models.conversation import ConversationRow, MessageRow
 from flydek.models.knowledge import EntityRow, RelationRow
 from flydek.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 __all__ = [
     "AuditEventRow",
     "Base",
+    "ConversationRow",
     "CredentialRow",
     "DocumentChunkRow",
     "EntityRow",
     "ExternalSystemRow",
     "KnowledgeDocumentRow",
+    "MessageRow",
     "RelationRow",
     "ServiceEndpointRow",
 ]
