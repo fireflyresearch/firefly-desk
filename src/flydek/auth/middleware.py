@@ -23,8 +23,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Paths that don't require authentication
-PUBLIC_PATHS = frozenset({
+# Path prefixes that don't require authentication.
+# Uses prefix matching so sub-paths (e.g. /docs/oauth2-redirect) are also public.
+PUBLIC_PATH_PREFIXES = (
     "/api/health",
     "/docs",
     "/openapi.json",
@@ -32,7 +33,8 @@ PUBLIC_PATHS = frozenset({
     "/api/auth/providers",
     "/api/auth/login-url",
     "/api/auth/callback",
-})
+    "/api/auth/logout",
+)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -57,8 +59,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process each request, enforcing JWT auth on non-public paths."""
-        # Skip auth for public paths
-        if request.url.path in PUBLIC_PATHS:
+        # Skip auth for public paths (prefix match)
+        if any(request.url.path.startswith(p) for p in PUBLIC_PATH_PREFIXES):
             return await call_next(request)
 
         # Try Authorization header first, then cookie

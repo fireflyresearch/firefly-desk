@@ -43,6 +43,21 @@ def _from_json(value: Any) -> list | dict:
     return value
 
 
+# Fields that may be modified via update_provider().  Anything outside
+# this set is silently ignored, preventing callers from overwriting
+# internal columns like ``id`` or ``client_secret_encrypted``.
+_UPDATABLE_FIELDS: frozenset[str] = frozenset({
+    "provider_type",
+    "display_name",
+    "issuer_url",
+    "client_id",
+    "tenant_id",
+    "roles_claim",
+    "permissions_claim",
+    "is_active",
+})
+
+
 class OIDCProviderRepository:
     """CRUD operations for persisted OIDC provider configuration."""
 
@@ -165,7 +180,7 @@ class OIDCProviderRepository:
                     row.scopes = _to_json(value) if value else None
                 elif key == "metadata":
                     row.metadata_ = _to_json(value) if value else None
-                elif hasattr(row, key):
+                elif key in _UPDATABLE_FIELDS:
                     setattr(row, key, value)
 
             await session.commit()

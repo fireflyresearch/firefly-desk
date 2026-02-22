@@ -14,7 +14,7 @@ import re
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from flydek.exports.models import ExportFormat, ExportRecord, ExportTemplate
@@ -165,7 +165,7 @@ async def create_export(
 async def list_exports(
     request: Request,
     repo: ExportRepo,
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> list[dict]:
     """List the current user's exports."""
     user_session = getattr(request.state, "user_session", None)
