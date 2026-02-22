@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Annotated, Any
 
@@ -186,6 +187,7 @@ async def get_export(export_id: str, repo: ExportRepo) -> dict:
 @router.get("/api/exports/{export_id}/download")
 async def download_export(
     export_id: str,
+    request: Request,
     repo: ExportRepo,
     storage: ExportStorage,
 ) -> Response:
@@ -194,27 +196,36 @@ async def download_export(
     if record is None:
         raise HTTPException(status_code=404, detail=f"Export {export_id} not found")
 
+    # Ownership check -- only the owner (or admin) may download.
+    user_session = getattr(request.state, "user_session", None)
+    if user_session and record.user_id != user_session.user_id:
+        if "admin" not in getattr(user_session, "roles", set()):
+            raise HTTPException(status_code=403, detail="Not authorised to access this export")
+
     if not record.file_path:
         raise HTTPException(status_code=404, detail="Export file not available")
 
     content = await storage.retrieve(record.file_path)
 
+    # Sanitise title for use in Content-Disposition header.
+    safe_title = re.sub(r'[^\w\s\-.]', '_', record.title)[:200]
+
     # Determine content type and filename from the stored file extension
     if record.file_path.endswith(".csv"):
         content_type = "text/csv"
-        filename = f"{record.title}.csv"
+        filename = f"{safe_title}.csv"
     elif record.file_path.endswith(".json"):
         content_type = "application/json"
-        filename = f"{record.title}.json"
+        filename = f"{safe_title}.json"
     elif record.file_path.endswith(".html"):
         content_type = "text/html"
-        filename = f"{record.title}.html"
+        filename = f"{safe_title}.html"
     elif record.file_path.endswith(".pdf"):
         content_type = "application/pdf"
-        filename = f"{record.title}.pdf"
+        filename = f"{safe_title}.pdf"
     else:
         content_type = "application/octet-stream"
-        filename = f"{record.title}"
+        filename = f"{safe_title}"
 
     return Response(
         content=content,
@@ -228,6 +239,7 @@ async def download_export(
 @router.delete("/api/exports/{export_id}", status_code=204)
 async def delete_export(
     export_id: str,
+    request: Request,
     repo: ExportRepo,
     storage: ExportStorage,
 ) -> Response:
@@ -235,6 +247,12 @@ async def delete_export(
     record = await repo.get_export(export_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Export {export_id} not found")
+
+    # Ownership check -- only the owner (or admin) may delete.
+    user_session = getattr(request.state, "user_session", None)
+    if user_session and record.user_id != user_session.user_id:
+        if "admin" not in getattr(user_session, "roles", set()):
+            raise HTTPException(status_code=403, detail="Not authorised to delete this export")
 
     # Clean up stored file if present
     if record.file_path:

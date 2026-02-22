@@ -91,7 +91,43 @@ OIDCRepo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 # A production deployment should use Redis or DB-backed sessions.
 # ---------------------------------------------------------------------------
 
-_pending_states: dict[str, dict[str, str]] = {}
+_MAX_PENDING_STATES = 10_000
+_STATE_TTL_SECONDS = 600  # 10 minutes
+
+_pending_states: dict[str, dict[str, str | float]] = {}
+
+
+def _store_state(state: str, data: dict[str, str]) -> None:
+    """Store a state entry with a timestamp, evicting stale/overflow entries."""
+    import time
+
+    now = time.time()
+
+    # Evict expired entries on every insert.
+    expired = [k for k, v in _pending_states.items() if now - v.get("_ts", 0) > _STATE_TTL_SECONDS]
+    for k in expired:
+        _pending_states.pop(k, None)
+
+    # Evict oldest entries if still over capacity.
+    if len(_pending_states) >= _MAX_PENDING_STATES:
+        sorted_keys = sorted(_pending_states, key=lambda k: _pending_states[k].get("_ts", 0))
+        for k in sorted_keys[: len(sorted_keys) // 2]:
+            _pending_states.pop(k, None)
+
+    _pending_states[state] = {**data, "_ts": now}
+
+
+def _pop_state(state: str) -> dict[str, str] | None:
+    """Pop a state entry if it exists and is not expired."""
+    import time
+
+    entry = _pending_states.pop(state, None)
+    if entry is None:
+        return None
+    ts = entry.pop("_ts", 0)
+    if time.time() - ts > _STATE_TTL_SECONDS:
+        return None  # Expired
+    return {k: v for k, v in entry.items() if isinstance(v, str)}
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +190,11 @@ async def get_login_url(
         code_verifier, code_challenge = generate_pkce_pair()
 
     state = secrets.token_urlsafe(32)
-    _pending_states[state] = {
+    _store_state(state, {
         "provider_id": provider_id,
         "redirect_uri": effective_redirect,
         "code_verifier": code_verifier or "",
-    }
+    })
 
     login_url = oidc_client.build_auth_url(
         redirect_uri=effective_redirect,
@@ -188,7 +224,7 @@ async def auth_callback(
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
-    pending = _pending_states.pop(state, None)
+    pending = _pop_state(state)
     if pending is None:
         raise HTTPException(status_code=400, detail="Invalid or expired state")
 

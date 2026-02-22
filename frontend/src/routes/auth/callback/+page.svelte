@@ -42,7 +42,12 @@
 
 		// Validate state against what we stored before redirect
 		const savedState = sessionStorage.getItem('oidc_state');
-		if (savedState && savedState !== state) {
+		if (!savedState) {
+			error = 'Missing saved state. Please start the login process again.';
+			processing = false;
+			return;
+		}
+		if (savedState !== state) {
 			error = 'State mismatch. This may indicate a CSRF attack. Please try again.';
 			processing = false;
 			return;

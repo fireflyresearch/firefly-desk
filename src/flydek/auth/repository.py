@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 # Dev-only Fernet key (used when no encryption key is configured).
 # This is **not** secure and exists only so that dev mode doesn't crash.
-_DEV_FERNET_KEY = Fernet.generate_key()
+# Must be a static, deterministic key so encrypted values survive restarts.
+import base64 as _b64
+
+_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydek-dev-encryption-key-32byt")
 
 
 def _to_json(value: Any) -> str | None:
