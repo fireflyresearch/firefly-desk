@@ -27,6 +27,8 @@ from flydek.api.conversations import get_conversation_repo
 from flydek.api.conversations import router as conversations_router
 from flydek.api.credentials import get_credential_store
 from flydek.api.credentials import router as credentials_router
+from flydek.api.files import get_content_extractor, get_file_repo, get_file_storage
+from flydek.api.files import router as files_router
 from flydek.api.health import router as health_router
 from flydek.api.knowledge import get_knowledge_doc_store, get_knowledge_indexer
 from flydek.api.knowledge import router as knowledge_router
@@ -63,6 +65,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
+
+    # File upload dependencies
+    from flydek.files.extractor import ContentExtractor
+    from flydek.files.repository import FileUploadRepository
+    from flydek.files.storage import LocalFileStorage
+
+    file_repo = FileUploadRepository(session_factory)
+    file_storage = LocalFileStorage(config.file_storage_path)
+    content_extractor = ContentExtractor()
+
+    app.dependency_overrides[get_file_repo] = lambda: file_repo
+    app.dependency_overrides[get_file_storage] = lambda: file_storage
+    app.dependency_overrides[get_content_extractor] = lambda: content_extractor
 
     # Credential store backed by catalog repo (reuses session factory)
     from flydek.api.credentials import CredentialStore
@@ -211,5 +226,6 @@ def create_app() -> FastAPI:
     app.include_router(credentials_router)
     app.include_router(knowledge_router)
     app.include_router(audit_router)
+    app.include_router(files_router)
 
     return app

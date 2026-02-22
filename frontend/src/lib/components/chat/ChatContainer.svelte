@@ -3,7 +3,8 @@
 
   Renders the message list with auto-scroll, streaming indicators, and
   the InputBar. Handles the sendMessage flow. On first run, automatically
-  initiates the setup conversation with Ember.
+  initiates the setup conversation with Ember. Supports drag-and-drop
+  file uploads.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -13,6 +14,7 @@
 	import StreamingMessage from './StreamingMessage.svelte';
 	import InputBar from './InputBar.svelte';
 	import ChatEmptyState from './ChatEmptyState.svelte';
+	import DropOverlay from './DropOverlay.svelte';
 	import {
 		messages,
 		activeConversationId,
@@ -22,6 +24,9 @@
 
 	let scrollContainer: HTMLDivElement | undefined = $state();
 	let checkingFirstRun = $state(true);
+	let showDropOverlay = $state(false);
+	let pendingFiles: File[] = $state([]);
+	let dragCounter = $state(0);
 
 	// Auto-scroll to bottom when messages change
 	$effect(() => {
@@ -66,10 +71,56 @@
 		await sendMessage(conversationId, text);
 	}
 
+	function handleDragEnter(e: DragEvent) {
+		e.preventDefault();
+		dragCounter++;
+		if (e.dataTransfer?.types.includes('Files')) {
+			showDropOverlay = true;
+		}
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+	}
+
+	function handleDragLeave(e: DragEvent) {
+		e.preventDefault();
+		dragCounter--;
+		if (dragCounter <= 0) {
+			dragCounter = 0;
+			showDropOverlay = false;
+		}
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		dragCounter = 0;
+		showDropOverlay = false;
+
+		if (e.dataTransfer?.files) {
+			const droppedFiles = Array.from(e.dataTransfer.files);
+			if (droppedFiles.length > 0) {
+				pendingFiles = [...pendingFiles, ...droppedFiles];
+			}
+		}
+	}
+
 	let hasMessages = $derived($messages.length > 0);
 </script>
 
-<div class="flex h-full flex-col">
+<div
+	class="relative flex h-full flex-col"
+	ondragenter={handleDragEnter}
+	ondragover={handleDragOver}
+	ondragleave={handleDragLeave}
+	ondrop={handleDrop}
+	role="region"
+	aria-label="Chat area"
+>
+	{#if showDropOverlay}
+		<DropOverlay />
+	{/if}
+
 	<!-- Message list -->
 	<div
 		bind:this={scrollContainer}
@@ -94,5 +145,5 @@
 	<div class="pointer-events-none h-6 bg-gradient-to-t from-surface to-transparent"></div>
 
 	<!-- Input bar -->
-	<InputBar onSend={handleSend} disabled={$isStreaming} />
+	<InputBar onSend={handleSend} disabled={$isStreaming} bind:pendingFiles />
 </div>
