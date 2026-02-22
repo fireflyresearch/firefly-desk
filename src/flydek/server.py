@@ -77,6 +77,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     session_factory = create_session_factory(engine)
 
+    # RBAC: seed built-in roles and make the repository available to middleware
+    from flydek.rbac.repository import RoleRepository
+
+    role_repo = RoleRepository(session_factory)
+    await role_repo.seed_builtin_roles()
+    app.state.role_repo = role_repo
+
     # Wire dependency overrides
     catalog_repo = CatalogRepository(session_factory)
     audit_logger = AuditLogger(session_factory)

@@ -14,6 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from flydek.rbac.guards import AdminSettings
 from flydek.settings.models import UserSettings
 from flydek.settings.repository import SettingsRepository
 
@@ -36,14 +37,6 @@ def get_settings_repo() -> SettingsRepository:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Repo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
 
@@ -78,13 +71,13 @@ async def update_user_settings(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/app", dependencies=[AdminGuard])
+@router.get("/app", dependencies=[AdminSettings])
 async def get_app_settings(repo: Repo) -> dict[str, str]:
     """Return all application-wide settings."""
     return await repo.get_all_app_settings()
 
 
-@router.put("/app", dependencies=[AdminGuard])
+@router.put("/app", dependencies=[AdminSettings])
 async def update_app_settings(
     settings: dict[str, str], repo: Repo
 ) -> dict[str, str]:

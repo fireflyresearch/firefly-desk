@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from flydek.knowledge.indexer import KnowledgeIndexer
 from flydek.knowledge.models import KnowledgeDocument
+from flydek.rbac.guards import KnowledgeDelete, KnowledgeRead, KnowledgeWrite
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -79,14 +80,6 @@ def get_knowledge_doc_store() -> KnowledgeDocumentStore:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Indexer = Annotated[KnowledgeIndexer, Depends(get_knowledge_indexer)]
 DocStore = Annotated[KnowledgeDocumentStore, Depends(get_knowledge_doc_store)]
 
@@ -108,14 +101,14 @@ def _strip_content(doc: KnowledgeDocument) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/documents", dependencies=[AdminGuard])
+@router.get("/documents", dependencies=[KnowledgeRead])
 async def list_documents(store: DocStore) -> list[dict[str, Any]]:
     """List all knowledge documents (metadata only, content excluded)."""
     documents = await store.list_documents()
     return [_strip_content(d) for d in documents]
 
 
-@router.post("/documents", status_code=201, dependencies=[AdminGuard])
+@router.post("/documents", status_code=201, dependencies=[KnowledgeWrite])
 async def create_document(document: KnowledgeDocument, indexer: Indexer) -> IndexResult:
     """Upload and index a knowledge document."""
     chunks = await indexer.index_document(document)
@@ -123,7 +116,7 @@ async def create_document(document: KnowledgeDocument, indexer: Indexer) -> Inde
 
 
 @router.delete(
-    "/documents/{document_id}", status_code=204, dependencies=[AdminGuard]
+    "/documents/{document_id}", status_code=204, dependencies=[KnowledgeDelete]
 )
 async def delete_document(
     document_id: str, indexer: Indexer, store: DocStore

@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from flydek.llm.health import LLMHealthChecker
 from flydek.llm.models import LLMProvider, LLMProviderResponse, ProviderHealthStatus
 from flydek.llm.repository import LLMProviderRepository
+from flydek.rbac.guards import AdminLLM
 
 router = APIRouter(prefix="/api/admin/llm-providers", tags=["llm-providers"])
 
@@ -37,14 +38,6 @@ def get_llm_repo() -> LLMProviderRepository:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Repo = Annotated[LLMProviderRepository, Depends(get_llm_repo)]
 
 
@@ -77,21 +70,21 @@ def _to_response(provider: LLMProvider) -> LLMProviderResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.get("", dependencies=[AdminGuard])
+@router.get("", dependencies=[AdminLLM])
 async def list_providers(repo: Repo) -> list[LLMProviderResponse]:
     """Return every registered LLM provider (API keys stripped)."""
     providers = await repo.list_providers()
     return [_to_response(p) for p in providers]
 
 
-@router.post("", status_code=201, dependencies=[AdminGuard])
+@router.post("", status_code=201, dependencies=[AdminLLM])
 async def create_provider(provider: LLMProvider, repo: Repo) -> LLMProviderResponse:
     """Register a new LLM provider."""
     await repo.create_provider(provider)
     return _to_response(provider)
 
 
-@router.get("/{provider_id}", dependencies=[AdminGuard])
+@router.get("/{provider_id}", dependencies=[AdminLLM])
 async def get_provider(provider_id: str, repo: Repo) -> LLMProviderResponse:
     """Retrieve a single LLM provider by ID (API key stripped)."""
     provider = await repo.get_provider(provider_id)
@@ -100,7 +93,7 @@ async def get_provider(provider_id: str, repo: Repo) -> LLMProviderResponse:
     return _to_response(provider)
 
 
-@router.put("/{provider_id}", dependencies=[AdminGuard])
+@router.put("/{provider_id}", dependencies=[AdminLLM])
 async def update_provider(
     provider_id: str, provider: LLMProvider, repo: Repo
 ) -> LLMProviderResponse:
@@ -114,7 +107,7 @@ async def update_provider(
     return _to_response(updated or provider)
 
 
-@router.delete("/{provider_id}", status_code=204, dependencies=[AdminGuard])
+@router.delete("/{provider_id}", status_code=204, dependencies=[AdminLLM])
 async def delete_provider(provider_id: str, repo: Repo) -> Response:
     """Remove an LLM provider."""
     existing = await repo.get_provider(provider_id)
@@ -124,7 +117,7 @@ async def delete_provider(provider_id: str, repo: Repo) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/{provider_id}/test", dependencies=[AdminGuard])
+@router.post("/{provider_id}/test", dependencies=[AdminLLM])
 async def test_provider(provider_id: str, repo: Repo) -> ProviderHealthStatus:
     """Test connectivity to an LLM provider."""
     provider = await repo.get_provider(provider_id)
@@ -134,7 +127,7 @@ async def test_provider(provider_id: str, repo: Repo) -> ProviderHealthStatus:
     return await checker.check(provider)
 
 
-@router.put("/{provider_id}/default", dependencies=[AdminGuard])
+@router.put("/{provider_id}/default", dependencies=[AdminLLM])
 async def set_default_provider(provider_id: str, repo: Repo) -> LLMProviderResponse:
     """Set an LLM provider as the default."""
     provider = await repo.get_provider(provider_id)

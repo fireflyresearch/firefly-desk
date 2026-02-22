@@ -33,7 +33,7 @@ def _make_user_session(*, roles: list[str] | None = None) -> UserSession:
         email="admin@example.com",
         display_name="Admin User",
         roles=roles or [],
-        permissions=[],
+        permissions=["*"] if "admin" in (roles or []) else [],
         tenant_id="tenant-1",
         session_id="sess-1",
         token_expires_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
@@ -236,7 +236,7 @@ class TestCredentialsAdminGuard:
     async def test_non_admin_cannot_list_credentials(self, non_admin_client):
         response = await non_admin_client.get("/api/credentials")
         assert response.status_code == 403
-        assert "admin" in response.json()["detail"].lower()
+        assert "permission" in response.json()["detail"].lower()
 
     async def test_non_admin_cannot_create_credential(self, non_admin_client):
         cred = _sample_credential()
