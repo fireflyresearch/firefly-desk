@@ -1,0 +1,38 @@
+# Copyright 2026 Firefly Software Solutions Inc
+#
+# Licensed under the Apache License, Version 2.0
+
+"""Enumerations for the Service Catalog."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class SystemStatus(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DEGRADED = "degraded"
+
+
+class AuthType(StrEnum):
+    OAUTH2 = "oauth2"
+    API_KEY = "api_key"
+    BASIC = "basic"
+    BEARER = "bearer"
+    MUTUAL_TLS = "mutual_tls"
+
+
+class HttpMethod(StrEnum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+
+
+class RiskLevel(StrEnum):
+    READ = "read"
+    LOW_WRITE = "low_write"
+    HIGH_WRITE = "high_write"
+    DESTRUCTIVE = "destructive"
