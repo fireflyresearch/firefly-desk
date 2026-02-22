@@ -15,7 +15,7 @@ import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from flydek.api.events import SSEEvent, SSEEventType
 
@@ -29,6 +29,7 @@ class ChatMessage(BaseModel):
 
     message: str
     conversation_id: str | None = None
+    file_ids: list[str] = Field(default_factory=list)
 
 
 async def _persist_messages(
@@ -36,6 +37,7 @@ async def _persist_messages(
     conversation_id: str,
     user_message: str,
     assistant_content: str,
+    file_ids: list[str] | None = None,
 ) -> None:
     """Persist user and assistant messages to the conversation store.
 
@@ -68,12 +70,17 @@ async def _persist_messages(
             await repo.create_conversation(conversation)
 
         # Persist user message
+        user_metadata: dict[str, object] = {}
+        if file_ids:
+            user_metadata["file_ids"] = file_ids
         await repo.add_message(
             Message(
                 id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
                 role=MessageRole.USER,
                 content=user_message,
+                file_ids=file_ids or [],
+                metadata=user_metadata,
             )
         )
 
@@ -137,7 +144,8 @@ async def send_message(
         async def agent_stream():
             collected: list[str] = []
             async for event in desk_agent.stream(
-                body.message, user_session, conversation_id
+                body.message, user_session, conversation_id,
+                file_ids=body.file_ids or None,
             ):
                 # Collect token content for persistence
                 if event.event == SSEEventType.TOKEN and isinstance(event.data, dict):
@@ -148,7 +156,8 @@ async def send_message(
 
             # Persist after stream completes
             await _persist_messages(
-                request, conversation_id, body.message, "".join(collected)
+                request, conversation_id, body.message, "".join(collected),
+                file_ids=body.file_ids,
             )
 
         return StreamingResponse(
@@ -185,7 +194,8 @@ async def send_message(
 
         # Persist after stream completes
         await _persist_messages(
-            request, conversation_id, body.message, "".join(collected)
+            request, conversation_id, body.message, "".join(collected),
+            file_ids=body.file_ids,
         )
 
     return StreamingResponse(

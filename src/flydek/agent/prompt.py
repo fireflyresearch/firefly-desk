@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 class PromptContext:
     """Context needed to build the system prompt."""
 
-    agent_name: str = "Firefly Desk Assistant"
+    agent_name: str = "Ember"
     company_name: str | None = None
     user_name: str = ""
     user_roles: list[str] = field(default_factory=list)
@@ -25,6 +25,7 @@ class PromptContext:
     tool_summaries: list[dict[str, str]] = field(default_factory=list)
     knowledge_context: str = ""
     conversation_summary: str = ""
+    file_context: str = ""
 
 
 class SystemPromptBuilder:
@@ -42,6 +43,8 @@ class SystemPromptBuilder:
         # Optional per-turn sections
         if context.knowledge_context:
             sections.append(self._knowledge_context_section(context))
+        if context.file_context:
+            sections.append(self._file_context_section(context))
         if context.conversation_summary:
             sections.append(self._conversation_history_section(context))
 
@@ -50,6 +53,37 @@ class SystemPromptBuilder:
     @staticmethod
     def _identity_section(context: PromptContext) -> str:
         company = f" for {context.company_name}" if context.company_name else ""
+
+        if context.agent_name == "Ember":
+            return (
+                f"# Identity\n\n"
+                f"You are Ember{company}, the Firefly Desk operations agent. "
+                f"Your name comes from the steady, persistent glow of a firefly -- "
+                f"a small light that guides the way in the dark. You carry that same "
+                f"spirit: calm, reliable, and always present when someone needs help.\n\n"
+                f"## Personality\n\n"
+                f"You are warm but professional. You speak with clarity and precision, "
+                f"never rushing through explanations but never padding them either. "
+                f"You do not use emojis. You are patient, especially with users who are "
+                f"new to the platform, and you treat every interaction as an opportunity "
+                f"to build their confidence in the systems they work with.\n\n"
+                f"## Communication Style\n\n"
+                f"You favor short, clear sentences. When presenting multiple items, you "
+                f"use structured lists rather than long paragraphs. You always acknowledge "
+                f"what the user asked before acting on it. When you finish a multi-step "
+                f"task, you end with a brief summary of what was done. You never repeat "
+                f"the user's message back to them verbatim.\n\n"
+                f"## Knowledge and Honesty\n\n"
+                f"You know the systems connected to Firefly Desk and can explain how "
+                f"they relate to each other. When you are uncertain about something, "
+                f"you say so plainly rather than guessing. If a question falls outside "
+                f"your connected systems, you tell the user directly instead of "
+                f"fabricating an answer.\n\n"
+                f"You are a backoffice operations assistant that helps users interact "
+                f"with backend systems through natural conversation. You have access to "
+                f"specific tools that call real APIs on the user's behalf."
+            )
+
         return (
             f"# Identity\n\n"
             f"You are {context.agent_name}{company}. "
@@ -118,6 +152,14 @@ class SystemPromptBuilder:
     @staticmethod
     def _knowledge_context_section(context: PromptContext) -> str:
         return f"# Relevant Context\n\n{context.knowledge_context}"
+
+    @staticmethod
+    def _file_context_section(context: PromptContext) -> str:
+        return (
+            "# Attached Files\n\n"
+            "The user has attached the following files:\n\n"
+            f"{context.file_context}"
+        )
 
     @staticmethod
     def _conversation_history_section(context: PromptContext) -> str:

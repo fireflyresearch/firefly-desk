@@ -26,6 +26,7 @@ from flydek.tools.factory import ToolDefinition, ToolFactory
 from flydek.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
+    from flydek.files.repository import FileUploadRepository
     from flydek.tools.executor import ToolCall, ToolExecutor, ToolResult
 
 # Token chunk size for simulated streaming (number of characters per token event).
@@ -54,6 +55,7 @@ class DeskAgent:
         agent_name: str = "Ember",
         company_name: str | None = None,
         tool_executor: ToolExecutor | None = None,
+        file_repo: FileUploadRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -63,6 +65,7 @@ class DeskAgent:
         self._agent_name = agent_name
         self._company_name = company_name
         self._tool_executor = tool_executor
+        self._file_repo = file_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -74,11 +77,12 @@ class DeskAgent:
         session: UserSession,
         conversation_id: str,
         tools: list[ToolDefinition] | None = None,
+        file_ids: list[str] | None = None,
     ) -> AgentResponse:
         """Execute a full agent turn.
 
         1. Enrich context (knowledge graph + RAG in parallel)
-        2. Build system prompt
+        2. Build system prompt (including attached file context)
         3. Execute LLM (placeholder: echo message for now)
         4. Parse widgets from response
         5. Log audit event
@@ -92,6 +96,7 @@ class DeskAgent:
         # 2. Prompt assembly
         tool_summaries = self._build_tool_summaries(tools or [])
         knowledge_context = self._format_knowledge_context(enriched)
+        file_context = await self._build_file_context(file_ids)
 
         prompt_context = PromptContext(
             agent_name=self._agent_name,
@@ -101,6 +106,7 @@ class DeskAgent:
             user_permissions=list(session.permissions),
             tool_summaries=tool_summaries,
             knowledge_context=knowledge_context,
+            file_context=file_context,
         )
         _system_prompt = self._prompt_builder.build(prompt_context)
 
@@ -141,6 +147,7 @@ class DeskAgent:
         session: UserSession,
         conversation_id: str,
         tools: list[ToolDefinition] | None = None,
+        file_ids: list[str] | None = None,
     ) -> AsyncGenerator[SSEEvent, None]:
         """Stream SSE events for a full agent turn.
 
@@ -162,7 +169,9 @@ class DeskAgent:
         )
 
         start = time.monotonic()
-        response = await self.run(message, session, conversation_id, tools=tools)
+        response = await self.run(
+            message, session, conversation_id, tools=tools, file_ids=file_ids,
+        )
         elapsed_ms = round((time.monotonic() - start) * 1000)
 
         # Emit TOOL_END after context enrichment completes
@@ -299,6 +308,25 @@ class DeskAgent:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    async def _build_file_context(self, file_ids: list[str] | None) -> str:
+        """Fetch uploaded files by ID and concatenate their extracted text.
+
+        Returns an empty string when no file IDs are provided or the file
+        repository is not configured.
+        """
+        if not file_ids or self._file_repo is None:
+            return ""
+
+        parts: list[str] = []
+        for file_id in file_ids:
+            upload = await self._file_repo.get(file_id)
+            if upload is None:
+                continue
+            text = upload.extracted_text or ""
+            if text:
+                parts.append(f"- [{upload.filename}]: {text}")
+        return "\n".join(parts)
 
     @staticmethod
     def _placeholder_llm(message: str, system_prompt: str) -> str:

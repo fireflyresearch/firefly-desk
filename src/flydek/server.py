@@ -196,6 +196,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audit_logger=audit_logger,
         agent_name=config.agent_name,
         tool_executor=tool_executor,
+        file_repo=file_repo,
     )
     app.state.desk_agent = desk_agent
 

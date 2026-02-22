@@ -111,13 +111,16 @@ class ConversationRepository:
 
     async def add_message(self, message: Message) -> None:
         """Persist a new message."""
+        metadata = dict(message.metadata)
+        if message.file_ids:
+            metadata["file_ids"] = message.file_ids
         async with self._session_factory() as session:
             row = MessageRow(
                 id=message.id,
                 conversation_id=message.conversation_id,
                 role=message.role.value,
                 content=message.content,
-                metadata_=_to_json(message.metadata),
+                metadata_=_to_json(metadata),
             )
             session.add(row)
             await session.commit()
@@ -158,11 +161,14 @@ class ConversationRepository:
 
     @staticmethod
     def _row_to_message(row: MessageRow) -> Message:
+        metadata = _from_json(row.metadata_) if row.metadata_ else {}
+        file_ids = metadata.pop("file_ids", []) if isinstance(metadata, dict) else []
         return Message(
             id=row.id,
             conversation_id=row.conversation_id,
             role=MessageRole(row.role),
             content=row.content,
-            metadata=_from_json(row.metadata_) if row.metadata_ else {},
+            file_ids=file_ids,
+            metadata=metadata,
             created_at=row.created_at,
         )

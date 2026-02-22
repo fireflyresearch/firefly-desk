@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 class MessageRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
+    SYSTEM = "system"
+    TOOL = "tool"
 
 
 class Message(BaseModel):
@@ -25,6 +27,7 @@ class Message(BaseModel):
     conversation_id: str
     role: MessageRole
     content: str
+    file_ids: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
 
