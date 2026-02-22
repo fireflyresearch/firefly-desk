@@ -57,7 +57,7 @@ async def _persist_messages(
         user_id = user_session.user_id if user_session else "anonymous"
 
         # Auto-create conversation if it doesn't exist
-        existing = await repo.get_conversation(conversation_id)
+        existing = await repo.get_conversation(conversation_id, user_id)
         if existing is None:
             title = user_message[:60].strip()
             if len(user_message) > 60:
@@ -77,7 +77,8 @@ async def _persist_messages(
                 role=MessageRole.USER,
                 content=user_message,
                 file_ids=file_ids or [],
-            )
+            ),
+            user_id,
         )
 
         # Persist assistant message
@@ -88,7 +89,8 @@ async def _persist_messages(
                     conversation_id=conversation_id,
                     role=MessageRole.ASSISTANT,
                     content=assistant_content,
-                )
+                ),
+                user_id,
             )
     except Exception:
         logger.debug("Message persistence failed (non-fatal).", exc_info=True)
