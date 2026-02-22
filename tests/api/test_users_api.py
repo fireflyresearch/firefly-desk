@@ -182,3 +182,88 @@ class TestProfile:
         assert data["notifications_enabled"] is False
         # Default theme should remain
         assert data["theme"] == "system"
+
+    async def test_profile_includes_picture_url(self, client):
+        """GET /api/profile returns picture_url field (None by default in dev)."""
+        ac, _, _, _ = client
+        response = await ac.get("/api/profile")
+        assert response.status_code == 200
+        data = response.json()
+        assert "picture_url" in data
+        # Default dev user has no picture set
+        assert data["picture_url"] is None
+
+    async def test_profile_includes_department(self, client):
+        """GET /api/profile returns department field (None by default in dev)."""
+        ac, _, _, _ = client
+        response = await ac.get("/api/profile")
+        assert response.status_code == 200
+        data = response.json()
+        assert "department" in data
+        assert data["department"] is None
+
+    async def test_profile_includes_title(self, client):
+        """GET /api/profile returns title field (None by default in dev)."""
+        ac, _, _, _ = client
+        response = await ac.get("/api/profile")
+        assert response.status_code == 200
+        data = response.json()
+        assert "title" in data
+        assert data["title"] is None
+
+
+class TestProfileWithPersonalization:
+    """Test /api/profile with personalization env vars set."""
+
+    @pytest.fixture
+    async def personalized_client(self):
+        env = {
+            "FLYDEK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+            "FLYDEK_OIDC_ISSUER_URL": "https://idp.example.com",
+            "FLYDEK_OIDC_CLIENT_ID": "test",
+            "FLYDEK_OIDC_CLIENT_SECRET": "test",
+            "FLYDEK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
+            "FLYDEK_AGENT_NAME": "Ember",
+            "FLYDEK_DEV_USER_PICTURE": "https://cdn.example.com/photo.png",
+            "FLYDEK_DEV_USER_DEPARTMENT": "Engineering",
+            "FLYDEK_DEV_USER_TITLE": "Staff Engineer",
+        }
+        with patch.dict(os.environ, env):
+            from flydek.api.users import get_session_factory, get_settings_repo
+            from flydek.server import create_app
+
+            app = create_app()
+
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            settings_repo = SettingsRepository(session_factory)
+
+            app.dependency_overrides[get_session_factory] = lambda: session_factory
+            app.dependency_overrides[get_settings_repo] = lambda: settings_repo
+
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                yield ac
+
+            await engine.dispose()
+
+    async def test_profile_returns_custom_picture_url(self, personalized_client):
+        """GET /api/profile returns the configured picture_url."""
+        response = await personalized_client.get("/api/profile")
+        assert response.status_code == 200
+        assert response.json()["picture_url"] == "https://cdn.example.com/photo.png"
+
+    async def test_profile_returns_custom_department(self, personalized_client):
+        """GET /api/profile returns the configured department."""
+        response = await personalized_client.get("/api/profile")
+        assert response.status_code == 200
+        assert response.json()["department"] == "Engineering"
+
+    async def test_profile_returns_custom_title(self, personalized_client):
+        """GET /api/profile returns the configured title."""
+        response = await personalized_client.get("/api/profile")
+        assert response.status_code == 200
+        assert response.json()["title"] == "Staff Engineer"

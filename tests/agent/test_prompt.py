@@ -170,3 +170,119 @@ class TestSystemPromptBuilder:
         sections = prompt.split("\n\n")
         # Must have at least identity, user, tools, widget, guidelines content
         assert len(sections) >= 5
+
+    def test_ember_identity_includes_personality(self):
+        """Ember identity includes personality traits and communication style."""
+        ctx = PromptContext(agent_name="Ember")
+        prompt = self.builder.build(ctx)
+
+        assert "steady, persistent glow of a firefly" in prompt
+        assert "## Personality" in prompt
+        assert "warm but professional" in prompt
+        assert "## Communication Style" in prompt
+        assert "short, clear sentences" in prompt
+        assert "## Knowledge and Honesty" in prompt
+
+    def test_ember_identity_with_company_suffix(self):
+        """Ember identity includes company name when provided."""
+        ctx = PromptContext(agent_name="Ember", company_name="Acme Corp")
+        prompt = self.builder.build(ctx)
+
+        assert "You are Ember for Acme Corp" in prompt
+        assert "steady, persistent glow of a firefly" in prompt
+
+    def test_non_ember_name_uses_generic_identity(self):
+        """A custom agent name falls back to the generic identity section."""
+        ctx = PromptContext(agent_name="Custom Bot")
+        prompt = self.builder.build(ctx)
+
+        assert "You are Custom Bot." in prompt or "You are Custom Bot. You are" in prompt
+        assert "steady, persistent glow of a firefly" not in prompt
+        assert "## Personality" not in prompt
+
+
+class TestPromptContextPersonalization:
+    """Tests for PromptContext department/title fields and their rendering."""
+
+    def setup_method(self):
+        self.builder = SystemPromptBuilder()
+
+    def test_prompt_context_department_and_title_defaults(self):
+        """PromptContext defaults department and title to empty strings."""
+        ctx = PromptContext()
+        assert ctx.user_department == ""
+        assert ctx.user_title == ""
+
+    def test_prompt_context_accepts_department_and_title(self):
+        """PromptContext stores department and title when provided."""
+        ctx = PromptContext(
+            user_department="Engineering",
+            user_title="Staff Engineer",
+        )
+        assert ctx.user_department == "Engineering"
+        assert ctx.user_title == "Staff Engineer"
+
+    def test_user_context_includes_department_when_present(self):
+        """_user_context_section includes a Department line when user_department is set."""
+        ctx = PromptContext(
+            user_name="Alice",
+            user_roles=["admin"],
+            user_department="Finance",
+        )
+        section = self.builder._user_context_section(ctx)
+        assert "- Department: Finance" in section
+
+    def test_user_context_includes_title_when_present(self):
+        """_user_context_section includes a Title line when user_title is set."""
+        ctx = PromptContext(
+            user_name="Bob",
+            user_roles=["viewer"],
+            user_title="Senior Analyst",
+        )
+        section = self.builder._user_context_section(ctx)
+        assert "- Title: Senior Analyst" in section
+
+    def test_user_context_includes_both_department_and_title(self):
+        """_user_context_section includes both Department and Title when both are set."""
+        ctx = PromptContext(
+            user_name="Carol",
+            user_roles=["admin", "operator"],
+            user_department="Customer Success",
+            user_title="VP of Support",
+        )
+        section = self.builder._user_context_section(ctx)
+        assert "- Department: Customer Success" in section
+        assert "- Title: VP of Support" in section
+        # Verify ordering: Department before Title
+        dept_idx = section.index("- Department:")
+        title_idx = section.index("- Title:")
+        assert dept_idx < title_idx
+
+    def test_user_context_omits_department_when_empty(self):
+        """_user_context_section omits Department line when user_department is empty."""
+        ctx = PromptContext(
+            user_name="Dave",
+            user_roles=["viewer"],
+            user_department="",
+        )
+        section = self.builder._user_context_section(ctx)
+        assert "Department" not in section
+
+    def test_user_context_omits_title_when_empty(self):
+        """_user_context_section omits Title line when user_title is empty."""
+        ctx = PromptContext(
+            user_name="Eve",
+            user_roles=["viewer"],
+            user_title="",
+        )
+        section = self.builder._user_context_section(ctx)
+        assert "Title" not in section
+
+    def test_user_context_omits_both_when_defaults(self):
+        """_user_context_section omits both Department and Title with default context."""
+        ctx = PromptContext(user_name="Frank", user_roles=["viewer"])
+        section = self.builder._user_context_section(ctx)
+        assert "Department" not in section
+        assert "Title" not in section
+        # But the permission line is still present
+        assert "You may only use tools" in section
