@@ -53,7 +53,7 @@ def sample_message() -> Message:
 class TestConversationRepository:
     async def test_create_and_get_conversation(self, repo, sample_conversation):
         await repo.create_conversation(sample_conversation)
-        result = await repo.get_conversation("conv-1")
+        result = await repo.get_conversation("conv-1", "user-1")
         assert result is not None
         assert result.title == "Test Conversation"
         assert result.user_id == "user-1"
@@ -76,22 +76,22 @@ class TestConversationRepository:
     async def test_update_conversation_title(self, repo, sample_conversation):
         await repo.create_conversation(sample_conversation)
         sample_conversation.title = "Updated Title"
-        await repo.update_conversation(sample_conversation)
-        result = await repo.get_conversation("conv-1")
+        await repo.update_conversation(sample_conversation, "user-1")
+        result = await repo.get_conversation("conv-1", "user-1")
         assert result is not None
         assert result.title == "Updated Title"
 
     async def test_delete_conversation_soft_deletes(self, repo, sample_conversation):
         await repo.create_conversation(sample_conversation)
-        await repo.delete_conversation("conv-1")
+        await repo.delete_conversation("conv-1", "user-1")
         # Conversation still exists with status "deleted"
-        result = await repo.get_conversation("conv-1")
+        result = await repo.get_conversation("conv-1", "user-1")
         assert result is not None
         assert result.status == "deleted"
 
     async def test_add_and_get_messages(self, repo, sample_conversation, sample_message):
         await repo.create_conversation(sample_conversation)
-        await repo.add_message(sample_message)
+        await repo.add_message(sample_message, "user-1")
 
         assistant_msg = Message(
             id="msg-2",
@@ -99,9 +99,9 @@ class TestConversationRepository:
             role=MessageRole.ASSISTANT,
             content="Hello! How can I help?",
         )
-        await repo.add_message(assistant_msg)
+        await repo.add_message(assistant_msg, "user-1")
 
-        messages = await repo.get_messages("conv-1")
+        messages = await repo.get_messages("conv-1", "user-1")
         assert len(messages) == 2
         assert messages[0].role == MessageRole.USER
         assert messages[0].content == "Hello, world!"
@@ -116,23 +116,23 @@ class TestConversationRepository:
             user_id="user-1",
         )
         await repo.create_conversation(conv2)
-        await repo.delete_conversation("conv-2")
+        await repo.delete_conversation("conv-2", "user-1")
 
         results = await repo.list_conversations("user-1")
         assert len(results) == 1
         assert results[0].id == "conv-1"
 
     async def test_get_conversation_not_found(self, repo):
-        result = await repo.get_conversation("nonexistent")
+        result = await repo.get_conversation("nonexistent", "user-1")
         assert result is None
 
     async def test_get_conversation_includes_message_count(
         self, repo, sample_conversation, sample_message
     ):
         await repo.create_conversation(sample_conversation)
-        await repo.add_message(sample_message)
+        await repo.add_message(sample_message, "user-1")
 
-        result = await repo.get_conversation("conv-1")
+        result = await repo.get_conversation("conv-1", "user-1")
         assert result is not None
         assert result.message_count == 1
 
@@ -140,3 +140,61 @@ class TestConversationRepository:
         await repo.create_conversation(sample_conversation)
         results = await repo.list_conversations("user-2")
         assert len(results) == 0
+
+    # -- Ownership denial tests --
+
+    async def test_get_conversation_wrong_user_returns_none(
+        self, repo, sample_conversation
+    ):
+        """A user who does not own the conversation gets None."""
+        await repo.create_conversation(sample_conversation)
+        result = await repo.get_conversation("conv-1", "user-other")
+        assert result is None
+
+    async def test_get_messages_wrong_user_returns_empty(
+        self, repo, sample_conversation, sample_message
+    ):
+        """A user who does not own the conversation gets an empty list."""
+        await repo.create_conversation(sample_conversation)
+        await repo.add_message(sample_message, "user-1")
+
+        messages = await repo.get_messages("conv-1", "user-other")
+        assert messages == []
+
+    async def test_update_conversation_wrong_user_raises(
+        self, repo, sample_conversation
+    ):
+        """Updating a conversation you don't own raises ValueError."""
+        await repo.create_conversation(sample_conversation)
+        sample_conversation.title = "Hijacked"
+        with pytest.raises(ValueError, match="not found"):
+            await repo.update_conversation(sample_conversation, "user-other")
+
+        # Verify it was NOT updated
+        result = await repo.get_conversation("conv-1", "user-1")
+        assert result is not None
+        assert result.title == "Test Conversation"
+
+    async def test_delete_conversation_wrong_user_no_effect(
+        self, repo, sample_conversation
+    ):
+        """Deleting a conversation you don't own has no effect."""
+        await repo.create_conversation(sample_conversation)
+        await repo.delete_conversation("conv-1", "user-other")
+
+        # Should still be active for the real owner
+        result = await repo.get_conversation("conv-1", "user-1")
+        assert result is not None
+        assert result.status == "active"
+
+    async def test_add_message_wrong_user_raises(
+        self, repo, sample_conversation, sample_message
+    ):
+        """Adding a message to a conversation you don't own raises ValueError."""
+        await repo.create_conversation(sample_conversation)
+        with pytest.raises(ValueError, match="not found"):
+            await repo.add_message(sample_message, "user-other")
+
+        # Verify no message was added
+        messages = await repo.get_messages("conv-1", "user-1")
+        assert messages == []

@@ -95,14 +95,17 @@ async def create_conversation(
 
 @router.get("/{conversation_id}")
 async def get_conversation(
-    conversation_id: str, repo: Repo
+    conversation_id: str, request: Request, repo: Repo
 ) -> ConversationWithMessages:
     """Get a conversation with its messages."""
-    conversation = await repo.get_conversation(conversation_id)
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+
+    conversation = await repo.get_conversation(conversation_id, user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
-    messages = await repo.get_messages(conversation_id)
+    messages = await repo.get_messages(conversation_id, user_id)
     return ConversationWithMessages(
         **conversation.model_dump(),
         messages=messages,
@@ -111,10 +114,13 @@ async def get_conversation(
 
 @router.patch("/{conversation_id}")
 async def update_conversation(
-    conversation_id: str, body: UpdateConversationRequest, repo: Repo
+    conversation_id: str, body: UpdateConversationRequest, request: Request, repo: Repo
 ) -> Conversation:
     """Update a conversation's title or metadata."""
-    conversation = await repo.get_conversation(conversation_id)
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+
+    conversation = await repo.get_conversation(conversation_id, user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
@@ -123,28 +129,36 @@ async def update_conversation(
     if body.metadata is not None:
         conversation.metadata = body.metadata
 
-    await repo.update_conversation(conversation)
+    await repo.update_conversation(conversation, user_id)
     return conversation
 
 
 @router.delete("/{conversation_id}", status_code=204)
-async def delete_conversation(conversation_id: str, repo: Repo) -> Response:
+async def delete_conversation(
+    conversation_id: str, request: Request, repo: Repo
+) -> Response:
     """Soft-delete a conversation."""
-    conversation = await repo.get_conversation(conversation_id)
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+
+    conversation = await repo.get_conversation(conversation_id, user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
-    await repo.delete_conversation(conversation_id)
+    await repo.delete_conversation(conversation_id, user_id)
     return Response(status_code=204)
 
 
 @router.get("/{conversation_id}/messages")
 async def list_messages(
-    conversation_id: str, repo: Repo, limit: int = 100
+    conversation_id: str, request: Request, repo: Repo, limit: int = 100
 ) -> list[Message]:
     """Get paginated messages for a conversation."""
-    conversation = await repo.get_conversation(conversation_id)
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+
+    conversation = await repo.get_conversation(conversation_id, user_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
-    return await repo.get_messages(conversation_id, limit=limit)
+    return await repo.get_messages(conversation_id, user_id, limit=limit)

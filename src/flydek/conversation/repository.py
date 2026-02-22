@@ -52,10 +52,18 @@ class ConversationRepository:
             session.add(row)
             await session.commit()
 
-    async def get_conversation(self, conversation_id: str) -> Conversation | None:
-        """Retrieve a conversation by ID, or ``None`` if not found."""
+    async def get_conversation(
+        self, conversation_id: str, user_id: str
+    ) -> Conversation | None:
+        """Retrieve a conversation by ID and owner, or ``None`` if not found/owned."""
         async with self._session_factory() as session:
-            row = await session.get(ConversationRow, conversation_id)
+            result = await session.execute(
+                select(ConversationRow).where(
+                    ConversationRow.id == conversation_id,
+                    ConversationRow.user_id == user_id,
+                )
+            )
+            row = result.scalar_one_or_none()
             if row is None:
                 return None
             # Count messages for this conversation
@@ -84,10 +92,18 @@ class ConversationRepository:
             )
             return [self._row_to_conversation(r) for r in result.scalars().all()]
 
-    async def update_conversation(self, conversation: Conversation) -> None:
-        """Update an existing conversation."""
+    async def update_conversation(
+        self, conversation: Conversation, user_id: str
+    ) -> None:
+        """Update an existing conversation after verifying ownership."""
         async with self._session_factory() as session:
-            row = await session.get(ConversationRow, conversation.id)
+            result = await session.execute(
+                select(ConversationRow).where(
+                    ConversationRow.id == conversation.id,
+                    ConversationRow.user_id == user_id,
+                )
+            )
+            row = result.scalar_one_or_none()
             if row is None:
                 msg = f"Conversation {conversation.id} not found"
                 raise ValueError(msg)
@@ -97,24 +113,40 @@ class ConversationRepository:
             row.status = conversation.status
             await session.commit()
 
-    async def delete_conversation(self, conversation_id: str) -> None:
-        """Soft-delete a conversation by setting status to 'deleted'."""
+    async def delete_conversation(
+        self, conversation_id: str, user_id: str
+    ) -> None:
+        """Soft-delete a conversation by setting status to 'deleted', only if owned."""
         async with self._session_factory() as session:
             await session.execute(
                 update(ConversationRow)
-                .where(ConversationRow.id == conversation_id)
+                .where(
+                    ConversationRow.id == conversation_id,
+                    ConversationRow.user_id == user_id,
+                )
                 .values(status="deleted")
             )
             await session.commit()
 
     # -- Messages --
 
-    async def add_message(self, message: Message) -> None:
-        """Persist a new message."""
-        metadata = dict(message.metadata)
-        if message.file_ids:
-            metadata["file_ids"] = message.file_ids
+    async def add_message(self, message: Message, user_id: str) -> None:
+        """Persist a new message after verifying conversation ownership."""
         async with self._session_factory() as session:
+            # Verify the caller owns the conversation
+            owner_check = await session.execute(
+                select(ConversationRow.id).where(
+                    ConversationRow.id == message.conversation_id,
+                    ConversationRow.user_id == user_id,
+                )
+            )
+            if owner_check.scalar_one_or_none() is None:
+                msg = f"Conversation {message.conversation_id} not found"
+                raise ValueError(msg)
+
+            metadata = dict(message.metadata)
+            if message.file_ids:
+                metadata["file_ids"] = message.file_ids
             row = MessageRow(
                 id=message.id,
                 conversation_id=message.conversation_id,
@@ -128,11 +160,22 @@ class ConversationRepository:
     async def get_messages(
         self,
         conversation_id: str,
+        user_id: str,
         *,
         limit: int = 100,
     ) -> list[Message]:
-        """Return messages for a conversation, oldest first."""
+        """Return messages for a conversation, oldest first, only if owned."""
         async with self._session_factory() as session:
+            # Verify the caller owns the conversation
+            owner_check = await session.execute(
+                select(ConversationRow.id).where(
+                    ConversationRow.id == conversation_id,
+                    ConversationRow.user_id == user_id,
+                )
+            )
+            if owner_check.scalar_one_or_none() is None:
+                return []
+
             result = await session.execute(
                 select(MessageRow)
                 .where(MessageRow.conversation_id == conversation_id)
