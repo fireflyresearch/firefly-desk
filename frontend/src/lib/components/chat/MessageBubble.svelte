@@ -9,6 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { fly } from 'svelte/transition';
 	import { FileText, Download } from 'lucide-svelte';
 	import type { Message, MessageFile } from '$lib/stores/chat.js';
 	import { currentUser } from '$lib/stores/user.js';
@@ -64,11 +65,11 @@
 
 {#if isUser}
 	<!-- User message: right-aligned bubble -->
-	<div class="group flex w-full justify-end px-4 py-1">
+	<div class="group flex w-full justify-end px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
 		<div class="flex items-start gap-2">
 			<div class="flex max-w-[75%] flex-col items-end">
 				<div
-					class="rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
+					class="rounded-2xl rounded-br-sm bg-accent/90 backdrop-blur-sm px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
 				>
 					{message.content}
 				</div>
@@ -135,7 +136,7 @@
 	</div>
 {:else}
 	<!-- Assistant message: full-width left-aligned, no bubble background -->
-	<div class="group flex w-full justify-start px-4 py-1">
+	<div class="group flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
 		<div class="flex gap-3">
 			<!-- Ember avatar -->
 			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center">
@@ -143,7 +144,7 @@
 			</div>
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
-				<div class="text-sm leading-relaxed">
+				<div class="border-l-2 border-l-ember/30 pl-3 text-sm leading-relaxed">
 					<MarkdownContent content={message.content} />
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
