@@ -67,7 +67,7 @@ The knowledge system combines two complementary layers: vector similarity search
 
 ```bash
 # Clone the repository
-git clone https://github.com/fireflyframework/firefly-desk.git
+git clone https://github.com/fireflyresearch/firefly-desk.git
 cd firefly-desk
 
 # Copy the default environment configuration
