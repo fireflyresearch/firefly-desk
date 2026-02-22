@@ -9,5 +9,6 @@
 """SQLAlchemy ORM models for Firefly Desk."""
 
 from flydek.models.base import Base
+from flydek.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
 
-__all__ = ["Base"]
+__all__ = ["Base", "CredentialRow", "ExternalSystemRow", "ServiceEndpointRow"]
