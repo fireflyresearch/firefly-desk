@@ -16,6 +16,7 @@ import AlertBanner from '$lib/components/widgets/AlertBanner.svelte';
 import DiffViewer from '$lib/components/widgets/DiffViewer.svelte';
 import Timeline from '$lib/components/widgets/Timeline.svelte';
 import ExportCard from '$lib/components/widgets/ExportCard.svelte';
+import SafetyPlanCard from '$lib/components/widgets/SafetyPlanCard.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -30,7 +31,8 @@ export const widgetRegistry: Record<string, Component> = {
 	'alert': AlertBanner,
 	'diff-viewer': DiffViewer,
 	'timeline': Timeline,
-	'export': ExportCard
+	'export': ExportCard,
+	'safety-plan': SafetyPlanCard
 };
 
 // ---------------------------------------------------------------------------

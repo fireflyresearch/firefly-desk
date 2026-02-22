@@ -55,6 +55,7 @@ class KnowledgeIndexer:
                 id=document.id,
                 title=document.title,
                 content=document.content,
+                document_type=str(document.document_type),
                 source=document.source,
                 tags=_to_json(document.tags),
                 metadata_=_to_json(document.metadata),

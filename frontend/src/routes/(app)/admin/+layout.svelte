@@ -19,7 +19,8 @@
 		Users,
 		Download,
 		Shield,
-		ShieldAlert
+		ShieldAlert,
+		ShieldCheck
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -33,6 +34,7 @@
 		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
 		{ href: '/admin/users', label: 'Users', icon: Users },
+		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
 		{ href: '/admin/sso', label: 'SSO', icon: Shield }
 	];

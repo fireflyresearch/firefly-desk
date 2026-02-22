@@ -41,12 +41,19 @@ from flydek.api.exports import router as exports_router
 from flydek.api.files import get_content_extractor, get_file_repo, get_file_storage
 from flydek.api.files import router as files_router
 from flydek.api.health import router as health_router
-from flydek.api.knowledge import get_knowledge_doc_store, get_knowledge_indexer
+from flydek.api.knowledge import (
+    get_knowledge_doc_store,
+    get_knowledge_graph,
+    get_knowledge_importer,
+    get_knowledge_indexer,
+)
 from flydek.api.knowledge import router as knowledge_router
 from flydek.api.llm_providers import get_llm_repo
 from flydek.api.llm_providers import router as llm_providers_router
 from flydek.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
 from flydek.api.oidc_providers import router as oidc_providers_router
+from flydek.api.roles import get_role_repo
+from flydek.api.roles import router as roles_router
 from flydek.api.settings import get_settings_repo
 from flydek.api.settings import router as settings_router
 from flydek.api.setup import router as setup_router
@@ -76,6 +83,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(Base.metadata.create_all)
 
     session_factory = create_session_factory(engine)
+
+    # RBAC: seed built-in roles and make the repository available to middleware
+    from flydek.rbac.repository import RoleRepository
+
+    role_repo = RoleRepository(session_factory)
+    await role_repo.seed_builtin_roles()
+    app.state.role_repo = role_repo
+    app.dependency_overrides[get_role_repo] = lambda: role_repo
 
     # Wire dependency overrides
     catalog_repo = CatalogRepository(session_factory)
@@ -153,6 +168,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)
 
+        async def update_document(self, document_id, *, title=None, document_type=None, tags=None):
+            return await catalog_repo.update_knowledge_document(
+                document_id, title=title, document_type=document_type, tags=tags
+            )
+
     doc_store = _LiveDocStore()
     app.dependency_overrides[get_knowledge_doc_store] = lambda: doc_store
 
@@ -197,6 +217,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     http_client = httpx.AsyncClient()
     app.state.http_client = http_client
 
+    # Knowledge graph + importer dependency overrides
+    app.dependency_overrides[get_knowledge_graph] = lambda: knowledge_graph
+
+    from flydek.knowledge.importer import KnowledgeImporter
+
+    knowledge_importer = KnowledgeImporter(indexer=indexer, http_client=http_client)
+    app.dependency_overrides[get_knowledge_importer] = lambda: knowledge_importer
+
     tool_executor = ToolExecutor(
         http_client=http_client,
         catalog_repo=catalog_repo,
@@ -204,6 +232,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audit_logger=audit_logger,
         max_parallel=config.max_tools_per_turn,
     )
+
+    # Safety confirmation service for high-risk tool calls.
+    from flydek.agent.confirmation import ConfirmationService
+
+    confirmation_service = ConfirmationService()
+    app.state.confirmation_service = confirmation_service
 
     desk_agent = DeskAgent(
         context_enricher=context_enricher,
@@ -214,6 +248,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         agent_name=config.agent_name,
         tool_executor=tool_executor,
         file_repo=file_repo,
+        confirmation_service=confirmation_service,
     )
     app.state.desk_agent = desk_agent
 
@@ -334,5 +369,6 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(dashboard_router)
     app.include_router(users_router)
+    app.include_router(roles_router)
 
     return app

@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 
 from flydek.audit.logger import AuditLogger
 from flydek.audit.models import AuditEvent
+from flydek.rbac.guards import AuditRead
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -36,14 +37,6 @@ def get_audit_logger() -> AuditLogger:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Logger = Annotated[AuditLogger, Depends(get_audit_logger)]
 
 
@@ -52,7 +45,7 @@ Logger = Annotated[AuditLogger, Depends(get_audit_logger)]
 # ---------------------------------------------------------------------------
 
 
-@router.get("/events", dependencies=[AdminGuard])
+@router.get("/events", dependencies=[AuditRead])
 async def query_events(
     logger: Logger,
     user_id: str | None = None,
@@ -60,4 +53,5 @@ async def query_events(
     limit: int = 50,
 ) -> list[AuditEvent]:
     """Query audit events with optional filters."""
-    return await logger.query(user_id=user_id, event_type=event_type, limit=limit)
+    capped = min(limit, 500)
+    return await logger.query(user_id=user_id, event_type=event_type, limit=capped)

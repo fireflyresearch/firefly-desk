@@ -14,13 +14,14 @@ import re
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from flydek.exports.models import ExportFormat, ExportRecord, ExportTemplate
 from flydek.exports.repository import ExportRepository
 from flydek.exports.service import ExportService
 from flydek.files.storage import FileStorageProvider
+from flydek.rbac.guards import ExportsTemplates
 
 router = APIRouter(tags=["exports"])
 
@@ -55,14 +56,6 @@ def get_export_storage() -> FileStorageProvider:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 ExportRepo = Annotated[ExportRepository, Depends(get_export_repo)]
 ExportSvc = Annotated[ExportService, Depends(get_export_service)]
 ExportStorage = Annotated[FileStorageProvider, Depends(get_export_storage)]
@@ -106,7 +99,7 @@ async def list_templates(repo: ExportRepo) -> list[dict]:
     return [_template_to_dict(t) for t in templates]
 
 
-@router.post("/api/exports/templates", status_code=201, dependencies=[AdminGuard])
+@router.post("/api/exports/templates", status_code=201, dependencies=[ExportsTemplates])
 async def create_template(body: CreateTemplateRequest, repo: ExportRepo) -> dict:
     """Create a new export template (admin only)."""
     template = ExportTemplate(
@@ -125,7 +118,7 @@ async def create_template(body: CreateTemplateRequest, repo: ExportRepo) -> dict
 @router.delete(
     "/api/exports/templates/{template_id}",
     status_code=204,
-    dependencies=[AdminGuard],
+    dependencies=[ExportsTemplates],
 )
 async def delete_template(template_id: str, repo: ExportRepo) -> Response:
     """Delete an export template (admin only)."""
@@ -165,7 +158,7 @@ async def create_export(
 async def list_exports(
     request: Request,
     repo: ExportRepo,
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> list[dict]:
     """List the current user's exports."""
     user_session = getattr(request.state, "user_session", None)

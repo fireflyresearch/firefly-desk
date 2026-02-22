@@ -21,6 +21,7 @@ export interface User {
 	pictureUrl?: string;
 	department?: string;
 	title?: string;
+	devMode?: boolean;
 }
 
 /** Shape returned by the /api/profile endpoint. */
@@ -33,6 +34,7 @@ interface ProfileResponse {
 	picture_url?: string | null;
 	department?: string | null;
 	title?: string | null;
+	dev_mode?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,8 @@ export async function initCurrentUser(): Promise<void> {
 			permissions: profile.permissions ?? [],
 			pictureUrl: profile.picture_url ?? undefined,
 			department: profile.department ?? undefined,
-			title: profile.title ?? undefined
+			title: profile.title ?? undefined,
+			devMode: profile.dev_mode ?? false
 		});
 	} catch {
 		// If the profile fetch fails (e.g. unauthenticated), leave the

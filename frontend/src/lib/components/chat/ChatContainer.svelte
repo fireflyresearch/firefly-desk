@@ -12,6 +12,7 @@
 <script lang="ts">
 	import MessageBubble from './MessageBubble.svelte';
 	import StreamingMessage from './StreamingMessage.svelte';
+	import WidgetSlot from './WidgetSlot.svelte';
 	import InputBar from './InputBar.svelte';
 	import ChatEmptyState from './ChatEmptyState.svelte';
 	import DropOverlay from './DropOverlay.svelte';
@@ -143,6 +144,15 @@
 						<StreamingMessage content={message.content} />
 					{:else}
 						<MessageBubble {message} />
+					{/if}
+					{#if message.widgets?.length}
+						<div class="px-4 py-1">
+							<div class="ml-10 flex flex-col gap-2">
+								{#each message.widgets.filter((w) => w.display === 'inline') as widget (widget.widget_id)}
+									<WidgetSlot directive={widget} />
+								{/each}
+							</div>
+						</div>
 					{/if}
 				{/each}
 			</div>

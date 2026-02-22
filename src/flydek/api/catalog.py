@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from flydek.catalog.models import ExternalSystem, ServiceEndpoint
 from flydek.catalog.repository import CatalogRepository
+from flydek.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -36,14 +37,6 @@ def get_catalog_repo() -> CatalogRepository:
     )
 
 
-async def _require_admin(request: Request) -> None:
-    """Raise 403 unless the authenticated user has the 'admin' role."""
-    user = getattr(request.state, "user_session", None)
-    if user is None or "admin" not in user.roles:
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-
-AdminGuard = Depends(_require_admin)
 Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 
 
@@ -52,20 +45,20 @@ Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 # ---------------------------------------------------------------------------
 
 
-@router.post("/systems", status_code=201, dependencies=[AdminGuard])
+@router.post("/systems", status_code=201, dependencies=[CatalogWrite])
 async def create_system(system: ExternalSystem, repo: Repo) -> ExternalSystem:
     """Register a new external system."""
     await repo.create_system(system)
     return system
 
 
-@router.get("/systems", dependencies=[AdminGuard])
+@router.get("/systems", dependencies=[CatalogRead])
 async def list_systems(repo: Repo) -> list[ExternalSystem]:
     """Return every registered external system."""
     return await repo.list_systems()
 
 
-@router.get("/systems/{system_id}", dependencies=[AdminGuard])
+@router.get("/systems/{system_id}", dependencies=[CatalogRead])
 async def get_system(system_id: str, repo: Repo) -> ExternalSystem:
     """Retrieve a single external system by ID."""
     system = await repo.get_system(system_id)
@@ -74,7 +67,7 @@ async def get_system(system_id: str, repo: Repo) -> ExternalSystem:
     return system
 
 
-@router.put("/systems/{system_id}", dependencies=[AdminGuard])
+@router.put("/systems/{system_id}", dependencies=[CatalogWrite])
 async def update_system(
     system_id: str, system: ExternalSystem, repo: Repo
 ) -> ExternalSystem:
@@ -86,7 +79,7 @@ async def update_system(
     return system
 
 
-@router.delete("/systems/{system_id}", status_code=204, dependencies=[AdminGuard])
+@router.delete("/systems/{system_id}", status_code=204, dependencies=[CatalogDelete])
 async def delete_system(system_id: str, repo: Repo) -> Response:
     """Remove an external system."""
     existing = await repo.get_system(system_id)
@@ -102,7 +95,7 @@ async def delete_system(system_id: str, repo: Repo) -> Response:
 
 
 @router.post(
-    "/systems/{system_id}/endpoints", status_code=201, dependencies=[AdminGuard]
+    "/systems/{system_id}/endpoints", status_code=201, dependencies=[CatalogWrite]
 )
 async def create_endpoint(
     system_id: str, endpoint: ServiceEndpoint, repo: Repo
@@ -115,7 +108,7 @@ async def create_endpoint(
     return endpoint
 
 
-@router.get("/systems/{system_id}/endpoints", dependencies=[AdminGuard])
+@router.get("/systems/{system_id}/endpoints", dependencies=[CatalogRead])
 async def list_endpoints(system_id: str, repo: Repo) -> list[ServiceEndpoint]:
     """List all endpoints belonging to a system."""
     system = await repo.get_system(system_id)
@@ -124,7 +117,7 @@ async def list_endpoints(system_id: str, repo: Repo) -> list[ServiceEndpoint]:
     return await repo.list_endpoints(system_id)
 
 
-@router.get("/endpoints/{endpoint_id}", dependencies=[AdminGuard])
+@router.get("/endpoints/{endpoint_id}", dependencies=[CatalogRead])
 async def get_endpoint(endpoint_id: str, repo: Repo) -> ServiceEndpoint:
     """Retrieve a single endpoint by ID."""
     endpoint = await repo.get_endpoint(endpoint_id)
@@ -135,7 +128,7 @@ async def get_endpoint(endpoint_id: str, repo: Repo) -> ServiceEndpoint:
     return endpoint
 
 
-@router.delete("/endpoints/{endpoint_id}", status_code=204, dependencies=[AdminGuard])
+@router.delete("/endpoints/{endpoint_id}", status_code=204, dependencies=[CatalogDelete])
 async def delete_endpoint(endpoint_id: str, repo: Repo) -> Response:
     """Remove a service endpoint."""
     existing = await repo.get_endpoint(endpoint_id)
