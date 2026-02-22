@@ -142,7 +142,7 @@
 </script>
 
 <div
-	class="rounded-lg border border-border border-l-4 {config.border} bg-surface-secondary p-4"
+	class="rounded-xl border border-border border-l-4 {config.border} bg-surface-elevated p-5 shadow-sm"
 >
 	<!-- Header: icon + tool name + risk badge -->
 	<div class="flex items-start justify-between gap-3">
@@ -175,8 +175,8 @@
 
 	<!-- Parameter summary -->
 	{#if paramEntries.length > 0}
-		<div class="mt-3 rounded-md border border-border bg-surface p-3">
-			<p class="mb-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
+		<div class="mt-3 rounded-lg border border-border bg-surface p-4">
+			<p class="mb-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
 				Parameters
 			</p>
 			<dl class="space-y-1">
@@ -215,7 +215,7 @@
 				<button
 					type="button"
 					onclick={handleReject}
-					class="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20"
+					class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-all hover:bg-danger/20"
 				>
 					<X size={14} />
 					Reject
@@ -223,7 +223,7 @@
 				<button
 					type="button"
 					onclick={handleApprove}
-					class="inline-flex items-center gap-1.5 rounded-md bg-success px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-success/90"
+					class="btn-hover inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-success/90"
 				>
 					<Check size={14} />
 					Approve

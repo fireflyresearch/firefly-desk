@@ -34,11 +34,12 @@
 	// Risk-level configuration
 	// -----------------------------------------------------------------------
 
-	const riskMeta: Record<RiskLevel, { label: string; color: string; bgColor: string; icon: Component; order: number }> = {
+	const riskMeta: Record<RiskLevel, { label: string; color: string; bgColor: string; borderColor: string; icon: Component; order: number }> = {
 		read: {
 			label: 'READ',
 			color: 'text-success',
 			bgColor: 'bg-success/10 text-success border-success/20',
+			borderColor: 'border-l-success',
 			icon: ShieldCheck,
 			order: 0
 		},
@@ -46,6 +47,7 @@
 			label: 'LOW WRITE',
 			color: 'text-accent',
 			bgColor: 'bg-accent/10 text-accent border-accent/20',
+			borderColor: 'border-l-accent',
 			icon: Shield,
 			order: 1
 		},
@@ -53,6 +55,7 @@
 			label: 'HIGH WRITE',
 			color: 'text-warning',
 			bgColor: 'bg-warning/10 text-warning border-warning/20',
+			borderColor: 'border-l-warning',
 			icon: ShieldAlert,
 			order: 2
 		},
@@ -60,6 +63,7 @@
 			label: 'DESTRUCTIVE',
 			color: 'text-danger',
 			bgColor: 'bg-danger/10 text-danger border-danger/20',
+			borderColor: 'border-l-danger',
 			icon: ShieldX,
 			order: 3
 		}
@@ -96,12 +100,12 @@
 	let operationCount = $derived(operations?.length ?? 0);
 </script>
 
-<div class="rounded-lg border border-border bg-surface-secondary">
+<div class="rounded-xl border border-border border-l-4 {overallConfig.borderColor} bg-surface-elevated shadow-sm">
 	<!-- Header: collapsible -->
 	<button
 		type="button"
 		onclick={() => (expanded = !expanded)}
-		class="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-surface-hover rounded-t-lg"
+		class="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-surface-hover rounded-t-xl"
 	>
 		<div class="flex items-center gap-2.5 min-w-0">
 			<span class="{overallConfig.color} shrink-0">
@@ -141,7 +145,7 @@
 				{#each operations as op, i}
 					{@const meta = riskMeta[op.risk_level] ?? riskMeta.read}
 					{@const OpIcon = meta.icon}
-					<li class="flex items-center gap-3 px-4 py-3">
+					<li class="flex items-center gap-3 px-5 py-3">
 						<!-- Risk icon -->
 						<span class="{meta.color} shrink-0">
 							<OpIcon size={16} />

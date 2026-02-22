@@ -25,21 +25,21 @@
 
 	const borderColors: Record<AlertBannerProps['severity'], string> = {
 		info: 'border-l-accent',
-		warning: 'border-l-warning',
+		warning: 'border-l-ember',
 		error: 'border-l-danger',
 		success: 'border-l-success'
 	};
 
 	const bgColors: Record<AlertBannerProps['severity'], string> = {
 		info: 'bg-accent/5',
-		warning: 'bg-warning/5',
+		warning: 'bg-ember/5',
 		error: 'bg-danger/5',
 		success: 'bg-success/5'
 	};
 
 	const iconColors: Record<AlertBannerProps['severity'], string> = {
 		info: 'text-accent',
-		warning: 'text-warning',
+		warning: 'text-ember',
 		error: 'text-danger',
 		success: 'text-success'
 	};
@@ -51,7 +51,7 @@
 </script>
 
 <div
-	class="w-full rounded-lg border border-border border-l-4 {borderColor} {bgColor} p-4"
+	class="w-full rounded-xl border border-border border-l-4 {borderColor} {bgColor} p-4 shadow-sm"
 >
 	<div class="flex items-start gap-3">
 		<span class="mt-0.5 shrink-0 {iconColor}">

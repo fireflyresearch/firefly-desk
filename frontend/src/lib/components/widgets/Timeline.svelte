@@ -21,17 +21,17 @@
 	let { events }: TimelineProps = $props();
 </script>
 
-<div class="rounded-lg border border-border bg-surface p-4">
+<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
 	<div class="relative">
 		{#each events as event, i}
-			<div class="relative flex gap-3 {i < events.length - 1 ? 'pb-4' : ''}">
-				<!-- Vertical line -->
+			<div class="relative flex gap-3 {i < events.length - 1 ? 'pb-5' : ''}">
+				<!-- Vertical connecting line -->
 				{#if i < events.length - 1}
 					<div class="absolute left-[5px] top-3 bottom-0 w-px bg-border"></div>
 				{/if}
 
-				<!-- Dot -->
-				<div class="relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-accent bg-surface"></div>
+				<!-- Accent-colored dot -->
+				<div class="relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-ember bg-surface-elevated"></div>
 
 				<!-- Content -->
 				<div class="min-w-0 flex-1">
