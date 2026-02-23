@@ -9,7 +9,7 @@
  */
 
 import { get } from 'svelte/store';
-import { apiFetch, apiJson } from './api.js';
+import { apiFetch } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
 import type { WidgetDirective, MessageFile } from '../stores/chat.js';
@@ -105,21 +105,6 @@ export async function sendMessage(
 	} catch (error) {
 		console.error('[ChatService] Failed to send message:', error);
 		finishStreaming();
-	}
-}
-
-/**
- * Check whether this is a first-run instance (no seed data loaded).
- */
-export async function checkFirstRun(): Promise<boolean> {
-	try {
-		console.log('[Setup] Checking first-run status...');
-		const data = await apiJson<{ is_first_run: boolean }>('/setup/first-run');
-		console.log('[Setup] First-run check result:', data.is_first_run);
-		return data.is_first_run;
-	} catch (error) {
-		console.error('[Setup] checkFirstRun failed:', error);
-		return false;
 	}
 }
 
