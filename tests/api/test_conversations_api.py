@@ -149,6 +149,21 @@ class TestConversationsAPI:
         assert data["status"] == "active"
         assert data["id"] is not None
 
+    async def test_create_conversation_has_timestamps(self, client):
+        """POST /api/conversations returns created_at and updated_at (not null)."""
+        response = await client.post(
+            "/api/conversations",
+            json={"title": "Timestamp test"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["created_at"] is not None, "created_at must not be null"
+        assert data["updated_at"] is not None, "updated_at must not be null"
+        # Both timestamps should parse as valid ISO datetime strings
+        created = datetime.fromisoformat(data["created_at"])
+        updated = datetime.fromisoformat(data["updated_at"])
+        assert created == updated
+
     async def test_get_conversation_with_messages(self, client):
         """GET /api/conversations/{id} returns conversation with messages."""
         # Create a conversation
