@@ -269,13 +269,16 @@ class ToolExecutor:
         credential_store: CredentialStore,
         audit_logger: AuditLogger,
         max_parallel: int = 5,
+        kms: Any | None = None,
     ) -> None:
         self._http_client = http_client
         self._catalog_repo = catalog_repo
         self._credential_store = credential_store
         self._audit_logger = audit_logger
         self._semaphore = asyncio.Semaphore(max_parallel)
-        self._auth_resolver = AuthResolver(credential_store, http_client=http_client)
+        self._auth_resolver = AuthResolver(
+            credential_store, http_client=http_client, kms=kms
+        )
         self._rate_limiter = _RateLimiter()
 
     # ------------------------------------------------------------------
