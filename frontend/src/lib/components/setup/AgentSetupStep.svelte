@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
 	import { ArrowLeft, ArrowRight } from 'lucide-svelte';
+	import EmberAvatar from '$lib/components/chat/EmberAvatar.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -86,16 +87,6 @@
 
 	/** Greeting with {name} replaced for the live preview. */
 	let previewGreeting = $derived(greeting.replace(/\{name\}/g, displayName || agentName));
-
-	/** Initials for the avatar fallback. */
-	let initials = $derived(
-		(displayName || agentName || 'E')
-			.split(/\s+/)
-			.map((w: string) => w[0])
-			.join('')
-			.toUpperCase()
-			.slice(0, 2)
-	);
 
 	// Reset avatar error state when URL changes
 	$effect(() => {
@@ -245,7 +236,7 @@
 							onerror={() => { avatarLoadFailed = true; }}
 						/>
 					{:else}
-						<span class="text-xs font-semibold text-ember">{initials}</span>
+						<EmberAvatar size={40} />
 					{/if}
 				</div>
 			</div>
@@ -282,7 +273,7 @@
 							onerror={() => { avatarLoadFailed = true; }}
 						/>
 					{:else}
-						<span class="text-xs font-semibold text-ember">{initials}</span>
+						<EmberAvatar size={36} />
 					{/if}
 				</div>
 				<div>
