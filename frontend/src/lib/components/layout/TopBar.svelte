@@ -8,7 +8,8 @@
 		User,
 		Shield,
 		LogOut,
-		MessageSquare
+		MessageSquare,
+		Palette
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -48,6 +49,7 @@
 	let activeTab = $derived.by(() => {
 		const path = $page.url.pathname;
 		if (path.startsWith('/admin')) return 'admin';
+		if (path.startsWith('/settings')) return 'settings';
 		return 'chat';
 	});
 
@@ -168,7 +170,8 @@
 		<button
 			type="button"
 			onclick={() => goto('/settings')}
-			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary
+				{activeTab === 'settings' ? 'bg-ember/10 text-ember' : ''}"
 			aria-label="Settings"
 		>
 			<Settings size={16} />
@@ -199,11 +202,25 @@
 
 			{#if dropdownOpen}
 				<div
-					class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-border bg-surface-elevated/95 shadow-xl backdrop-blur-xl"
+					class="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-border bg-surface-elevated/95 shadow-xl backdrop-blur-xl"
 					role="menu"
 				>
 					<div class="border-b border-border px-3 py-2">
 						<p class="text-sm font-medium text-text-primary">{displayName}</p>
+						{#if $currentUser?.email}
+							<p class="mt-0.5 truncate text-xs text-text-secondary">{$currentUser.email}</p>
+						{/if}
+						{#if $currentUser?.roles.length}
+							<div class="mt-1.5 flex flex-wrap gap-1">
+								{#each $currentUser.roles as role}
+									<span
+										class="rounded-full border border-ember/30 bg-ember/10 px-1.5 py-0.5 text-[10px] font-medium text-ember"
+									>
+										{role}
+									</span>
+								{/each}
+							</div>
+						{/if}
 					</div>
 					<ul class="py-1">
 						<li>
@@ -218,6 +235,20 @@
 							>
 								<User size={14} />
 								Profile
+							</button>
+						</li>
+						<li>
+							<button
+								type="button"
+								onclick={() => {
+									closeDropdown();
+									goto('/settings/appearance');
+								}}
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+								role="menuitem"
+							>
+								<Palette size={14} />
+								Appearance
 							</button>
 						</li>
 						{#if $isAdmin}
