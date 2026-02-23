@@ -793,7 +793,7 @@ class TestDeskAgentCallLlm:
         mock_agent.run = AsyncMock(return_value=mock_result)
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        await desk_agent_with_factory._call_llm("user message", "system prompt text")
+        await desk_agent_with_factory._call_llm("user message", "system prompt text", "conv-1")
         mock_agent_factory.create_agent.assert_awaited_once_with("system prompt text")
 
     async def test_call_llm_returns_agent_output(
@@ -806,8 +806,34 @@ class TestDeskAgentCallLlm:
         mock_agent.run = AsyncMock(return_value=mock_result)
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        result = await desk_agent_with_factory._call_llm("question", "prompt")
+        result = await desk_agent_with_factory._call_llm("question", "prompt", "conv-1")
         assert result == "The answer is 42."
+
+    async def test_call_llm_passes_conversation_id_to_agent_run(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm should forward conversation_id to agent.run()."""
+        mock_agent = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.output = "response"
+        mock_agent.run = AsyncMock(return_value=mock_result)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        await desk_agent_with_factory._call_llm("msg", "prompt", "conv-42")
+        mock_agent.run.assert_awaited_once_with("msg", conversation_id="conv-42")
+
+    async def test_call_llm_passes_none_conversation_id(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm with no conversation_id should pass None to agent.run()."""
+        mock_agent = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.output = "response"
+        mock_agent.run = AsyncMock(return_value=mock_result)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        await desk_agent_with_factory._call_llm("msg", "prompt")
+        mock_agent.run.assert_awaited_once_with("msg", conversation_id=None)
 
     async def test_call_llm_returns_error_on_exception(
         self, desk_agent_with_factory, mock_agent_factory
@@ -817,7 +843,7 @@ class TestDeskAgentCallLlm:
         mock_agent.run = AsyncMock(side_effect=ConnectionError("API unreachable"))
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        result = await desk_agent_with_factory._call_llm("question", "prompt")
+        result = await desk_agent_with_factory._call_llm("question", "prompt", "conv-1")
         assert "error connecting to the language model" in result.lower()
         assert "API unreachable" in result
 
@@ -827,7 +853,7 @@ class TestDeskAgentCallLlm:
         """_call_llm should use echo fallback when create_agent() returns None."""
         mock_agent_factory.create_agent.return_value = None
 
-        result = await desk_agent_with_factory._call_llm("hello world", "prompt")
+        result = await desk_agent_with_factory._call_llm("hello world", "prompt", "conv-1")
         assert "No language model provider is configured" in result
         assert "hello world" in result
 
@@ -916,12 +942,66 @@ class TestDeskAgentStreamLlm:
         mock_agent_factory.create_agent.return_value = mock_agent
 
         tokens: list[str] = []
-        async for token in desk_agent_with_factory._stream_llm("test", "prompt"):
+        async for token in desk_agent_with_factory._stream_llm("test", "prompt", "conv-1"):
             tokens.append(token)
 
         assert tokens == ["Hello", " world", "!"]
         mock_agent.run_stream.assert_awaited_once_with(
-            "test", streaming_mode="incremental",
+            "test", streaming_mode="incremental", conversation_id="conv-1",
+        )
+
+    async def test_stream_llm_passes_conversation_id(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_stream_llm should forward conversation_id to agent.run_stream()."""
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            yield "tok"
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        tokens: list[str] = []
+        async for token in desk_agent_with_factory._stream_llm("msg", "prompt", "conv-99"):
+            tokens.append(token)
+
+        mock_agent.run_stream.assert_awaited_once_with(
+            "msg", streaming_mode="incremental", conversation_id="conv-99",
+        )
+
+    async def test_stream_llm_passes_none_conversation_id(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_stream_llm with no conversation_id should pass None to agent.run_stream()."""
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            yield "tok"
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        tokens: list[str] = []
+        async for token in desk_agent_with_factory._stream_llm("msg", "prompt"):
+            tokens.append(token)
+
+        mock_agent.run_stream.assert_awaited_once_with(
+            "msg", streaming_mode="incremental", conversation_id=None,
         )
 
     async def test_stream_llm_yields_error_on_exception(
@@ -938,7 +1018,7 @@ class TestDeskAgentStreamLlm:
         mock_agent_factory.create_agent.return_value = mock_agent
 
         tokens: list[str] = []
-        async for token in desk_agent_with_factory._stream_llm("test", "prompt"):
+        async for token in desk_agent_with_factory._stream_llm("test", "prompt", "conv-1"):
             tokens.append(token)
 
         full_text = "".join(tokens)

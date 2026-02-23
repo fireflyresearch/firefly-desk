@@ -63,3 +63,26 @@ class TestDeskConfig:
         }):
             cfg = DeskConfig()
             assert cfg.redis_url is None
+
+    def test_memory_defaults(self):
+        """Memory config fields have sensible defaults."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
+        }):
+            cfg = DeskConfig()
+            assert cfg.memory_backend == "in_memory"
+            assert cfg.memory_max_tokens == 128_000
+            assert cfg.memory_summarize_threshold == 10
+
+    def test_memory_backend_from_env(self):
+        """Memory backend can be overridden via environment variable."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "postgresql+asyncpg://localhost/flydesk",
+            "FLYDESK_MEMORY_BACKEND": "postgres",
+            "FLYDESK_MEMORY_MAX_TOKENS": "64000",
+            "FLYDESK_MEMORY_SUMMARIZE_THRESHOLD": "20",
+        }):
+            cfg = DeskConfig()
+            assert cfg.memory_backend == "postgres"
+            assert cfg.memory_max_tokens == 64_000
+            assert cfg.memory_summarize_threshold == 20

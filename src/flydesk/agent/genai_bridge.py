@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 from fireflyframework_genai.agents import FireflyAgent
 
 if TYPE_CHECKING:
+    from fireflyframework_genai.memory import MemoryManager
+
     from flydesk.llm.models import LLMProvider
     from flydesk.llm.repository import LLMProviderRepository
 
@@ -48,8 +50,13 @@ def provider_to_model_string(provider: LLMProvider) -> str:
 class DeskAgentFactory:
     """Creates FireflyAgent instances configured from Desk LLM providers."""
 
-    def __init__(self, llm_repo: LLMProviderRepository) -> None:
+    def __init__(
+        self,
+        llm_repo: LLMProviderRepository,
+        memory_manager: MemoryManager | None = None,
+    ) -> None:
         self._llm_repo = llm_repo
+        self._memory_manager = memory_manager
 
     async def create_agent(
         self,
@@ -82,6 +89,7 @@ class DeskAgentFactory:
             tools=tools or [],
             auto_register=False,
             default_middleware=False,  # We handle our own audit/logging
+            memory=self._memory_manager,
         )
 
 
