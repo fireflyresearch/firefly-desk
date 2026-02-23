@@ -15,7 +15,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 		if (res.ok) {
 			const status = await res.json();
 			if (status.setup_completed) {
-				redirect(303, '/');
+				throw redirect(303, '/');
 			}
 			return { status };
 		}
