@@ -16,8 +16,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
-import httpx
-
 from flydesk.agent.confirmation import ConfirmationService
 from flydesk.agent.context import ContextEnricher
 from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
@@ -31,10 +29,10 @@ from flydesk.tools.factory import ToolDefinition, ToolFactory
 from flydesk.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
+    from flydesk.agent.genai_bridge import DeskAgentFactory
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.files.repository import FileUploadRepository
-    from flydesk.llm.repository import LLMProviderRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 
 _logger = logging.getLogger(__name__)
@@ -69,7 +67,7 @@ class DeskAgent:
         file_repo: FileUploadRepository | None = None,
         confirmation_service: ConfirmationService | None = None,
         conversation_repo: ConversationRepository | None = None,
-        llm_repo: LLMProviderRepository | None = None,
+        agent_factory: DeskAgentFactory | None = None,
         catalog_repo: CatalogRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
@@ -84,7 +82,7 @@ class DeskAgent:
         self._file_repo = file_repo
         self._confirmation_service = confirmation_service
         self._conversation_repo = conversation_repo
-        self._llm_repo = llm_repo
+        self._agent_factory = agent_factory
         self._catalog_repo = catalog_repo
 
     # ------------------------------------------------------------------
@@ -466,48 +464,17 @@ class DeskAgent:
         return "\n".join(parts)
 
     async def _call_llm(self, message: str, system_prompt: str) -> str:
-        """Call the configured LLM provider, falling back to a placeholder echo."""
-        if self._llm_repo is None:
+        """Call the LLM via FireflyAgent."""
+        if self._agent_factory is None:
             return self._echo_fallback(message)
 
-        from flydesk.llm.models import ProviderType
+        agent = await self._agent_factory.create_agent(system_prompt)
+        if agent is None:
+            return self._echo_fallback(message)
 
         try:
-            provider = await self._llm_repo.get_default_provider()
-        except Exception:
-            _logger.debug("Failed to fetch LLM provider.", exc_info=True)
-            return self._echo_fallback(message)
-
-        if provider is None or not provider.api_key:
-            return self._echo_fallback(message)
-
-        model = provider.default_model or "default"
-        base_url = provider.base_url
-        api_key = provider.api_key
-
-        try:
-            if provider.provider_type == ProviderType.OPENAI:
-                return await self._call_openai(
-                    base_url or "https://api.openai.com/v1",
-                    api_key, model, system_prompt, message,
-                )
-            elif provider.provider_type == ProviderType.ANTHROPIC:
-                return await self._call_anthropic(
-                    base_url or "https://api.anthropic.com/v1",
-                    api_key, model, system_prompt, message,
-                )
-            elif provider.provider_type == ProviderType.GOOGLE:
-                return await self._call_google(
-                    base_url or "https://generativelanguage.googleapis.com/v1beta",
-                    api_key, model, system_prompt, message,
-                )
-            elif provider.provider_type in (ProviderType.AZURE_OPENAI, ProviderType.OLLAMA):
-                return await self._call_openai(
-                    base_url or "http://localhost:11434/v1",
-                    api_key, model, system_prompt, message,
-                )
-            else:
-                return self._echo_fallback(message)
+            result = await agent.run(message)
+            return str(result.output)
         except Exception as exc:
             _logger.error("LLM call failed: %s", exc, exc_info=True)
             return (
@@ -515,83 +482,6 @@ class DeskAgent:
                 "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
                 f"Error: {exc}"
             )
-
-    @staticmethod
-    async def _call_openai(
-        base_url: str, api_key: str, model: str,
-        system_prompt: str, message: str,
-    ) -> str:
-        """Call an OpenAI-compatible chat completions endpoint."""
-        url = f"{base_url.rstrip('/')}/chat/completions"
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": message},
-                    ],
-                    "max_tokens": 4096,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-
-    @staticmethod
-    async def _call_anthropic(
-        base_url: str, api_key: str, model: str,
-        system_prompt: str, message: str,
-    ) -> str:
-        """Call the Anthropic Messages API."""
-        url = f"{base_url.rstrip('/')}/messages"
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                url,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": 4096,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": message}],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Anthropic returns content as a list of blocks
-            blocks = data.get("content", [])
-            return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-
-    @staticmethod
-    async def _call_google(
-        base_url: str, api_key: str, model: str,
-        system_prompt: str, message: str,
-    ) -> str:
-        """Call the Google Generative Language API."""
-        url = f"{base_url.rstrip('/')}/models/{model}:generateContent?key={api_key}"
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                url,
-                json={
-                    "system_instruction": {"parts": [{"text": system_prompt}]},
-                    "contents": [
-                        {"role": "user", "parts": [{"text": message}]},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                return "".join(p.get("text", "") for p in parts)
-            return ""
 
     @staticmethod
     def _echo_fallback(message: str) -> str:
