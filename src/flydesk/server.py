@@ -290,16 +290,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from fireflyframework_genai.memory import MemoryManager
     from fireflyframework_genai.memory.store import InMemoryStore
 
-    if config.memory_backend == "postgres":
+    if config.memory_backend == "postgres" and "sqlite" not in config.database_url:
         from fireflyframework_genai.memory.database_store import PostgreSQLStore
 
-        memory_store = PostgreSQLStore(
-            url=config.database_url.replace(
-                "sqlite+aiosqlite", "postgresql+asyncpg",
-            ),
-        )
+        memory_store = PostgreSQLStore(url=config.database_url)
         await memory_store.initialize()
     else:
+        if config.memory_backend == "postgres":
+            logger.warning(
+                "memory_backend='postgres' but database_url is SQLite; "
+                "falling back to in-memory store.",
+            )
         memory_store = InMemoryStore()
 
     memory_manager = MemoryManager(
@@ -372,14 +373,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.debug("Platform docs seeding skipped (non-fatal).", exc_info=True)
 
     logger.info(
-        "Firefly Desk started (dev_mode=%s, db=%s)",
+        "Firefly Desk started (dev_mode=%s, db=%s, memory=%s)",
         config.dev_mode,
         config.database_url.split("@")[-1] if "@" in config.database_url else config.database_url,
+        config.memory_backend,
     )
 
     yield
 
     # Shutdown
+    if hasattr(memory_store, "close"):
+        await memory_store.close()
     await http_client.aclose()
     await engine.dispose()
     logger.info("Firefly Desk shutdown complete.")
