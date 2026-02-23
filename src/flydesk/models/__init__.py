@@ -17,6 +17,7 @@ from flydesk.models.file_upload import FileUploadRow
 from flydesk.models.job import JobRow
 from flydesk.models.knowledge import EntityRow, RelationRow
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
+from flydesk.models.local_user import LocalUserRow
 from flydesk.models.process import BusinessProcessRow, ProcessDependencyRow, ProcessStepRow
 from flydesk.models.llm import LLMProviderRow
 from flydesk.models.oidc import OIDCProviderRow
@@ -40,6 +41,7 @@ __all__ = [
     "JobRow",
     "KnowledgeDocumentRow",
     "LLMProviderRow",
+    "LocalUserRow",
     "MessageRow",
     "OIDCProviderRow",
     "ProcessDependencyRow",
