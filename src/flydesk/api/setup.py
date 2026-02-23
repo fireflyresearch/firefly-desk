@@ -33,6 +33,8 @@ class SetupStatus(BaseModel):
     database_configured: bool
     oidc_configured: bool
     has_seed_data: bool
+    setup_completed: bool
+    llm_configured: bool
     app_title: str
     app_version: str
     agent_name: str
@@ -94,6 +96,8 @@ async def get_setup_status(request: Request) -> SetupStatus:
 
     # Check if there's any seed data by looking for systems
     has_seed = False
+    setup_completed = False
+    llm_configured = False
     session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory:
         from flydesk.catalog.repository import CatalogRepository
@@ -102,11 +106,28 @@ async def get_setup_status(request: Request) -> SetupStatus:
         systems = await repo.list_systems()
         has_seed = len(systems) > 0
 
+        # Check whether initial setup has been completed
+        from flydesk.settings.repository import SettingsRepository
+
+        settings_repo = SettingsRepository(session_factory)
+        completed_val = await settings_repo.get_app_setting("setup_completed")
+        setup_completed = completed_val == "true"
+
+        # Check whether at least one LLM provider is configured
+        from flydesk.llm.repository import LLMProviderRepository
+
+        encryption_key = config.credential_encryption_key if hasattr(config, "credential_encryption_key") else ""
+        llm_repo = LLMProviderRepository(session_factory, encryption_key)
+        providers = await llm_repo.list_providers()
+        llm_configured = len(providers) > 0
+
     return SetupStatus(
         dev_mode=config.dev_mode,
         database_configured="sqlite" not in config.database_url,
         oidc_configured=bool(config.oidc_issuer_url),
         has_seed_data=has_seed,
+        setup_completed=setup_completed,
+        llm_configured=llm_configured,
         app_title=config.app_title,
         app_version=__version__,
         agent_name=config.agent_name,
@@ -281,24 +302,28 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
     )
 
 
+@router.post("/complete")
+async def complete_setup(request: Request) -> dict:
+    """Mark the initial setup as finished."""
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        return {"success": False, "message": "Database not initialised"}
+
+    from flydesk.settings.repository import SettingsRepository
+
+    settings_repo = SettingsRepository(session_factory)
+    now = datetime.now(timezone.utc).isoformat()
+    await settings_repo.set_app_setting("setup_completed", "true", category="setup")
+    await settings_repo.set_app_setting("setup_completed_at", now, category="setup")
+    return {"success": True}
+
+
 @router.get("/wizard-state")
 async def get_wizard_state(request: Request) -> WizardState:
     """Return the current wizard step for resumption.
 
-    Checks for active setup handlers in app state. If no active handler
-    is found, checks the settings repository for a completed setup.
+    Checks the settings repository for a completed setup.
     """
-    # Check for active setup handlers
-    setup_handlers = getattr(request.app.state, "setup_handlers", {})
-    for _conv_id, handler in setup_handlers.items():
-        step = handler.current_step
-        from flydesk.agent.setup_handler import SetupStep
-
-        if step == SetupStep.DONE:
-            return WizardState(step=step.value, completed=True)
-        return WizardState(step=step.value, completed=False)
-
-    # No active handlers -- check if setup was previously completed
     session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory:
         try:
