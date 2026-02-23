@@ -161,8 +161,20 @@ class TestDeskAgentFactory:
         return AsyncMock()
 
     @pytest.fixture
+    def memory_manager(self) -> AsyncMock:
+        from fireflyframework_genai.memory import MemoryManager
+
+        return AsyncMock(spec=MemoryManager)
+
+    @pytest.fixture
     def factory(self, llm_repo: AsyncMock) -> DeskAgentFactory:
         return DeskAgentFactory(llm_repo)
+
+    @pytest.fixture
+    def factory_with_memory(
+        self, llm_repo: AsyncMock, memory_manager: AsyncMock,
+    ) -> DeskAgentFactory:
+        return DeskAgentFactory(llm_repo, memory_manager=memory_manager)
 
     async def test_returns_none_when_no_provider(self, factory, llm_repo):
         llm_repo.get_default_provider.return_value = None
@@ -207,6 +219,7 @@ class TestDeskAgentFactory:
             tools=[],
             auto_register=False,
             default_middleware=False,
+            memory=None,
         )
         assert result is mock_agent_cls.return_value
 
@@ -252,3 +265,39 @@ class TestDeskAgentFactory:
         await factory.create_agent("system prompt", tools=[mock_tool])
         call_kwargs = mock_agent_cls.call_args
         assert call_kwargs.kwargs["tools"] == [mock_tool]
+
+    @patch("flydesk.agent.genai_bridge.FireflyAgent")
+    async def test_passes_memory_manager_to_agent(
+        self, mock_agent_cls, factory_with_memory, memory_manager, llm_repo, monkeypatch
+    ):
+        """create_agent() should pass the MemoryManager to FireflyAgent."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        llm_repo.get_default_provider.return_value = provider
+
+        await factory_with_memory.create_agent("system prompt")
+        call_kwargs = mock_agent_cls.call_args
+        assert call_kwargs.kwargs["memory"] is memory_manager
+
+    @patch("flydesk.agent.genai_bridge.FireflyAgent")
+    async def test_factory_without_memory_passes_none(
+        self, mock_agent_cls, factory, llm_repo, monkeypatch
+    ):
+        """Factory created without memory_manager should pass memory=None."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        llm_repo.get_default_provider.return_value = provider
+
+        await factory.create_agent("system prompt")
+        call_kwargs = mock_agent_cls.call_args
+        assert call_kwargs.kwargs["memory"] is None
+
+    def test_factory_stores_memory_manager(self, llm_repo, memory_manager):
+        """DeskAgentFactory should store the memory_manager."""
+        factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager)
+        assert factory._memory_manager is memory_manager
+
+    def test_factory_defaults_memory_to_none(self, llm_repo):
+        """DeskAgentFactory should default memory_manager to None."""
+        factory = DeskAgentFactory(llm_repo)
+        assert factory._memory_manager is None

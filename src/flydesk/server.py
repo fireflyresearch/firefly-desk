@@ -287,9 +287,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         knowledge_retriever=retriever,
     )
 
+    from fireflyframework_genai.memory import MemoryManager
+    from fireflyframework_genai.memory.store import InMemoryStore
+
+    if config.memory_backend == "postgres":
+        from fireflyframework_genai.memory.database_store import PostgreSQLStore
+
+        memory_store = PostgreSQLStore(
+            url=config.database_url.replace(
+                "sqlite+aiosqlite", "postgresql+asyncpg",
+            ),
+        )
+        await memory_store.initialize()
+    else:
+        memory_store = InMemoryStore()
+
+    memory_manager = MemoryManager(
+        store=memory_store,
+        max_conversation_tokens=config.memory_max_tokens,
+        summarize_threshold=config.memory_summarize_threshold,
+    )
+
     from flydesk.agent.genai_bridge import DeskAgentFactory
 
-    agent_factory = DeskAgentFactory(llm_repo)
+    agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager)
 
     desk_agent = DeskAgent(
         context_enricher=context_enricher,

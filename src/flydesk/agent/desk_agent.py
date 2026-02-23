@@ -114,7 +114,7 @@ class DeskAgent:
         )
 
         # 3. LLM execution
-        raw_text = await self._call_llm(message, system_prompt)
+        raw_text = await self._call_llm(message, system_prompt, conversation_id)
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -199,7 +199,7 @@ class DeskAgent:
 
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
-        async for token in self._stream_llm(message, system_prompt):
+        async for token in self._stream_llm(message, system_prompt, conversation_id):
             full_text += token
             yield SSEEvent(
                 event=SSEEventType.TOKEN,
@@ -516,11 +516,17 @@ class DeskAgent:
         self,
         message: str,
         system_prompt: str,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream tokens from the LLM via FireflyAgent.run_stream().
 
         When no agent factory is configured or the agent cannot be created,
         falls back to yielding the echo response in fixed-size chunks.
+
+        Args:
+            message: The user message.
+            system_prompt: The assembled system prompt.
+            conversation_id: Conversation ID for MemoryManager auto-injection.
 
         Yields:
             Individual token strings as they arrive from the model.
@@ -538,7 +544,9 @@ class DeskAgent:
 
         try:
             async with await agent.run_stream(
-                message, streaming_mode="incremental",
+                message,
+                streaming_mode="incremental",
+                conversation_id=conversation_id,
             ) as stream:
                 async for token in stream.stream_tokens():
                     yield token
@@ -551,8 +559,19 @@ class DeskAgent:
             )
             yield error_text
 
-    async def _call_llm(self, message: str, system_prompt: str) -> str:
-        """Call the LLM via FireflyAgent."""
+    async def _call_llm(
+        self,
+        message: str,
+        system_prompt: str,
+        conversation_id: str | None = None,
+    ) -> str:
+        """Call the LLM via FireflyAgent.
+
+        Args:
+            message: The user message.
+            system_prompt: The assembled system prompt.
+            conversation_id: Conversation ID for MemoryManager auto-injection.
+        """
         if self._agent_factory is None:
             return self._echo_fallback(message)
 
@@ -561,7 +580,7 @@ class DeskAgent:
             return self._echo_fallback(message)
 
         try:
-            result = await agent.run(message)
+            result = await agent.run(message, conversation_id=conversation_id)
             return str(result.output)
         except Exception as exc:
             _logger.error("LLM call failed: %s", exc, exc_info=True)

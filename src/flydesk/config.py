@@ -60,6 +60,11 @@ class DeskConfig(BaseSettings):
     max_turns_per_conversation: int = 200
     max_tools_per_turn: int = 10
 
+    # -- Memory --
+    memory_backend: str = "in_memory"  # "in_memory" | "postgres"
+    memory_max_tokens: int = 128_000
+    memory_summarize_threshold: int = 10
+
     # -- Knowledge --
     embedding_model: str = "openai:text-embedding-3-small"
     embedding_dimensions: int = 1536
