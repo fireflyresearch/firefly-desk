@@ -19,6 +19,7 @@ from fireflyframework_genai.agents import FireflyAgent
 if TYPE_CHECKING:
     from fireflyframework_genai.memory import MemoryManager
 
+    from flydesk.config import DeskConfig
     from flydesk.llm.models import LLMProvider
     from flydesk.llm.repository import LLMProviderRepository
 
@@ -54,9 +55,61 @@ class DeskAgentFactory:
         self,
         llm_repo: LLMProviderRepository,
         memory_manager: MemoryManager | None = None,
+        config: DeskConfig | None = None,
     ) -> None:
         self._llm_repo = llm_repo
         self._memory_manager = memory_manager
+        self._config = config
+
+    # ------------------------------------------------------------------
+    # Middleware construction
+    # ------------------------------------------------------------------
+
+    def _build_middleware(self) -> list[object]:
+        """Build middleware list based on DeskConfig flags.
+
+        Returns an empty list when no config is provided or all middleware
+        features are disabled.
+        """
+        if self._config is None:
+            return []
+
+        middleware: list[object] = []
+
+        if self._config.cost_guard_enabled:
+            from fireflyframework_genai.agents.builtin_middleware import CostGuardMiddleware
+
+            middleware.append(
+                CostGuardMiddleware(
+                    budget_usd=self._config.cost_guard_max_per_day,
+                    per_call_limit_usd=self._config.cost_guard_max_per_message,
+                )
+            )
+
+        if self._config.prompt_cache_enabled:
+            from fireflyframework_genai.agents.prompt_cache import PromptCacheMiddleware
+
+            middleware.append(
+                PromptCacheMiddleware(cache_ttl_seconds=self._config.prompt_cache_ttl)
+            )
+
+        if self._config.circuit_breaker_enabled:
+            from fireflyframework_genai.resilience.circuit_breaker import (
+                CircuitBreakerMiddleware,
+            )
+
+            middleware.append(
+                CircuitBreakerMiddleware(
+                    failure_threshold=self._config.circuit_breaker_failure_threshold,
+                    recovery_timeout=float(self._config.circuit_breaker_recovery_timeout),
+                )
+            )
+
+        return middleware
+
+    # ------------------------------------------------------------------
+    # Agent creation
+    # ------------------------------------------------------------------
 
     async def create_agent(
         self,
@@ -82,6 +135,8 @@ class DeskAgentFactory:
         # pydantic-ai reads API keys from standard env vars
         _set_provider_env(provider)
 
+        middleware = self._build_middleware()
+
         return FireflyAgent(
             name="ember",
             model=model_str,
@@ -90,6 +145,7 @@ class DeskAgentFactory:
             auto_register=False,
             default_middleware=False,  # We handle our own audit/logging
             memory=self._memory_manager,
+            middleware=middleware if middleware else None,
         )
 
 

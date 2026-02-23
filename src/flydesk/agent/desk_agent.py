@@ -42,6 +42,28 @@ _logger = logging.getLogger(__name__)
 # Token chunk size for simulated streaming (number of characters per token event).
 _STREAM_CHUNK_SIZE = 20
 
+# Resilience / budget exception types from fireflyframework-genai.
+# We import at module level so they can be used in ``except`` clauses.
+# If the genai package is not installed (unlikely at runtime) we fall back
+# to exception types that can never be raised.
+try:
+    from fireflyframework_genai.agents.builtin_middleware import (
+        BudgetExceededError as _BudgetExceededError,
+    )
+except ImportError:  # pragma: no cover
+    _BudgetExceededError = type("_BudgetExceededError", (Exception,), {})  # type: ignore[assignment,misc]
+
+try:
+    from fireflyframework_genai.resilience.circuit_breaker import (
+        CircuitBreakerOpenError as _CircuitBreakerOpenError,
+    )
+except ImportError:  # pragma: no cover
+    _CircuitBreakerOpenError = type("_CircuitBreakerOpenError", (Exception,), {})  # type: ignore[assignment,misc]
+
+# Module-level aliases used in ``except`` clauses.
+_BUDGET_EXCEEDED_ERROR: type[Exception] = _BudgetExceededError  # type: ignore[assignment]
+_CIRCUIT_BREAKER_OPEN_ERROR: type[Exception] = _CircuitBreakerOpenError  # type: ignore[assignment]
+
 
 class DeskAgent:
     """Orchestrates the full Desk Agent lifecycle for a single turn.
@@ -377,6 +399,30 @@ class DeskAgent:
             # Extract usage from reasoning result
             usage_data = self._extract_result_usage(result, agent)
 
+        except _BUDGET_EXCEEDED_ERROR as exc:
+            _logger.warning("Budget exceeded during reasoning: %s", exc)
+            yield SSEEvent(
+                event=SSEEventType.ERROR,
+                data={
+                    "code": "budget_exceeded",
+                    "message": (
+                        "Your message could not be processed because the cost budget has been "
+                        "reached. Please contact your administrator to increase the spending limit."
+                    ),
+                },
+            )
+        except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
+            _logger.warning("Circuit breaker open during reasoning: %s", exc)
+            yield SSEEvent(
+                event=SSEEventType.ERROR,
+                data={
+                    "code": "provider_unavailable",
+                    "message": (
+                        "The language model provider is temporarily unavailable. "
+                        "Please try again in a few moments."
+                    ),
+                },
+            )
         except Exception as exc:
             _logger.error("Reasoning failed: %s", exc, exc_info=True)
             error_msg = f"Reasoning failed: {exc}"
@@ -750,6 +796,18 @@ class DeskAgent:
                 # After streaming completes, extract usage from the underlying stream
                 if usage_out is not None:
                     self._extract_stream_usage(stream, agent, usage_out)
+        except _BUDGET_EXCEEDED_ERROR as exc:
+            _logger.warning("Budget exceeded during streaming: %s", exc)
+            yield (
+                "Your message could not be processed because the cost budget has been "
+                "reached. Please contact your administrator to increase the spending limit."
+            )
+        except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
+            _logger.warning("Circuit breaker open during streaming: %s", exc)
+            yield (
+                "The language model provider is temporarily unavailable. "
+                "Please try again in a few moments."
+            )
         except Exception as exc:
             _logger.error("LLM streaming failed: %s", exc, exc_info=True)
             error_text = (
@@ -784,6 +842,18 @@ class DeskAgent:
         try:
             result = await agent.run(message, conversation_id=conversation_id)
             return str(result.output)
+        except _BUDGET_EXCEEDED_ERROR as exc:
+            _logger.warning("Budget exceeded during LLM call: %s", exc)
+            return (
+                "Your message could not be processed because the cost budget has been "
+                "reached. Please contact your administrator to increase the spending limit."
+            )
+        except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
+            _logger.warning("Circuit breaker open during LLM call: %s", exc)
+            return (
+                "The language model provider is temporarily unavailable. "
+                "Please try again in a few moments."
+            )
         except Exception as exc:
             _logger.error("LLM call failed: %s", exc, exc_info=True)
             return (
