@@ -26,3 +26,6 @@ build/
 
 # Database
 *.db
+
+# Internal planning docs
+docs/plans/
