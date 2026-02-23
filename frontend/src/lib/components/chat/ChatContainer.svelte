@@ -3,12 +3,15 @@
 
   Renders the message list with auto-scroll, streaming indicators, and
   the InputBar. Handles the sendMessage flow. Supports drag-and-drop
-  file uploads.
+  file uploads. Features smooth scrolling and a floating "scroll to bottom"
+  button when the user has scrolled up during streaming.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { fly, fade } from 'svelte/transition';
+	import { ArrowDown } from 'lucide-svelte';
 	import MessageBubble from './MessageBubble.svelte';
 	import StreamingMessage from './StreamingMessage.svelte';
 	import ReasoningIndicator from './ReasoningIndicator.svelte';
@@ -29,22 +32,41 @@
 	let showDropOverlay = $state(false);
 	let pendingFiles: File[] = $state([]);
 	let dragCounter = $state(0);
+	let userScrolledUp = $state(false);
 
-	// Auto-scroll to bottom when messages change
+	// Threshold (in pixels) for considering the user "at the bottom"
+	const SCROLL_THRESHOLD = 80;
+
+	// Auto-scroll to bottom when messages change (only if user hasn't scrolled up)
 	$effect(() => {
 		// Subscribe to messages to trigger on changes
 		const _ = $messages;
-		scrollToBottom();
+		if (!userScrolledUp) {
+			scrollToBottom();
+		}
 	});
 
 	function scrollToBottom() {
 		// Use requestAnimationFrame to ensure DOM has updated
 		requestAnimationFrame(() => {
 			if (scrollContainer) {
-				scrollContainer.scrollTop = scrollContainer.scrollHeight;
+				scrollContainer.scrollTo({
+					top: scrollContainer.scrollHeight,
+					behavior: 'smooth'
+				});
+				userScrolledUp = false;
 			}
 		});
 	}
+
+	function handleScroll() {
+		if (!scrollContainer) return;
+		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+		const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+		userScrolledUp = distanceFromBottom > SCROLL_THRESHOLD;
+	}
+
+	let showScrollButton = $derived(userScrolledUp && $isStreaming);
 
 	async function handleSend(text: string, files?: UploadedFile[]) {
 		let conversationId = $activeConversationId;
@@ -61,6 +83,8 @@
 			file_size: f.file_size
 		}));
 
+		// Scroll to bottom when sending a new message
+		userScrolledUp = false;
 		await sendMessage(conversationId, text, fileIds, fileMeta);
 	}
 
@@ -117,11 +141,12 @@
 	<!-- Message list -->
 	<div
 		bind:this={scrollContainer}
-		class="flex-1 overflow-y-auto"
+		class="flex-1 overflow-y-auto scroll-smooth"
+		onscroll={handleScroll}
 	>
 		{#if hasMessages}
 			<div class="mx-auto flex max-w-3xl flex-col gap-1 py-4">
-				{#each $messages as message (message.id)}
+				{#each $messages as message, index (message.id)}
 					{#if message.isStreaming}
 						{#if $reasoningSteps.length > 0}
 							<div class="px-4 py-1">
@@ -132,7 +157,7 @@
 						{/if}
 						<StreamingMessage content={message.content} />
 					{:else}
-						<MessageBubble {message} />
+						<MessageBubble {message} {index} messageCount={$messages.length} />
 					{/if}
 					{#if message.widgets?.length}
 						<div class="px-4 py-1">
@@ -149,6 +174,20 @@
 			<ChatEmptyState onSuggestionClick={handleSend} />
 		{/if}
 	</div>
+
+	<!-- Scroll to bottom button -->
+	{#if showScrollButton}
+		<div class="absolute bottom-28 left-1/2 z-10 -translate-x-1/2" transition:fade={{ duration: 200 }}>
+			<button
+				type="button"
+				class="flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text-secondary shadow-lg transition-colors hover:bg-surface-secondary hover:text-text-primary"
+				onclick={scrollToBottom}
+			>
+				<ArrowDown size={14} />
+				<span>Scroll to bottom</span>
+			</button>
+		</div>
+	{/if}
 
 	<!-- Gradient fade separator -->
 	<div class="pointer-events-none h-6 bg-gradient-to-t from-surface to-transparent"></div>

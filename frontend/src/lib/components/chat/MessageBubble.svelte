@@ -4,6 +4,7 @@
   User messages: right-aligned bubble with accent background and user avatar.
   Assistant messages: full-width left-aligned with Ember avatar and markdown rendering.
   Timestamps appear on hover for both message types.
+  Supports staggered entry animation for history messages via index/messageCount props.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -22,9 +23,21 @@
 
 	interface MessageBubbleProps {
 		message: Message;
+		/** Position index of this message in the list (used for staggered animation). */
+		index?: number;
+		/** Total number of messages being rendered (used to detect batch loads). */
+		messageCount?: number;
 	}
 
-	let { message }: MessageBubbleProps = $props();
+	let { message, index = 0, messageCount = 1 }: MessageBubbleProps = $props();
+
+	// Stagger delay: when multiple messages load at once (conversation switch),
+	// each message gets a small incremental delay for a cascading entrance.
+	// Cap at 30ms per message, max 600ms total delay to keep it snappy.
+	// For single new messages (messageCount <= 2 or index near end), no delay.
+	let staggerDelay = $derived(
+		messageCount > 2 ? Math.min(index * 30, 600) : 0
+	);
 
 	let formattedTime = $derived(
 		message.timestamp.toLocaleTimeString(undefined, {
@@ -76,7 +89,7 @@
 
 {#if isUser}
 	<!-- User message: right-aligned bubble -->
-	<div class="group flex w-full justify-end px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
+	<div class="group flex w-full justify-end px-4 py-1" transition:fly={{ y: 10, duration: 200, delay: staggerDelay }}>
 		<div class="flex items-start gap-2">
 			<div class="flex max-w-[75%] flex-col items-end">
 				<div
@@ -153,7 +166,7 @@
 	</div>
 {:else}
 	<!-- Assistant message: full-width left-aligned, no bubble background -->
-	<div class="group flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
+	<div class="group flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200, delay: staggerDelay }}>
 		<div class="flex gap-3">
 			<!-- Ember avatar -->
 			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center">
