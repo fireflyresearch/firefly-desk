@@ -395,12 +395,69 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.conversation_repo = conversation_repo
     app.state.started_at = datetime.now(timezone.utc)
 
-    # Auto-seed platform documentation into the knowledge base (idempotent)
+    # Auto-seed / auto-index platform documentation from docs/ directory
     try:
-        from flydesk.seeds.platform_docs import seed_platform_docs
+        if config.docs_auto_index:
+            from flydesk.knowledge.docs_loader import DocsLoader
 
-        await seed_platform_docs(indexer)
-        logger.info("Platform documentation seeded into knowledge base.")
+            docs_path = config.docs_path
+            docs = DocsLoader.load_from_directory(docs_path)
+            if docs:
+                # Build existing-docs map from the database for change detection
+                existing_docs: dict[str, str] = {}
+                try:
+                    all_docs = await catalog_repo.list_knowledge_documents()
+                    for edoc in all_docs:
+                        meta = edoc.get("metadata") if isinstance(edoc, dict) else getattr(edoc, "metadata", None)
+                        if meta and isinstance(meta, dict) and "content_hash" in meta:
+                            doc_id = edoc.get("id") if isinstance(edoc, dict) else getattr(edoc, "id", None)
+                            if doc_id:
+                                existing_docs[doc_id] = meta["content_hash"]
+                except Exception:
+                    logger.debug("Could not fetch existing docs for change detection.", exc_info=True)
+
+                new_docs, updated_docs, removed_ids = DocsLoader.detect_changes(
+                    docs_path, existing_docs
+                )
+
+                for doc in new_docs:
+                    try:
+                        await indexer.index_document(doc)
+                        logger.debug("Indexed new doc: %s", doc.id)
+                    except Exception:
+                        logger.debug("Skipping doc %s (may already exist).", doc.id)
+
+                for doc in updated_docs:
+                    try:
+                        await indexer.delete_document(doc.id)
+                        await indexer.index_document(doc)
+                        logger.debug("Re-indexed updated doc: %s", doc.id)
+                    except Exception:
+                        logger.debug("Failed to update doc %s.", doc.id, exc_info=True)
+
+                for doc_id in removed_ids:
+                    try:
+                        await indexer.delete_document(doc_id)
+                        logger.debug("Removed stale doc: %s", doc_id)
+                    except Exception:
+                        logger.debug("Failed to remove doc %s.", doc_id, exc_info=True)
+
+                logger.info(
+                    "Docs auto-index complete: %d new, %d updated, %d removed.",
+                    len(new_docs), len(updated_docs), len(removed_ids),
+                )
+            else:
+                # No docs/ directory or empty -- fall back to hardcoded seeding
+                from flydesk.seeds.platform_docs import seed_platform_docs
+
+                await seed_platform_docs(indexer, docs_path=docs_path)
+                logger.info("Platform documentation seeded (fallback).")
+        else:
+            # Auto-index disabled -- use legacy seeding
+            from flydesk.seeds.platform_docs import seed_platform_docs
+
+            await seed_platform_docs(indexer, docs_path=config.docs_path)
+            logger.info("Platform documentation seeded into knowledge base.")
     except Exception:
         logger.debug("Platform docs seeding skipped (non-fatal).", exc_info=True)
 

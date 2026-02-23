@@ -82,6 +82,10 @@ class DeskConfig(BaseSettings):
     audit_retention_days: int = 365
     rate_limit_per_user: int = 60
 
+    # -- Docs --
+    docs_path: str = "docs"
+    docs_auto_index: bool = True
+
     # -- File Uploads --
     file_storage_path: str = "./uploads"
     file_max_size_mb: int = 50
