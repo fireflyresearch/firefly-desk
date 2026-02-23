@@ -200,6 +200,22 @@
 				};
 			}
 
+			const embedding = wizardData.embedding as Record<string, unknown> | null;
+			if (embedding) {
+				configureBody.embedding = {
+					provider: embedding.provider,
+					model: embedding.model,
+					api_key: embedding.api_key ?? null,
+					base_url: embedding.base_url ?? null,
+					dimensions: embedding.dimensions ?? 1536
+				};
+			}
+
+			const vectorStore = wizardData.vector_store as Record<string, unknown> | undefined;
+			if (vectorStore) {
+				configureBody.vector_store = vectorStore;
+			}
+
 			const result = await apiJson<ConfigureResult>('/setup/configure', {
 				method: 'POST',
 				body: JSON.stringify(configureBody)
