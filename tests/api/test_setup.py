@@ -70,6 +70,20 @@ async def db_client():
         app.state.config = config
         app.state.session_factory = session_factory
 
+        # Override knowledge indexer so seed endpoints work without real embeddings
+        from flydesk.api.knowledge import get_knowledge_indexer
+        from flydesk.knowledge.indexer import KnowledgeIndexer
+
+        class _NoOpEmbedding:
+            async def embed(self, texts):
+                return [[0.0] * 4 for _ in texts]
+
+        indexer = KnowledgeIndexer(
+            session_factory=session_factory,
+            embedding_provider=_NoOpEmbedding(),
+        )
+        app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac

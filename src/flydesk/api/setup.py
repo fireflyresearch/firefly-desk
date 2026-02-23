@@ -227,15 +227,23 @@ async def run_seed(body: SeedRequest, request: Request) -> SeedResult:
 
         repo = CatalogRepository(session_factory)
 
+        # Get the knowledge indexer so banking docs get chunked and indexed
+        from flydesk.api.knowledge import get_knowledge_indexer
+
+        indexer_fn = request.app.dependency_overrides.get(
+            get_knowledge_indexer, get_knowledge_indexer
+        )
+        indexer = indexer_fn()
+
         if body.remove:
             from flydesk.seeds.banking import unseed_banking_catalog
 
-            await unseed_banking_catalog(repo)
+            await unseed_banking_catalog(repo, knowledge_indexer=indexer)
             return SeedResult(success=True, message="Banking seed data removed.")
         else:
             from flydesk.seeds.banking import seed_banking_catalog
 
-            await seed_banking_catalog(repo)
+            await seed_banking_catalog(repo, knowledge_indexer=indexer)
             return SeedResult(success=True, message="Banking seed data loaded successfully.")
 
     elif body.domain == "platform-docs":
@@ -319,7 +327,16 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
             from flydesk.seeds.banking import seed_banking_catalog
 
             catalog_repo = CatalogRepository(session_factory)
-            await seed_banking_catalog(catalog_repo)
+
+            # Get the knowledge indexer so banking docs get chunked and indexed
+            from flydesk.api.knowledge import get_knowledge_indexer
+
+            indexer_fn = request.app.dependency_overrides.get(
+                get_knowledge_indexer, get_knowledge_indexer
+            )
+            indexer = indexer_fn()
+
+            await seed_banking_catalog(catalog_repo, knowledge_indexer=indexer)
             details["seed_data"] = "loaded"
 
             # Also seed platform docs (idempotent)
@@ -382,17 +399,21 @@ async def clear_seed_data(request: Request) -> SeedResult:
         from flydesk.seeds.banking import unseed_banking_catalog
 
         repo = CatalogRepository(session_factory)
-        await unseed_banking_catalog(repo)
+
+        # Get the knowledge indexer for doc cleanup
+        from flydesk.api.knowledge import get_knowledge_indexer
+
+        indexer_fn = request.app.dependency_overrides.get(
+            get_knowledge_indexer, get_knowledge_indexer
+        )
+        indexer = indexer_fn()
+
+        await unseed_banking_catalog(repo, knowledge_indexer=indexer)
 
         # Also clear platform docs
         try:
-            from flydesk.api.knowledge import get_knowledge_indexer
             from flydesk.seeds.platform_docs import unseed_platform_docs
 
-            indexer_fn = request.app.dependency_overrides.get(
-                get_knowledge_indexer, get_knowledge_indexer
-            )
-            indexer = indexer_fn()
             await unseed_platform_docs(indexer)
         except Exception:
             logger.debug("Platform docs removal skipped (non-fatal).", exc_info=True)
