@@ -118,6 +118,30 @@ class KnowledgeIndexer:
             index += 1
         return chunks
 
+    async def index_document_async(
+        self,
+        document: KnowledgeDocument,
+        producer: Any,
+    ) -> None:
+        """Publish the document to the indexing queue for background processing.
+
+        Parameters:
+            document: The document to index.
+            producer: An ``IndexingQueueProducer`` instance.
+        """
+        from flydesk.knowledge.queue import IndexingTask
+
+        task = IndexingTask(
+            document_id=document.id,
+            title=document.title,
+            content=document.content,
+            document_type=str(document.document_type),
+            source=document.source or "",
+            tags=document.tags,
+            metadata=document.metadata,
+        )
+        await producer.enqueue(task)
+
     async def delete_document(self, document_id: str) -> None:
         """Delete a document and all its chunks."""
         from sqlalchemy import delete

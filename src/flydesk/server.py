@@ -45,6 +45,7 @@ from flydesk.api.files import get_content_extractor, get_file_repo, get_file_sto
 from flydesk.api.files import router as files_router
 from flydesk.api.health import router as health_router
 from flydesk.api.knowledge import (
+    get_indexing_producer,
     get_knowledge_doc_store,
     get_knowledge_graph,
     get_knowledge_importer,
@@ -235,6 +236,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
+    # Background indexing queue -- offloads embedding work from HTTP handlers.
+    from flydesk.knowledge.queue import IndexingTask, create_indexing_queue
+
+    async def _handle_indexing_task(task: IndexingTask) -> None:
+        """Consumer handler: rebuild a KnowledgeDocument and index it."""
+        from flydesk.knowledge.models import KnowledgeDocument
+
+        doc = KnowledgeDocument(
+            id=task.document_id,
+            title=task.title,
+            content=task.content,
+            document_type=task.document_type,
+            source=task.source,
+            tags=task.tags,
+            metadata=task.metadata,
+        )
+        await indexer.index_document(doc)
+
+    indexing_producer, indexing_consumer = create_indexing_queue(
+        backend=config.queue_backend,
+        handler=_handle_indexing_task,
+        redis_url=config.redis_url,
+    )
+    await indexing_consumer.start()
+    app.state.indexing_producer = indexing_producer
+    app.state.indexing_consumer = indexing_consumer
+    app.dependency_overrides[get_indexing_producer] = lambda: indexing_producer
+
     # Wire the DeskAgent and its dependencies
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.desk_agent import DeskAgent
@@ -385,6 +414,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Shutdown
+    await indexing_consumer.stop()
+    await indexing_producer.stop()
     if hasattr(memory_store, "close"):
         await memory_store.close()
     await http_client.aclose()

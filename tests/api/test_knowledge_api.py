@@ -22,6 +22,7 @@ from httpx import ASGITransport, AsyncClient
 from flydesk.auth.models import UserSession
 from flydesk.knowledge.graph import Entity, EntityGraph, Relation
 from flydesk.knowledge.models import DocumentChunk, DocumentType, KnowledgeDocument
+from flydesk.knowledge.queue import IndexingQueueProducer
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +106,14 @@ def mock_importer():
 
 
 @pytest.fixture
+def mock_producer():
+    """Return an AsyncMock that mimics IndexingQueueProducer."""
+    producer = AsyncMock(spec=IndexingQueueProducer)
+    producer.enqueue = AsyncMock(return_value=None)
+    return producer
+
+
+@pytest.fixture
 def mock_graph():
     """Return an AsyncMock that mimics KnowledgeGraph."""
     graph = AsyncMock()
@@ -124,7 +133,7 @@ def mock_graph():
 
 
 @pytest.fixture
-async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
+async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph, mock_producer):
     """AsyncClient with an admin user session and mocked dependencies."""
     env = {
         "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -135,6 +144,7 @@ async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
     }
     with patch.dict(os.environ, env):
         from flydesk.api.knowledge import (
+            get_indexing_producer,
             get_knowledge_doc_store,
             get_knowledge_graph,
             get_knowledge_importer,
@@ -147,6 +157,7 @@ async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
         app.dependency_overrides[get_knowledge_doc_store] = lambda: mock_doc_store
         app.dependency_overrides[get_knowledge_importer] = lambda: mock_importer
         app.dependency_overrides[get_knowledge_graph] = lambda: mock_graph
+        app.dependency_overrides[get_indexing_producer] = lambda: mock_producer
 
         admin_session = _make_user_session(roles=["admin"])
 
@@ -164,7 +175,7 @@ async def admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
 
 
 @pytest.fixture
-async def non_admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph):
+async def non_admin_client(mock_indexer, mock_doc_store, mock_importer, mock_graph, mock_producer):
     """AsyncClient with a non-admin user session."""
     env = {
         "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -175,6 +186,7 @@ async def non_admin_client(mock_indexer, mock_doc_store, mock_importer, mock_gra
     }
     with patch.dict(os.environ, env):
         from flydesk.api.knowledge import (
+            get_indexing_producer,
             get_knowledge_doc_store,
             get_knowledge_graph,
             get_knowledge_importer,
@@ -187,6 +199,7 @@ async def non_admin_client(mock_indexer, mock_doc_store, mock_importer, mock_gra
         app.dependency_overrides[get_knowledge_doc_store] = lambda: mock_doc_store
         app.dependency_overrides[get_knowledge_importer] = lambda: mock_importer
         app.dependency_overrides[get_knowledge_graph] = lambda: mock_graph
+        app.dependency_overrides[get_indexing_producer] = lambda: mock_producer
 
         viewer_session = _make_user_session(roles=["viewer"])
 
@@ -291,26 +304,22 @@ class TestUpdateDocumentMetadata:
 
 
 class TestCreateDocument:
-    async def test_create_document_returns_201(self, admin_client, mock_indexer):
+    async def test_create_document_returns_202(self, admin_client, mock_producer):
         doc = _sample_document()
-        chunks = [_sample_chunk()]
-        mock_indexer.index_document.return_value = chunks
         response = await admin_client.post(
             "/api/knowledge/documents", json=doc.model_dump()
         )
-        assert response.status_code == 201
-        mock_indexer.index_document.assert_awaited_once()
+        assert response.status_code == 202
+        mock_producer.enqueue.assert_awaited_once()
 
-    async def test_create_document_returns_body(self, admin_client, mock_indexer):
+    async def test_create_document_returns_indexing_status(self, admin_client, mock_producer):
         doc = _sample_document()
-        chunks = [_sample_chunk()]
-        mock_indexer.index_document.return_value = chunks
         response = await admin_client.post(
             "/api/knowledge/documents", json=doc.model_dump()
         )
         data = response.json()
         assert data["document_id"] == "doc-1"
-        assert data["chunks_created"] == 1
+        assert data["status"] == "indexing"
 
 
 # ---------------------------------------------------------------------------
