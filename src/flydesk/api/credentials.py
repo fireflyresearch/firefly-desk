@@ -10,14 +10,41 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+import uuid
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 
 from flydesk.catalog.models import Credential
 from flydesk.rbac.guards import CredentialsRead, CredentialsWrite
 
+if TYPE_CHECKING:
+    from flydesk.security.kms import KMSProvider
+
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
+
+
+# ---------------------------------------------------------------------------
+# Request/Response models
+# ---------------------------------------------------------------------------
+
+
+class CredentialCreate(BaseModel):
+    """Request body for creating a new credential."""
+
+    name: str
+    system_id: str
+    credential_type: str = "api_key"
+    encrypted_value: str
+    expires_at: datetime | None = None
+
+
+class CredentialRotate(BaseModel):
+    """Request body for rotating a credential's secret."""
+
+    encrypted_value: str
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +91,19 @@ def get_credential_store() -> CredentialStore:
     )
 
 
+def get_kms() -> KMSProvider:
+    """Provide the KMS provider for credential encryption.
+
+    In production this is wired to the configured KMS backend.
+    In tests the dependency is overridden with a NoOpKMSProvider or mock.
+    """
+    from flydesk.security.kms import NoOpKMSProvider
+
+    return NoOpKMSProvider()
+
+
 Store = Annotated[CredentialStore, Depends(get_credential_store)]
+KMS = Annotated["KMSProvider", Depends(get_kms)]
 
 
 # ---------------------------------------------------------------------------
@@ -92,24 +131,43 @@ async def list_credentials(store: Store) -> list[dict[str, Any]]:
 
 
 @router.post("", status_code=201, dependencies=[CredentialsWrite])
-async def create_credential(credential: Credential, store: Store) -> dict[str, Any]:
+async def create_credential(
+    body: CredentialCreate, store: Store, kms: KMS
+) -> dict[str, Any]:
     """Store a new credential (encrypted value is never returned)."""
+    credential = Credential(
+        id=str(uuid.uuid4()),
+        system_id=body.system_id,
+        name=body.name,
+        encrypted_value=kms.encrypt(body.encrypted_value),
+        credential_type=body.credential_type,
+        expires_at=body.expires_at,
+    )
     await store.create_credential(credential)
     return _strip_encrypted(credential)
 
 
 @router.put("/{credential_id}", dependencies=[CredentialsWrite])
 async def update_credential(
-    credential_id: str, credential: Credential, store: Store
+    credential_id: str, body: CredentialRotate, store: Store, kms: KMS
 ) -> dict[str, Any]:
-    """Update or rotate an existing credential (encrypted value is never returned)."""
+    """Rotate an existing credential's secret value."""
     existing = await store.get_credential(credential_id)
     if existing is None:
         raise HTTPException(
             status_code=404, detail=f"Credential {credential_id} not found"
         )
-    await store.update_credential(credential)
-    return _strip_encrypted(credential)
+    rotated = Credential(
+        id=existing.id,
+        system_id=existing.system_id,
+        name=existing.name,
+        encrypted_value=kms.encrypt(body.encrypted_value),
+        credential_type=existing.credential_type,
+        expires_at=existing.expires_at,
+        last_rotated=datetime.now(timezone.utc),
+    )
+    await store.update_credential(rotated)
+    return _strip_encrypted(rotated)
 
 
 @router.delete("/{credential_id}", status_code=204, dependencies=[CredentialsWrite])

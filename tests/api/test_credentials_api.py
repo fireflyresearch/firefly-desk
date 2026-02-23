@@ -19,6 +19,7 @@ from httpx import ASGITransport, AsyncClient
 
 from flydesk.auth.models import UserSession
 from flydesk.catalog.models import Credential
+from flydesk.security.kms import NoOpKMSProvider
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +77,12 @@ async def admin_client(mock_store):
         "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydesk.api.credentials import get_credential_store
+        from flydesk.api.credentials import get_credential_store, get_kms
         from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_credential_store] = lambda: mock_store
+        app.dependency_overrides[get_kms] = lambda: NoOpKMSProvider()
 
         admin_session = _make_user_session(roles=["admin"])
 
@@ -108,11 +110,12 @@ async def non_admin_client(mock_store):
         "FLYDESK_CREDENTIAL_ENCRYPTION_KEY": "a" * 32,
     }
     with patch.dict(os.environ, env):
-        from flydesk.api.credentials import get_credential_store
+        from flydesk.api.credentials import get_credential_store, get_kms
         from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_credential_store] = lambda: mock_store
+        app.dependency_overrides[get_kms] = lambda: NoOpKMSProvider()
 
         viewer_session = _make_user_session(roles=["viewer"])
 
@@ -166,21 +169,40 @@ class TestListCredentials:
 
 class TestCreateCredential:
     async def test_create_credential_returns_201(self, admin_client, mock_store):
-        cred = _sample_credential()
-        response = await admin_client.post(
-            "/api/credentials", json=cred.model_dump(mode="json")
-        )
+        payload = {
+            "name": "API Key for System 1",
+            "system_id": "sys-1",
+            "credential_type": "api_key",
+            "encrypted_value": "my-secret-value",
+        }
+        response = await admin_client.post("/api/credentials", json=payload)
         assert response.status_code == 201
         mock_store.create_credential.assert_awaited_once()
 
     async def test_create_credential_returns_body(self, admin_client, mock_store):
-        cred = _sample_credential()
-        response = await admin_client.post(
-            "/api/credentials", json=cred.model_dump(mode="json")
-        )
+        payload = {
+            "name": "API Key for System 1",
+            "system_id": "sys-1",
+            "credential_type": "api_key",
+            "encrypted_value": "my-secret-value",
+        }
+        response = await admin_client.post("/api/credentials", json=payload)
         data = response.json()
-        assert data["id"] == "cred-1"
         assert data["name"] == "API Key for System 1"
+        assert data["system_id"] == "sys-1"
+        assert "id" in data  # Auto-generated UUID
+        assert "encrypted_value" not in data  # Stripped
+
+    async def test_create_credential_auto_generates_id(self, admin_client, mock_store):
+        payload = {
+            "name": "Test Cred",
+            "system_id": "sys-1",
+            "credential_type": "bearer",
+            "encrypted_value": "token-abc",
+        }
+        response = await admin_client.post("/api/credentials", json=payload)
+        data = response.json()
+        assert len(data["id"]) == 36  # UUID format
 
 
 # ---------------------------------------------------------------------------
@@ -189,21 +211,33 @@ class TestCreateCredential:
 
 
 class TestUpdateCredential:
-    async def test_update_credential_success(self, admin_client, mock_store):
+    async def test_rotate_credential_success(self, admin_client, mock_store):
         mock_store.get_credential.return_value = _sample_credential()
-        cred = _sample_credential()
-        cred.name = "Rotated Key"
         response = await admin_client.put(
-            "/api/credentials/cred-1", json=cred.model_dump(mode="json")
+            "/api/credentials/cred-1",
+            json={"encrypted_value": "new-secret-value"},
         )
         assert response.status_code == 200
         mock_store.update_credential.assert_awaited_once()
+        data = response.json()
+        assert "encrypted_value" not in data
+        assert data["name"] == "API Key for System 1"  # Preserved from existing
+
+    async def test_rotate_credential_sets_last_rotated(self, admin_client, mock_store):
+        mock_store.get_credential.return_value = _sample_credential()
+        response = await admin_client.put(
+            "/api/credentials/cred-1",
+            json={"encrypted_value": "new-secret-value"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["last_rotated"] is not None
 
     async def test_update_credential_not_found(self, admin_client, mock_store):
         mock_store.get_credential.return_value = None
-        cred = _sample_credential()
         response = await admin_client.put(
-            "/api/credentials/cred-1", json=cred.model_dump(mode="json")
+            "/api/credentials/cred-1",
+            json={"encrypted_value": "new-secret-value"},
         )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -239,16 +273,21 @@ class TestCredentialsAdminGuard:
         assert "permission" in response.json()["detail"].lower()
 
     async def test_non_admin_cannot_create_credential(self, non_admin_client):
-        cred = _sample_credential()
+        payload = {
+            "name": "Test",
+            "system_id": "sys-1",
+            "credential_type": "api_key",
+            "encrypted_value": "secret",
+        }
         response = await non_admin_client.post(
-            "/api/credentials", json=cred.model_dump(mode="json")
+            "/api/credentials", json=payload
         )
         assert response.status_code == 403
 
     async def test_non_admin_cannot_update_credential(self, non_admin_client):
-        cred = _sample_credential()
         response = await non_admin_client.put(
-            "/api/credentials/cred-1", json=cred.model_dump(mode="json")
+            "/api/credentials/cred-1",
+            json={"encrypted_value": "new-secret"},
         )
         assert response.status_code == 403
 

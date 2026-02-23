@@ -81,6 +81,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_engine_from_url(config.database_url)
 
     async with engine.begin() as conn:
+        # Enable pgvector extension for PostgreSQL
+        if "postgresql" in config.database_url:
+            from sqlalchemy import text
+
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     session_factory = create_session_factory(engine)
@@ -140,9 +145,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_export_service] = lambda: export_service
     app.dependency_overrides[get_export_storage] = lambda: file_storage
 
-    # Credential store backed by catalog repo (reuses session factory)
-    from flydesk.api.credentials import CredentialStore
+    # KMS provider for credential encryption
+    from flydesk.security.kms import FernetKMSProvider
 
+    kms = FernetKMSProvider(config.credential_encryption_key)
+    if kms.is_dev_key:
+        logger.warning(
+            "Using dev encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY "
+            "for production."
+        )
+
+    from flydesk.api.credentials import CredentialStore, get_kms
+
+    app.dependency_overrides[get_kms] = lambda: kms
+
+    # Credential store backed by catalog repo (reuses session factory)
     class _LiveCredentialStore(CredentialStore):
         async def list_credentials(self):
             return await catalog_repo.list_credentials()
@@ -180,22 +197,42 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     doc_store = _LiveDocStore()
     app.dependency_overrides[get_knowledge_doc_store] = lambda: doc_store
 
-    # Knowledge indexer stub (placeholder -- no real embeddings in dev mode)
+    # Shared HTTP client for external API calls (embeddings, tool calls, imports).
+    import httpx
+
+    http_client = httpx.AsyncClient()
+    app.state.http_client = http_client
+
+    # Knowledge embedding provider — check DB settings first, then env vars.
+    # Graceful fallback to zero vectors (keyword search) if no key available.
+    from flydesk.knowledge.embeddings import LLMEmbeddingProvider
     from flydesk.knowledge.indexer import KnowledgeIndexer
 
-    class _NoOpEmbedding:
-        async def embed(self, texts):
-            return [[0.0] * config.embedding_dimensions for _ in texts]
+    embed_settings = await settings_repo.get_all_app_settings(category="embedding")
+    embed_model = embed_settings.get("embedding_model") or config.embedding_model
+    embed_key = embed_settings.get("embedding_api_key") or config.embedding_api_key
+    embed_url = embed_settings.get("embedding_base_url") or config.embedding_base_url
+    embed_dims = int(
+        embed_settings.get("embedding_dimensions", "0")
+        or config.embedding_dimensions
+    )
+
+    embedding_provider = LLMEmbeddingProvider(
+        http_client=http_client,
+        embedding_model=embed_model,
+        dimensions=embed_dims,
+        llm_repo=llm_repo,
+        api_key=embed_key or None,
+        base_url=embed_url or None,
+    )
 
     indexer = KnowledgeIndexer(
         session_factory=session_factory,
-        embedding_provider=_NoOpEmbedding(),
+        embedding_provider=embedding_provider,
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
     # Wire the DeskAgent and its dependencies
-    import httpx
-
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.desk_agent import DeskAgent
     from flydesk.agent.prompt import SystemPromptBuilder
@@ -206,7 +243,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from flydesk.widgets.parser import WidgetParser
 
     knowledge_graph = KnowledgeGraph(session_factory)
-    retriever = KnowledgeRetriever(session_factory, _NoOpEmbedding())
+    retriever = KnowledgeRetriever(session_factory, embedding_provider)
     context_enricher = ContextEnricher(
         knowledge_graph=knowledge_graph,
         retriever=retriever,
@@ -216,10 +253,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     prompt_builder = SystemPromptBuilder()
     tool_factory = ToolFactory()
     widget_parser = WidgetParser()
-
-    # HTTP client for external tool calls (shared across all tool executions).
-    http_client = httpx.AsyncClient()
-    app.state.http_client = http_client
 
     # Knowledge graph + importer dependency overrides
     app.dependency_overrides[get_knowledge_graph] = lambda: knowledge_graph
@@ -235,6 +268,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         credential_store=cred_store,
         audit_logger=audit_logger,
         max_parallel=config.max_tools_per_turn,
+        kms=kms,
     )
 
     # Safety confirmation service for high-risk tool calls.
@@ -255,6 +289,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         confirmation_service=confirmation_service,
         conversation_repo=conversation_repo,
         llm_repo=llm_repo,
+        catalog_repo=catalog_repo,
     )
     app.state.desk_agent = desk_agent
 
