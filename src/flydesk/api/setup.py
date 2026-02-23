@@ -174,6 +174,51 @@ class WizardState(BaseModel):
     completed: bool
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _friendly_error(exc: Exception, context: str) -> str:
+    """Map common exception types to user-friendly error messages.
+
+    Returns a human-readable string with actionable guidance instead of
+    raw Python tracebacks or cryptic library messages.
+    """
+    msg = str(exc)
+    if "Connection refused" in msg or "ConnectError" in msg:
+        return (
+            f"Could not connect to the {context} server. "
+            "Please check the URL and ensure the service is running."
+        )
+    if "401" in msg or "Unauthorized" in msg or "invalid_api_key" in msg:
+        return f"Authentication failed. Please check your {context} API key."
+    if "403" in msg or "Forbidden" in msg:
+        return (
+            f"Access denied. Your API key may not have the required "
+            f"permissions for {context}."
+        )
+    if "404" in msg:
+        return f"The {context} endpoint was not found. Please check the URL."
+    if "timeout" in msg.lower() or "Timeout" in msg:
+        return (
+            f"Connection to {context} timed out. "
+            "Please check the URL and try again."
+        )
+    if "SSL" in msg or "certificate" in msg.lower():
+        return (
+            f"SSL/TLS error connecting to {context}. "
+            "Check certificate configuration."
+        )
+    if "Name or service not known" in msg or "getaddrinfo" in msg:
+        return (
+            f"Could not resolve the {context} hostname. "
+            "Please check the URL."
+        )
+    # Fall back to original message, cleaned up
+    return f"{context} error: {msg.split(chr(10))[0][:200]}"
+
+
 @router.post("/test-llm")
 async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
     """Test LLM provider connectivity without auth or persistence.
@@ -203,10 +248,16 @@ async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
 
     checker = LLMHealthChecker()
     status = await checker.check(transient)
+
+    error = status.error
+    if error:
+        # Wrap the raw health-checker error in a user-friendly message.
+        error = _friendly_error(Exception(error), "LLM provider")
+
     return LLMTestResult(
         reachable=status.reachable,
         latency_ms=status.latency_ms,
-        error=status.error,
+        error=error,
     )
 
 
@@ -246,7 +297,10 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
                     success=False,
                     dimensions=0,
                     duration_ms=elapsed_ms,
-                    error="Received zero vector -- check API key and provider.",
+                    error=(
+                        "Embedding returned empty results. This usually means "
+                        "the API key is missing or invalid for the selected provider."
+                    ),
                 )
 
             return TestEmbeddingResult(
@@ -258,7 +312,7 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
         logger.error("Embedding test failed: %s", exc, exc_info=True)
         return TestEmbeddingResult(
             success=False,
-            error=str(exc),
+            error=_friendly_error(exc, "embedding provider"),
         )
 
 
@@ -295,7 +349,7 @@ async def test_database(body: DatabaseTestRequest, request: Request) -> Database
             return DatabaseTestResult(
                 success=False,
                 database_type="unknown",
-                error=str(exc),
+                error=_friendly_error(exc, "database"),
             )
     else:
         # Test the provided connection string.
@@ -333,7 +387,7 @@ async def test_database(body: DatabaseTestRequest, request: Request) -> Database
             return DatabaseTestResult(
                 success=False,
                 database_type=db_type,
-                error=str(exc),
+                error=_friendly_error(exc, "database"),
             )
         finally:
             if engine:
