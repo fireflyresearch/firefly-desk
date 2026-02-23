@@ -128,7 +128,7 @@ export async function loadConversations(): Promise<void> {
 				id: c.id,
 				title: c.title ?? 'Untitled',
 				lastMessage: '',
-				updatedAt: c.updated_at ? new Date(c.updated_at) : new Date()
+				updatedAt: new Date(c.updated_at ?? c.created_at ?? new Date().toISOString())
 			}))
 		);
 	} catch (error) {
@@ -151,7 +151,7 @@ export async function selectConversation(id: string): Promise<void> {
 				role: m.role,
 				content: m.content,
 				widgets: [],
-				timestamp: m.created_at ? new Date(m.created_at) : new Date()
+				timestamp: new Date(m.created_at ?? new Date().toISOString())
 			}))
 		);
 	} catch (error) {
@@ -169,7 +169,7 @@ export async function createNewConversation(): Promise<string> {
 			id: apiConv.id,
 			title: apiConv.title ?? 'New Conversation',
 			lastMessage: '',
-			updatedAt: apiConv.updated_at ? new Date(apiConv.updated_at) : new Date()
+			updatedAt: new Date(apiConv.updated_at ?? apiConv.created_at ?? new Date().toISOString())
 		};
 		conversations.update((convs) => [conv, ...convs]);
 		activeConversationId.set(conv.id);

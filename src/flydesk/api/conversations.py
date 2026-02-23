@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -82,12 +83,15 @@ async def create_conversation(
     user_session = getattr(request.state, "user_session", None)
     user_id = user_session.user_id if user_session else "anonymous"
 
+    now = datetime.now(timezone.utc)
     conversation = Conversation(
         id=str(uuid.uuid4()),
         title=body.title,
         user_id=user_id,
         model_id=body.model_id,
         metadata=body.metadata,
+        created_at=now,
+        updated_at=now,
     )
     await repo.create_conversation(conversation)
     return conversation
