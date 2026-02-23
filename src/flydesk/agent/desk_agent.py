@@ -101,67 +101,20 @@ class DeskAgent:
 
         1. Enrich context (knowledge graph + RAG in parallel)
         2. Build system prompt (including attached file context)
-        3. Execute LLM (placeholder: echo message for now)
+        3. Execute LLM
         4. Parse widgets from response
         5. Log audit event
         6. Return AgentResponse
         """
         turn_id = str(uuid.uuid4())
 
-        # 0. Auto-load tools from catalog + built-ins if not provided
-        if tools is None:
-            tools = []
-            # Catalog-derived tools (external system endpoints)
-            if self._catalog_repo is not None:
-                try:
-                    endpoints = await self._catalog_repo.list_endpoints()
-                    tools = self._tool_factory.build_tool_definitions(
-                        endpoints, list(session.permissions),
-                    )
-                    _logger.debug("Loaded %d catalog tools for user %s", len(tools), session.user_id)
-                except Exception:
-                    _logger.debug("Failed to load tools from catalog.", exc_info=True)
-
-            # Built-in platform tools
-            builtin_tools = BuiltinToolRegistry.get_tool_definitions(
-                list(session.permissions),
-            )
-            tools.extend(builtin_tools)
-            _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
-
-        # 1. Context enrichment (with user-scoped conversation history)
-        history = await self._load_conversation_history(
-            conversation_id, session.user_id,
+        # Shared context enrichment + prompt building
+        tools, system_prompt = await self._prepare_turn(
+            message, session, conversation_id, tools, file_ids,
         )
-        enriched = await self._context_enricher.enrich(
-            message, conversation_history=history,
-        )
-
-        # 2. Prompt assembly
-        tool_summaries = self._build_tool_summaries(tools or [])
-        knowledge_context = self._format_knowledge_context(enriched)
-        file_context = await self._build_file_context(file_ids)
-        conversation_summary = self._format_conversation_history(
-            enriched.conversation_history,
-        )
-
-        prompt_context = PromptContext(
-            agent_name=self._agent_name,
-            company_name=self._company_name,
-            user_name=session.display_name,
-            user_roles=list(session.roles),
-            user_permissions=list(session.permissions),
-            user_department=session.department or "",
-            user_title=session.title or "",
-            tool_summaries=tool_summaries,
-            knowledge_context=knowledge_context,
-            file_context=file_context,
-            conversation_summary=conversation_summary,
-        )
-        _system_prompt = self._prompt_builder.build(prompt_context)
 
         # 3. LLM execution
-        raw_text = await self._call_llm(message, _system_prompt)
+        raw_text = await self._call_llm(message, system_prompt)
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -201,14 +154,21 @@ class DeskAgent:
     ) -> AsyncGenerator[SSEEvent, None]:
         """Stream SSE events for a full agent turn.
 
+        When a FireflyAgent is available, uses ``run_stream()`` with
+        ``streaming_mode="incremental"`` for real token-by-token streaming.
+        Falls back to chunked echo when no agent factory is configured.
+
         Yields:
             SSEEventType.TOOL_START before context enrichment.
             SSEEventType.TOOL_END after context enrichment completes.
-            SSEEventType.TOKEN events for text chunks.
+            SSEEventType.TOKEN events for text tokens.
             SSEEventType.WIDGET events for each parsed widget.
+            SSEEventType.TOOL_SUMMARY aggregate summary.
             SSEEventType.DONE when complete.
         """
-        # Emit TOOL_START before context enrichment / LLM execution
+        turn_id = str(uuid.uuid4())
+
+        # Emit TOOL_START before context enrichment
         tool_call_id = str(uuid.uuid4())
         yield SSEEvent(
             event=SSEEventType.TOOL_START,
@@ -219,9 +179,12 @@ class DeskAgent:
         )
 
         start = time.monotonic()
-        response = await self.run(
-            message, session, conversation_id, tools=tools, file_ids=file_ids,
+
+        # Shared context enrichment + prompt building
+        tools, system_prompt = await self._prepare_turn(
+            message, session, conversation_id, tools, file_ids,
         )
+
         elapsed_ms = round((time.monotonic() - start) * 1000)
 
         # Emit TOOL_END after context enrichment completes
@@ -234,17 +197,20 @@ class DeskAgent:
             },
         )
 
-        # Stream text as token events (chunked)
-        text = response.text
-        for i in range(0, len(text), _STREAM_CHUNK_SIZE):
-            chunk = text[i : i + _STREAM_CHUNK_SIZE]
+        # Stream tokens from the LLM (real streaming or chunked fallback)
+        full_text = ""
+        async for token in self._stream_llm(message, system_prompt):
+            full_text += token
             yield SSEEvent(
                 event=SSEEventType.TOKEN,
-                data={"content": chunk},
+                data={"content": token},
             )
 
+        # Post-processing: parse widget directives from full response
+        parse_result = self._widget_parser.parse(full_text)
+
         # Emit widget events
-        for widget in response.widgets:
+        for widget in parse_result.widgets:
             yield SSEEvent(
                 event=SSEEventType.WIDGET,
                 data={
@@ -257,7 +223,23 @@ class DeskAgent:
                 },
             )
 
-        # Emit TOOL_SUMMARY (no tool calls executed in placeholder flow, but
+        # Audit logging
+        clean_text = "\n\n".join(parse_result.text_segments)
+        audit_event = AuditEvent(
+            event_type=AuditEventType.AGENT_RESPONSE,
+            user_id=session.user_id,
+            conversation_id=conversation_id,
+            action="agent_turn",
+            detail={
+                "turn_id": turn_id,
+                "message_length": len(message),
+                "response_length": len(full_text),
+                "widget_count": len(parse_result.widgets),
+            },
+        )
+        await self._audit_logger.log(audit_event)
+
+        # Emit TOOL_SUMMARY (no tool calls executed in this flow, but
         # the event is always emitted so the frontend can rely on its presence).
         yield SSEEvent(
             event=SSEEventType.TOOL_SUMMARY,
@@ -273,8 +255,8 @@ class DeskAgent:
         yield SSEEvent(
             event=SSEEventType.DONE,
             data={
-                "conversation_id": response.conversation_id,
-                "turn_id": response.turn_id,
+                "conversation_id": conversation_id,
+                "turn_id": turn_id,
             },
         )
 
@@ -463,6 +445,112 @@ class DeskAgent:
                 parts.append(f"- [{upload.filename}]: {text}")
         return "\n".join(parts)
 
+    async def _prepare_turn(
+        self,
+        message: str,
+        session: UserSession,
+        conversation_id: str,
+        tools: list[ToolDefinition] | None,
+        file_ids: list[str] | None,
+    ) -> tuple[list[ToolDefinition], str]:
+        """Shared context enrichment + prompt building for run() and stream().
+
+        Returns:
+            A tuple of (resolved_tools, system_prompt).
+        """
+        # 0. Auto-load tools from catalog + built-ins if not provided
+        if tools is None:
+            tools = []
+            # Catalog-derived tools (external system endpoints)
+            if self._catalog_repo is not None:
+                try:
+                    endpoints = await self._catalog_repo.list_endpoints()
+                    tools = self._tool_factory.build_tool_definitions(
+                        endpoints, list(session.permissions),
+                    )
+                    _logger.debug("Loaded %d catalog tools for user %s", len(tools), session.user_id)
+                except Exception:
+                    _logger.debug("Failed to load tools from catalog.", exc_info=True)
+
+            # Built-in platform tools
+            builtin_tools = BuiltinToolRegistry.get_tool_definitions(
+                list(session.permissions),
+            )
+            tools.extend(builtin_tools)
+            _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
+
+        # 1. Context enrichment (with user-scoped conversation history)
+        history = await self._load_conversation_history(
+            conversation_id, session.user_id,
+        )
+        enriched = await self._context_enricher.enrich(
+            message, conversation_history=history,
+        )
+
+        # 2. Prompt assembly
+        tool_summaries = self._build_tool_summaries(tools or [])
+        knowledge_context = self._format_knowledge_context(enriched)
+        file_context = await self._build_file_context(file_ids)
+        conversation_summary = self._format_conversation_history(
+            enriched.conversation_history,
+        )
+
+        prompt_context = PromptContext(
+            agent_name=self._agent_name,
+            company_name=self._company_name,
+            user_name=session.display_name,
+            user_roles=list(session.roles),
+            user_permissions=list(session.permissions),
+            user_department=session.department or "",
+            user_title=session.title or "",
+            tool_summaries=tool_summaries,
+            knowledge_context=knowledge_context,
+            file_context=file_context,
+            conversation_summary=conversation_summary,
+        )
+        system_prompt = self._prompt_builder.build(prompt_context)
+
+        return tools, system_prompt
+
+    async def _stream_llm(
+        self,
+        message: str,
+        system_prompt: str,
+    ) -> AsyncGenerator[str, None]:
+        """Stream tokens from the LLM via FireflyAgent.run_stream().
+
+        When no agent factory is configured or the agent cannot be created,
+        falls back to yielding the echo response in fixed-size chunks.
+
+        Yields:
+            Individual token strings as they arrive from the model.
+        """
+        if self._agent_factory is None:
+            for chunk in self._echo_fallback_chunks(message):
+                yield chunk
+            return
+
+        agent = await self._agent_factory.create_agent(system_prompt)
+        if agent is None:
+            for chunk in self._echo_fallback_chunks(message):
+                yield chunk
+            return
+
+        try:
+            async with await agent.run_stream(
+                message, streaming_mode="incremental",
+            ) as stream:
+                async for token in stream.stream_tokens():
+                    yield token
+        except Exception as exc:
+            _logger.error("LLM streaming failed: %s", exc, exc_info=True)
+            error_text = (
+                "I'm sorry, I encountered an error connecting to the language model. "
+                "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
+                f"Error: {exc}"
+            )
+            yield error_text
+
     async def _call_llm(self, message: str, system_prompt: str) -> str:
         """Call the LLM via FireflyAgent."""
         if self._agent_factory is None:
@@ -492,6 +580,15 @@ class DeskAgent:
             "run the setup wizard at /setup.\n\n"
             f"Your message: {message}"
         )
+
+    @staticmethod
+    def _echo_fallback_chunks(message: str) -> list[str]:
+        """Yield the echo fallback text as fixed-size chunks for streaming."""
+        text = DeskAgent._echo_fallback(message)
+        return [
+            text[i : i + _STREAM_CHUNK_SIZE]
+            for i in range(0, len(text), _STREAM_CHUNK_SIZE)
+        ]
 
     @staticmethod
     def _build_tool_summaries(tools: list[ToolDefinition]) -> list[dict[str, str]]:
