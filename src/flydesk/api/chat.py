@@ -140,6 +140,7 @@ async def _persist_messages(
     user_message: str,
     assistant_content: str,
     file_ids: list[str] | None = None,
+    widgets: list[dict] | None = None,
 ) -> None:
     """Persist user and assistant messages to the conversation store.
 
@@ -185,12 +186,16 @@ async def _persist_messages(
 
         # Persist assistant message
         if assistant_content:
+            assistant_metadata: dict = {}
+            if widgets:
+                assistant_metadata["widgets"] = widgets
             await repo.add_message(
                 Message(
                     id=str(uuid.uuid4()),
                     conversation_id=conversation_id,
                     role=MessageRole.ASSISTANT,
                     content=assistant_content,
+                    metadata=assistant_metadata,
                 ),
                 user_id,
             )
@@ -413,6 +418,7 @@ async def send_message(
     if desk_agent and user_session:
         async def agent_stream():
             collected: list[str] = []
+            collected_widgets: list[dict] = []
             async for event in desk_agent.stream(
                 body.message, user_session, conversation_id,
                 file_ids=body.file_ids or None,
@@ -422,12 +428,16 @@ async def send_message(
                     token = event.data.get("content", "")
                     if token:
                         collected.append(token)
+                # Collect widget events for persistence
+                elif event.event == SSEEventType.WIDGET and isinstance(event.data, dict):
+                    collected_widgets.append(event.data)
                 yield event.to_sse()
 
             # Persist after stream completes
             await _persist_messages(
                 request, conversation_id, body.message, "".join(collected),
                 file_ids=body.file_ids or None,
+                widgets=collected_widgets or None,
             )
 
         return StreamingResponse(

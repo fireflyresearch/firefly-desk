@@ -150,7 +150,7 @@ export async function selectConversation(id: string): Promise<void> {
 				id: m.id,
 				role: m.role,
 				content: m.content,
-				widgets: [],
+				widgets: (m.metadata?.widgets as WidgetDirective[]) ?? [],
 				timestamp: new Date(m.created_at ?? new Date().toISOString())
 			}))
 		);
