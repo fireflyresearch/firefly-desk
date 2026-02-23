@@ -22,7 +22,7 @@ from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.conversation.repository import ConversationRepository
-from flydesk.conversation.models import Conversation
+from flydesk.conversation.models import Conversation, Message, MessageRole
 from flydesk.llm.repository import LLMProviderRepository
 from flydesk.models.base import Base
 
@@ -127,6 +127,61 @@ class TestDashboardStats:
         data = response.json()
         assert data["audit_event_count"] == 1
 
+    async def test_stats_excludes_deleted_conversations(self, client):
+        """Deleted conversations are excluded from all dashboard counts."""
+        ac, conversation_repo, _ = client
+
+        # Active conversations for user-a and user-b
+        await conversation_repo.create_conversation(
+            Conversation(id="conv-1", user_id="user-a", title="Active 1")
+        )
+        await conversation_repo.create_conversation(
+            Conversation(id="conv-2", user_id="user-b", title="Active 2")
+        )
+        # Deleted conversation for user-a
+        await conversation_repo.create_conversation(
+            Conversation(
+                id="conv-del-1", user_id="user-a", title="Deleted 1", status="deleted"
+            )
+        )
+        # user-c has ONLY deleted conversations -- should not count as active
+        await conversation_repo.create_conversation(
+            Conversation(
+                id="conv-del-2", user_id="user-c", title="Deleted 2", status="deleted"
+            )
+        )
+
+        # Add messages to both active and deleted conversations
+        await conversation_repo.add_message(
+            Message(
+                id="msg-1",
+                conversation_id="conv-1",
+                role=MessageRole.USER,
+                content="hello",
+            ),
+            user_id="user-a",
+        )
+        await conversation_repo.add_message(
+            Message(
+                id="msg-2",
+                conversation_id="conv-del-1",
+                role=MessageRole.USER,
+                content="deleted msg",
+            ),
+            user_id="user-a",
+        )
+
+        response = await ac.get("/api/admin/dashboard/stats")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Only 2 active conversations (conv-1, conv-2); deleted ones excluded
+        assert data["conversation_count"] == 2
+        # Only user-a and user-b have active conversations; user-c excluded
+        assert data["active_user_count"] == 2
+        # Only 1 message from non-deleted conversations (msg-1); msg-2 excluded
+        assert data["message_count"] == 1
+
 
 class TestDashboardHealth:
     async def test_health_returns_status(self, client):
@@ -183,3 +238,23 @@ class TestRecentEvents:
         assert len(data) == 1
         assert data[0]["event_type"] == "catalog_change"
         assert data[0]["action"] == "created system"
+
+    async def test_recent_events_include_created_at(self, client):
+        """Recent events should populate created_at from the audit timestamp."""
+        ac, _, audit_logger = client
+
+        await audit_logger.log(
+            AuditEvent(
+                event_type=AuditEventType.AUTH_LOGIN,
+                user_id="user-a",
+                action="login",
+                detail={},
+            )
+        )
+
+        response = await ac.get("/api/admin/dashboard/recent-events")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        # created_at should be populated (not None) from the audit event timestamp
+        assert data[0]["created_at"] is not None
