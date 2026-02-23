@@ -52,7 +52,7 @@ class SystemPromptBuilder:
                 company_name=context.company_name,
             )
 
-        user_ctx = self._render_user_context(context)
+        user_ctx = self._user_context_section(context)
         tools = self._registry.get("available_tools").render(
             tool_summaries=context.tool_summaries,
         )
@@ -83,16 +83,8 @@ class SystemPromptBuilder:
 
         return "\n\n".join(sections)
 
-    # ------------------------------------------------------------------
-    # Convenience method kept for callers that need a single section
-    # ------------------------------------------------------------------
-
     def _user_context_section(self, context: PromptContext) -> str:
         """Render the user-context section from the template."""
-        return self._render_user_context(context)
-
-    def _render_user_context(self, context: PromptContext) -> str:
-        """Render user context via the registry template."""
         return self._registry.get("user_context").render(
             user_name=context.user_name,
             user_roles=context.user_roles,
