@@ -121,6 +121,7 @@
 
 	let selectedProvider = $state<string | null>(null);
 	let selectedModel = $state('');
+	let customModel = $state('');
 	let apiKey = $state('');
 	let baseUrl = $state('');
 	let dimensions = $state(1536);
@@ -157,9 +158,11 @@
 		embeddingProviders.find((p) => p.id === selectedProvider) ?? null
 	);
 
+	let activeModel = $derived(selectedModel === '__custom__' ? customModel : selectedModel);
+
 	let canTest = $derived(
 		selectedProvider !== null &&
-			selectedModel.length > 0 &&
+			activeModel.length > 0 &&
 			(!currentProviderDef?.needsApiKey || apiKey.length > 0)
 	);
 
@@ -174,6 +177,7 @@
 		const def = embeddingProviders.find((p) => p.id === id);
 		const firstModel = def?.models[0];
 		selectedModel = firstModel?.id ?? '';
+		customModel = '';
 		dimensions = firstModel?.dimensions ?? 1536;
 		apiKey = '';
 		baseUrl = '';
@@ -186,15 +190,17 @@
 	function handleModelChange(event: Event) {
 		const select = event.target as HTMLSelectElement;
 		selectedModel = select.value;
-		// Auto-fill dimensions from preset
-		const preset = currentProviderDef?.models.find((m) => m.id === selectedModel);
-		if (preset) {
-			dimensions = preset.dimensions;
+		// Auto-fill dimensions from preset (skip for custom models)
+		if (selectedModel !== '__custom__') {
+			const preset = currentProviderDef?.models.find((m) => m.id === selectedModel);
+			if (preset) {
+				dimensions = preset.dimensions;
+			}
 		}
 	}
 
 	async function testEmbedding() {
-		if (!selectedProvider || !selectedModel) return;
+		if (!selectedProvider || !activeModel) return;
 		testing = true;
 		testResult = null;
 		testMessage = '';
@@ -202,7 +208,7 @@
 		try {
 			const body: Record<string, string | number> = {
 				provider: selectedProvider,
-				model: selectedModel,
+				model: activeModel,
 				dimensions
 			};
 			if (apiKey) body.api_key = apiKey;
@@ -246,7 +252,7 @@
 				? null
 				: {
 						provider: selectedProvider,
-						model: selectedModel,
+						model: activeModel,
 						api_key: apiKey || null,
 						base_url: baseUrl || null,
 						dimensions
@@ -322,7 +328,17 @@
 							{#each currentProviderDef.models as model}
 								<option value={model.id}>{model.name} ({model.dimensions}d)</option>
 							{/each}
+							<option value="__custom__">Custom model...</option>
 						</select>
+
+						{#if selectedModel === '__custom__'}
+							<input
+								type="text"
+								bind:value={customModel}
+								placeholder="e.g., text-embedding-3-small"
+								class="mt-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
+							/>
+						{/if}
 					</div>
 
 					<!-- Dimensions -->
