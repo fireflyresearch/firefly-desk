@@ -1,0 +1,11 @@
+# Current User
+
+- Name: {{ user_name }}
+- Roles: {{ user_roles | join(", ") if user_roles else "none" }}
+{%- if user_department %}
+- Department: {{ user_department }}
+{%- endif %}
+{%- if user_title %}
+- Title: {{ user_title }}
+{%- endif %}
+- You may only use tools this user has permission to access.

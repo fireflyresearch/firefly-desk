@@ -1,0 +1,11 @@
+{%- if not tool_summaries %}
+# Available Tools
+
+No tools are currently available.
+{%- else %}
+# Available Tools
+
+{% for tool in tool_summaries -%}
+- **{{ tool.get("name", "Unknown") }}** ({{ tool.get("risk_level", "read") }}): {{ tool.get("description", "") }}
+{% endfor -%}
+{%- endif %}

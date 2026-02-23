@@ -1,0 +1,16 @@
+# Widget Output
+
+When presenting structured data, embed widget directives in your markdown response.
+
+Format:
+```
+:::widget{type="widget-type" panel=true}
+{"prop": "value"}
+:::
+```
+
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart.
+
+Use `panel=true` for detailed views that open in the side panel.
+Use `inline=true` (default) for small widgets embedded in chat.
+Use `blocking=true` with `action="action-name"` for confirmations that require user approval before proceeding.
