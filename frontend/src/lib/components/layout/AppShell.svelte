@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { slide } from 'svelte/transition';
+	import { page } from '$app/stores';
 	import TopBar from './TopBar.svelte';
 	import ResizableSplit from './ResizableSplit.svelte';
 	import ConversationList from '../chat/ConversationList.svelte';
@@ -21,13 +22,22 @@
 		children,
 		panel
 	}: AppShellProps = $props();
+
+	/** Hide the conversation sidebar on admin pages (admin has its own nav). */
+	let isAdminPage = $derived($page.url.pathname.startsWith('/admin'));
+	let showSidebar = $derived($sidebarOpen && !isAdminPage);
 </script>
 
 <div class="flex h-screen flex-col bg-surface">
-	<TopBar {title} {userName} onToggleSidebar={toggleSidebar} sidebarOpen={$sidebarOpen} />
+	<TopBar
+		{title}
+		{userName}
+		onToggleSidebar={isAdminPage ? undefined : toggleSidebar}
+		sidebarOpen={showSidebar}
+	/>
 
 	<div class="flex min-h-0 flex-1">
-		{#if $sidebarOpen}
+		{#if showSidebar}
 			<div
 				transition:slide={{ axis: 'x', duration: 200 }}
 				class="w-72 shrink-0 border-r border-border/50 bg-surface-secondary"
