@@ -18,6 +18,7 @@
 	import TokenUsage from './TokenUsage.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
+	import MessageActions from './MessageActions.svelte';
 
 	interface MessageBubbleProps {
 		message: Message;
@@ -169,11 +170,16 @@
 				{#if !message.isStreaming && message.usage}
 					<TokenUsage usage={message.usage} />
 				{/if}
-				<span
-					class="mt-1 px-1 text-xs text-text-secondary opacity-0 transition-opacity group-hover:opacity-100"
-				>
-					{formattedTime}
-				</span>
+				<div class="mt-1 flex items-center gap-2">
+					<span
+						class="px-1 text-xs text-text-secondary opacity-0 transition-opacity group-hover:opacity-100"
+					>
+						{formattedTime}
+					</span>
+					{#if !message.isStreaming}
+						<MessageActions messageId={message.id} content={message.content} />
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>
