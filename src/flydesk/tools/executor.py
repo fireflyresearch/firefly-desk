@@ -27,6 +27,8 @@ from flydesk.tools.auth_resolver import AuthResolver
 
 if TYPE_CHECKING:
     from flydesk.api.credentials import CredentialStore
+    from flydesk.auth.models import UserSession
+    from flydesk.auth.sso_mapping import SSOAttributeMapping
     from flydesk.audit.logger import AuditLogger
     from flydesk.catalog.models import RateLimit, RetryPolicy
     from flydesk.catalog.repository import CatalogRepository
@@ -270,6 +272,7 @@ class ToolExecutor:
         audit_logger: AuditLogger,
         max_parallel: int = 5,
         kms: Any | None = None,
+        sso_mappings: list[SSOAttributeMapping] | None = None,
     ) -> None:
         self._http_client = http_client
         self._catalog_repo = catalog_repo
@@ -280,6 +283,7 @@ class ToolExecutor:
             credential_store, http_client=http_client, kms=kms
         )
         self._rate_limiter = _RateLimiter()
+        self._sso_mappings: list[SSOAttributeMapping] = sso_mappings or []
 
     # ------------------------------------------------------------------
     # Public API
@@ -467,9 +471,18 @@ class ToolExecutor:
             )
         )
 
-        # Resolve auth headers.
+        # Resolve auth headers (with optional SSO claim forwarding).
+        _user_session_obj = (
+            user_session
+            if hasattr(user_session, "raw_claims")
+            else None
+        )
         try:
-            auth_headers = await self._auth_resolver.resolve_headers(system)
+            auth_headers = await self._auth_resolver.resolve_headers(
+                system,
+                user_session=_user_session_obj,
+                sso_mappings=self._sso_mappings or None,
+            )
         except Exception as exc:
             return ToolResult(
                 call_id=call.call_id,
