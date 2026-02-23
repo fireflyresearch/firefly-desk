@@ -45,14 +45,14 @@
 	}
 </script>
 
-<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden divide-y divide-border">
+<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden divide-y divide-border transition-shadow hover:shadow-md">
 	{#each sections as section, i}
 		{@const isOpen = openSet.has(i)}
 		<div>
 			<!-- Section header (button) -->
 			<button
 				type="button"
-				class="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-surface-secondary/50"
+				class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-secondary/50"
 				aria-expanded={isOpen}
 				onclick={() => toggle(i)}
 			>
@@ -66,7 +66,7 @@
 
 			<!-- Collapsible content -->
 			{#if isOpen}
-				<div class="accordion-content px-5 pb-4">
+				<div class="accordion-content px-4 pb-4">
 					<p class="text-sm text-text-secondary leading-relaxed">{section.content}</p>
 				</div>
 			{/if}

@@ -21,7 +21,7 @@
 	let { events }: TimelineProps = $props();
 </script>
 
-<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
+<div class="rounded-xl border border-border bg-surface-elevated p-4 shadow-sm">
 	<div class="relative">
 		{#each events as event, i}
 			<div class="relative flex gap-3 {i < events.length - 1 ? 'pb-5' : ''}">

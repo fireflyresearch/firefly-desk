@@ -142,7 +142,7 @@
 </script>
 
 <div
-	class="rounded-xl border border-border border-l-4 {config.border} bg-surface-elevated p-5 shadow-sm"
+	class="rounded-xl border border-border border-l-4 {config.border} bg-surface-elevated p-4 shadow-sm transition-shadow hover:shadow-md"
 >
 	<!-- Header: icon + tool name + risk badge -->
 	<div class="flex items-start justify-between gap-3">

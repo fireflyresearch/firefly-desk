@@ -22,7 +22,7 @@
 
 <div class="rounded-xl border border-border bg-surface-elevated shadow-sm">
 	{#if title}
-		<div class="border-b border-border px-5 py-3">
+		<div class="border-b border-border px-4 py-3">
 			<h3 class="text-sm font-semibold text-text-primary">{title}</h3>
 		</div>
 	{/if}
@@ -31,10 +31,10 @@
 		<table class="w-full text-left text-sm font-mono">
 			<thead>
 				<tr class="sticky top-0 z-10 border-b border-border bg-surface-secondary/50">
-					<th class="px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">Field</th>
-					<th class="px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">Before</th>
+					<th class="px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">Field</th>
+					<th class="px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">Before</th>
 					<th class="w-6 px-1 py-2.5"></th>
-					<th class="px-5 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">After</th>
+					<th class="px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-text-secondary font-sans">After</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -43,9 +43,9 @@
 					{@const afterVal = after[key] ?? ''}
 					{@const changed = beforeVal !== afterVal}
 					<tr class="border-b border-border last:border-b-0">
-						<td class="px-5 py-2.5 text-xs font-medium text-text-secondary font-sans">{key}</td>
+						<td class="px-4 py-2.5 text-xs font-medium text-text-secondary font-sans">{key}</td>
 						<td
-							class="px-5 py-2.5 text-xs {changed
+							class="px-4 py-2.5 text-xs {changed
 								? 'bg-danger/10 text-danger'
 								: 'text-text-secondary'}"
 						>
@@ -57,7 +57,7 @@
 							{/if}
 						</td>
 						<td
-							class="px-5 py-2.5 text-xs {changed
+							class="px-4 py-2.5 text-xs {changed
 								? 'bg-success/10 text-success'
 								: 'text-text-secondary'}"
 						>

@@ -77,7 +77,7 @@
 
 <div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
 	{#if title}
-		<div class="border-b border-border px-5 py-3">
+		<div class="border-b border-border px-4 py-3">
 			<h3 class="text-sm font-semibold text-text-primary">{title}</h3>
 		</div>
 	{/if}

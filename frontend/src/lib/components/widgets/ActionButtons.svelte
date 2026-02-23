@@ -50,7 +50,7 @@
 	}
 </script>
 
-<div class="rounded-xl border border-border bg-surface-elevated p-4 shadow-sm">
+<div class="rounded-xl border border-border bg-surface-elevated p-4 shadow-sm transition-shadow hover:shadow-md">
 	<div class="flex flex-wrap items-center gap-2">
 		{#each actions as action, i}
 			{@const variant = action.variant ?? 'default'}

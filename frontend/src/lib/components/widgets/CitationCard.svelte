@@ -33,7 +33,7 @@
 	});
 </script>
 
-<div class="rounded-xl border border-border border-l-4 border-l-accent bg-surface-elevated p-4 shadow-sm">
+<div class="rounded-xl border border-border border-l-4 border-l-accent bg-surface-elevated p-4 shadow-sm transition-shadow hover:shadow-md">
 	<!-- Header: icon + title + score -->
 	<div class="flex items-start justify-between gap-3">
 		<div class="flex items-center gap-2 min-w-0">

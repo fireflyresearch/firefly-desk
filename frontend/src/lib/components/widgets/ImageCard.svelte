@@ -17,7 +17,7 @@
 	let showLightbox = $state(false);
 </script>
 
-<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
+<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden transition-shadow hover:shadow-md">
 	<button type="button" class="block w-full" onclick={() => { showLightbox = true; }}>
 		<img {src} {alt} class="w-full max-h-80 object-contain bg-surface cursor-pointer" />
 	</button>

@@ -92,6 +92,13 @@
 		return result;
 	}
 
+	/** Read a CSS custom property from :root and return it as a color string. */
+	function cssVar(name: string, fallback: string): string {
+		if (typeof document === 'undefined') return fallback;
+		const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+		return val || fallback;
+	}
+
 	$effect(() => {
 		if (!canvas) return;
 
@@ -110,14 +117,19 @@
 			| 'polarArea';
 		const coloredDatasets = applyDefaultColors(datasets, resolvedType);
 
-		// Theme-aware defaults
+		// Resolve theme colors from CSS custom properties
+		const textSecondary = cssVar('--color-text-secondary', 'rgba(255,255,255,0.5)');
+		const textMuted = cssVar('--color-text-secondary', 'rgba(255,255,255,0.7)');
+		const gridColor = cssVar('--color-border', 'rgba(255,255,255,0.06)');
+
+		// Theme-aware defaults using CSS custom properties
 		const defaultOptions: Record<string, unknown> = {
 			responsive: true,
 			maintainAspectRatio: true,
 			plugins: {
 				legend: {
 					labels: {
-						color: 'rgba(255, 255, 255, 0.7)',
+						color: textMuted,
 						font: {
 							family: "'Plus Jakarta Sans Variable', system-ui, sans-serif",
 							size: 12
@@ -135,12 +147,12 @@
 		if (!['pie', 'doughnut', 'polarArea', 'radar'].includes(resolvedType)) {
 			(defaultOptions as Record<string, unknown>).scales = {
 				x: {
-					ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 11 } },
-					grid: { color: 'rgba(255, 255, 255, 0.06)' }
+					ticks: { color: textSecondary, font: { size: 11 } },
+					grid: { color: gridColor }
 				},
 				y: {
-					ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 11 } },
-					grid: { color: 'rgba(255, 255, 255, 0.06)' }
+					ticks: { color: textSecondary, font: { size: 11 } },
+					grid: { color: gridColor }
 				}
 			};
 		}
@@ -148,9 +160,9 @@
 		if (resolvedType === 'radar') {
 			(defaultOptions as Record<string, unknown>).scales = {
 				r: {
-					ticks: { color: 'rgba(255, 255, 255, 0.5)', backdropColor: 'transparent' },
-					grid: { color: 'rgba(255, 255, 255, 0.1)' },
-					pointLabels: { color: 'rgba(255, 255, 255, 0.7)' }
+					ticks: { color: textSecondary, backdropColor: 'transparent' },
+					grid: { color: gridColor },
+					pointLabels: { color: textMuted }
 				}
 			};
 		}
@@ -178,7 +190,7 @@
 
 <div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
 	{#if title}
-		<div class="border-b border-border px-5 py-3">
+		<div class="border-b border-border px-4 py-3">
 			<h3 class="text-sm font-semibold text-text-primary">{title}</h3>
 		</div>
 	{/if}
