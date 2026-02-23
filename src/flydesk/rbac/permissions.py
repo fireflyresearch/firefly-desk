@@ -6,13 +6,13 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""Permission enum and built-in role definitions."""
+"""Permission enum, built-in role definitions, and scope resolution helpers."""
 
 from __future__ import annotations
 
 from enum import StrEnum
 
-from flydesk.rbac.models import Role
+from flydesk.rbac.models import AccessScopes, Role
 
 
 class Permission(StrEnum):
@@ -78,3 +78,48 @@ BUILTIN_ROLES: list[Role] = [
         is_builtin=True,
     ),
 ]
+
+
+def merge_access_scopes(scopes_list: list[AccessScopes]) -> AccessScopes:
+    """Merge multiple :class:`AccessScopes` into a single union.
+
+    The merge follows the *most permissive* strategy: if **any** scope in the
+    list has an empty field (= unrestricted), the merged result is also
+    unrestricted for that dimension.  Otherwise, the allowed values are unioned.
+    """
+    if not scopes_list:
+        return AccessScopes()
+
+    systems: set[str] = set()
+    knowledge_tags: set[str] = set()
+    skill_tags: set[str] = set()
+    systems_unrestricted = False
+    knowledge_unrestricted = False
+    skills_unrestricted = False
+
+    for scope in scopes_list:
+        if not scope.systems:
+            systems_unrestricted = True
+        else:
+            systems.update(scope.systems)
+
+        if not scope.knowledge_tags:
+            knowledge_unrestricted = True
+        else:
+            knowledge_tags.update(scope.knowledge_tags)
+
+        if not scope.skill_tags:
+            skills_unrestricted = True
+        else:
+            skill_tags.update(scope.skill_tags)
+
+    return AccessScopes(
+        systems=[] if systems_unrestricted else sorted(systems),
+        knowledge_tags=[] if knowledge_unrestricted else sorted(knowledge_tags),
+        skill_tags=[] if skills_unrestricted else sorted(skill_tags),
+    )
+
+
+def is_admin(permissions: list[str]) -> bool:
+    """Return True if the permission set contains the wildcard (superuser)."""
+    return "*" in permissions

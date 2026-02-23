@@ -18,14 +18,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.role import RoleRow
-from flydesk.rbac.models import Role
-from flydesk.rbac.permissions import BUILTIN_ROLES
+from flydesk.rbac.models import AccessScopes, Role
+from flydesk.rbac.permissions import BUILTIN_ROLES, merge_access_scopes
 
 _UPDATABLE_FIELDS = frozenset({
     "name",
     "display_name",
     "description",
     "permissions",
+    "access_scopes",
 })
 
 
@@ -89,6 +90,7 @@ class RoleRepository:
                 display_name=role.display_name,
                 description=role.description,
                 permissions=_to_json(role.permissions),
+                access_scopes=_to_json(role.access_scopes.model_dump()),
                 is_builtin=role.is_builtin,
             )
             session.add(row)
@@ -108,6 +110,12 @@ class RoleRepository:
                     raise ValueError(msg)
                 if key == "permissions":
                     value = _to_json(value)
+                elif key == "access_scopes":
+                    # Accept dict or AccessScopes; store as JSON dict
+                    if isinstance(value, AccessScopes):
+                        value = _to_json(value.model_dump())
+                    elif isinstance(value, dict):
+                        value = _to_json(value)
                 setattr(row, key, value)
             row.updated_at = datetime.now(timezone.utc)
             await session.commit()
@@ -148,6 +156,26 @@ class RoleRepository:
             all_perms.update(perms)
         return sorted(all_perms)
 
+    async def get_access_scopes_for_roles(
+        self, role_names: list[str],
+    ) -> AccessScopes:
+        """Merge access scopes for all roles matching the given names.
+
+        Returns an :class:`AccessScopes` representing the union (most-permissive)
+        of all matching roles' scopes.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(RoleRow).where(RoleRow.name.in_(role_names))
+            )
+            rows = result.scalars().all()
+
+        scopes_list: list[AccessScopes] = []
+        for row in rows:
+            scopes_list.append(self._parse_access_scopes(row.access_scopes))
+
+        return merge_access_scopes(scopes_list)
+
     # -- Seeding --
 
     async def seed_builtin_roles(self) -> None:
@@ -167,14 +195,27 @@ class RoleRepository:
                         )
                     )
                 else:
-                    # Update permissions in case they changed
+                    # Update permissions and scopes in case they changed
                     existing.permissions = _to_json(role.permissions)
+                    existing.access_scopes = _to_json(role.access_scopes.model_dump())
                     existing.display_name = role.display_name
                     existing.description = role.description
                     existing.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
     # -- Mapping helpers --
+
+    @staticmethod
+    def _parse_access_scopes(raw: Any) -> AccessScopes:
+        """Deserialize an access_scopes column value into an AccessScopes model."""
+        if raw is None:
+            return AccessScopes()
+        data = raw
+        if isinstance(data, str):
+            data = json.loads(data)
+        if isinstance(data, dict):
+            return AccessScopes(**data)
+        return AccessScopes()
 
     @staticmethod
     def _row_to_role(row: RoleRow) -> Role:
@@ -184,6 +225,7 @@ class RoleRepository:
             display_name=row.display_name,
             description=row.description,
             permissions=_from_json(row.permissions) if row.permissions else [],
+            access_scopes=RoleRepository._parse_access_scopes(row.access_scopes),
             is_builtin=row.is_builtin,
             created_at=row.created_at,
             updated_at=row.updated_at,

@@ -13,6 +13,7 @@ from flydesk.catalog.enums import RiskLevel
 
 if TYPE_CHECKING:
     from flydesk.catalog.models import ServiceEndpoint
+    from flydesk.rbac.models import AccessScopes
 
 
 @dataclass(frozen=True)
@@ -40,12 +41,23 @@ class ToolFactory:
         self,
         endpoints: list[ServiceEndpoint],
         user_permissions: list[str],
+        access_scopes: AccessScopes | None = None,
     ) -> list[ToolDefinition]:
-        """Build tools the user is permitted to use."""
+        """Build tools the user is permitted to use.
+
+        When *access_scopes* is provided, endpoints are additionally filtered
+        so only tools belonging to allowed systems are included.  Admin users
+        (wildcard permission) bypass scope checks.
+        """
         return [
             self._to_definition(ep)
             for ep in endpoints
             if self._has_permission(user_permissions, ep.required_permissions)
+            and (
+                access_scopes is None
+                or "*" in user_permissions
+                or access_scopes.can_access_system(ep.system_id)
+            )
         ]
 
     @staticmethod
@@ -53,7 +65,12 @@ class ToolFactory:
         user_permissions: list[str],
         required_permissions: list[str],
     ) -> bool:
-        """Check that the user has ALL required permissions for the endpoint."""
+        """Check that the user has ALL required permissions for the endpoint.
+
+        The wildcard ``"*"`` grants all permissions (superuser / admin).
+        """
+        if "*" in user_permissions:
+            return True
         return all(p in user_permissions for p in required_permissions)
 
     @staticmethod

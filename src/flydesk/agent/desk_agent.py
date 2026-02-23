@@ -24,6 +24,7 @@ from flydesk.api.events import SSEEvent, SSEEventType
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.auth.models import UserSession
+from flydesk.rbac.permissions import is_admin
 from flydesk.tools.builtin import BuiltinToolExecutor, BuiltinToolRegistry
 from flydesk.tools.factory import ToolDefinition, ToolFactory
 from flydesk.tools.genai_adapter import adapt_tools
@@ -599,6 +600,9 @@ class DeskAgent:
             A tuple of (resolved_tools, system_prompt).
         """
         # 0. Auto-load tools from catalog + built-ins if not provided
+        scopes = session.access_scopes
+        admin_user = is_admin(list(session.permissions))
+
         if tools is None:
             tools = []
             # Catalog-derived tools (external system endpoints)
@@ -606,7 +610,9 @@ class DeskAgent:
                 try:
                     endpoints = await self._catalog_repo.list_endpoints()
                     tools = self._tool_factory.build_tool_definitions(
-                        endpoints, list(session.permissions),
+                        endpoints,
+                        list(session.permissions),
+                        access_scopes=None if admin_user else scopes,
                     )
                     _logger.debug("Loaded %d catalog tools for user %s", len(tools), session.user_id)
                 except Exception:
@@ -619,12 +625,19 @@ class DeskAgent:
             tools.extend(builtin_tools)
             _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
 
+        # Resolve knowledge tag filter from access scopes (admin bypasses)
+        knowledge_tag_filter: list[str] | None = None
+        if not admin_user and scopes.knowledge_tags:
+            knowledge_tag_filter = scopes.knowledge_tags
+
         # 1. Context enrichment (with user-scoped conversation history)
         history = await self._load_conversation_history(
             conversation_id, session.user_id,
         )
         enriched = await self._context_enricher.enrich(
-            message, conversation_history=history,
+            message,
+            conversation_history=history,
+            knowledge_tag_filter=knowledge_tag_filter,
         )
 
         # 2. Prompt assembly

@@ -114,11 +114,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             raw_claims=claims,
         )
 
-        # Resolve OIDC roles to local permissions via RoleRepository
+        # Resolve OIDC roles to local permissions and access scopes via RoleRepository
         role_repo = getattr(request.app.state, "role_repo", None)
         if role_repo is not None:
             resolved = await role_repo.get_permissions_for_roles(session.roles)
-            session = session.model_copy(update={"permissions": resolved})
+            access_scopes = await role_repo.get_access_scopes_for_roles(session.roles)
+            session = session.model_copy(
+                update={"permissions": resolved, "access_scopes": access_scopes},
+            )
 
         request.state.user_session = session
         return await call_next(request)

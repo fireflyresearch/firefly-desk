@@ -46,8 +46,21 @@ class KnowledgeRetriever:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
 
-    async def retrieve(self, query: str, *, top_k: int = 3) -> list[RetrievalResult]:
-        """Find the most relevant document chunks for a query."""
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        top_k: int = 3,
+        tag_filter: list[str] | None = None,
+    ) -> list[RetrievalResult]:
+        """Find the most relevant document chunks for a query.
+
+        Args:
+            query: The search query text.
+            top_k: Maximum number of results to return.
+            tag_filter: When set, only return chunks from documents whose tags
+                overlap with this list.  ``None`` disables filtering.
+        """
         # 1. Embed the query
         embeddings = await self._embedding_provider.embed([query])
         query_embedding = embeddings[0]
@@ -59,19 +72,35 @@ class KnowledgeRetriever:
         async with self._session_factory() as session:
             dialect = session.bind.dialect.name if session.bind else "sqlite"
 
-        if use_keywords:
-            scored = await self._keyword_search(query, top_k)
-        elif dialect == "postgresql":
-            scored = await self._pgvector_search(query_embedding, top_k)
-        else:
-            scored = await self._inmemory_search(query_embedding, top_k)
+        # Over-fetch when tag_filter is set so post-filtering can still
+        # return up to top_k results.
+        fetch_k = top_k * 3 if tag_filter else top_k
 
-        # 3. Fetch document titles and build results
+        if use_keywords:
+            scored = await self._keyword_search(query, fetch_k)
+        elif dialect == "postgresql":
+            scored = await self._pgvector_search(query_embedding, fetch_k)
+        else:
+            scored = await self._inmemory_search(query_embedding, fetch_k)
+
+        # 3. Fetch document titles and build results (with tag filtering)
+        tag_filter_set = set(tag_filter) if tag_filter else None
         results: list[RetrievalResult] = []
         async with self._session_factory() as session:
             for score, chunk_row in scored:
                 doc_row = await session.get(KnowledgeDocumentRow, chunk_row.document_id)
-                title = doc_row.title if doc_row else "Unknown"
+                if doc_row is None:
+                    continue
+
+                # Apply tag filter: skip documents with no overlapping tags
+                if tag_filter_set is not None:
+                    doc_tags = doc_row.tags
+                    if isinstance(doc_tags, str):
+                        doc_tags = json.loads(doc_tags)
+                    if not tag_filter_set.intersection(doc_tags or []):
+                        continue
+
+                title = doc_row.title
                 metadata = chunk_row.metadata_
                 if isinstance(metadata, str):
                     metadata = json.loads(metadata)
@@ -88,6 +117,8 @@ class KnowledgeRetriever:
                         document_title=title,
                     )
                 )
+                if len(results) >= top_k:
+                    break
 
         if use_keywords and results:
             _logger.debug(

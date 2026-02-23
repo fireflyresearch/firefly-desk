@@ -85,6 +85,22 @@ async def _index_docs(
         )
 
 
+async def _index_tagged_docs(
+    indexer: KnowledgeIndexer,
+    embedding_provider: SteerableEmbeddingProvider,
+    docs: list[tuple[str, str, str, list[str], list[float]]],
+) -> None:
+    """Helper: index documents with tags and pre-set embeddings.
+
+    Each tuple is (id, title, content, tags, embedding_vector).
+    """
+    for doc_id, title, content, tags, vector in docs:
+        embedding_provider.register(content, vector)
+        await indexer.index_document(
+            KnowledgeDocument(id=doc_id, title=title, content=content, tags=tags)
+        )
+
+
 class TestKnowledgeRetriever:
     async def test_retrieve_returns_relevant_chunks(
         self, indexer, retriever, embedding_provider
@@ -168,5 +184,84 @@ class TestKnowledgeRetriever:
 
         embedding_provider.register("top query", [1.0, 0.0, 0.0, 0.0])
         results = await retriever.retrieve("top query", top_k=2)
+
+        assert len(results) == 2
+
+
+class TestKnowledgeRetrieverTagFilter:
+    """Tests for tag_filter parameter on KnowledgeRetriever.retrieve()."""
+
+    async def test_tag_filter_includes_matching_docs(
+        self, indexer, retriever, embedding_provider
+    ):
+        """Only documents with overlapping tags are returned."""
+        await _index_tagged_docs(
+            indexer,
+            embedding_provider,
+            [
+                ("d1", "HR Policy", "hr policy content", ["hr"], [1.0, 0.0, 0.0, 0.0]),
+                ("d2", "Finance Report", "finance report content", ["finance"], [0.9, 0.1, 0.0, 0.0]),
+                ("d3", "HR Onboarding", "hr onboarding guide", ["hr", "onboarding"], [0.8, 0.2, 0.0, 0.0]),
+            ],
+        )
+
+        embedding_provider.register("find hr docs", [1.0, 0.0, 0.0, 0.0])
+        results = await retriever.retrieve("find hr docs", top_k=5, tag_filter=["hr"])
+
+        assert len(results) == 2
+        doc_ids = {r.chunk.document_id for r in results}
+        assert doc_ids == {"d1", "d3"}
+
+    async def test_tag_filter_none_returns_all(
+        self, indexer, retriever, embedding_provider
+    ):
+        """When tag_filter is None, all documents are returned."""
+        await _index_tagged_docs(
+            indexer,
+            embedding_provider,
+            [
+                ("d1", "Doc A", "content a", ["hr"], [1.0, 0.0, 0.0, 0.0]),
+                ("d2", "Doc B", "content b", ["finance"], [0.9, 0.1, 0.0, 0.0]),
+            ],
+        )
+
+        embedding_provider.register("get all", [1.0, 0.0, 0.0, 0.0])
+        results = await retriever.retrieve("get all", top_k=5, tag_filter=None)
+
+        assert len(results) == 2
+
+    async def test_tag_filter_no_match_returns_empty(
+        self, indexer, retriever, embedding_provider
+    ):
+        """When no documents match the tag filter, empty list is returned."""
+        await _index_tagged_docs(
+            indexer,
+            embedding_provider,
+            [
+                ("d1", "Doc A", "content a", ["hr"], [1.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+        embedding_provider.register("find finance", [1.0, 0.0, 0.0, 0.0])
+        results = await retriever.retrieve("find finance", top_k=5, tag_filter=["finance"])
+
+        assert len(results) == 0
+
+    async def test_tag_filter_respects_top_k(
+        self, indexer, retriever, embedding_provider
+    ):
+        """tag_filter combined with top_k returns at most top_k results."""
+        await _index_tagged_docs(
+            indexer,
+            embedding_provider,
+            [
+                ("d1", "HR 1", "hr content 1", ["hr"], [1.0, 0.0, 0.0, 0.0]),
+                ("d2", "HR 2", "hr content 2", ["hr"], [0.9, 0.1, 0.0, 0.0]),
+                ("d3", "HR 3", "hr content 3", ["hr"], [0.8, 0.2, 0.0, 0.0]),
+            ],
+        )
+
+        embedding_provider.register("hr query", [1.0, 0.0, 0.0, 0.0])
+        results = await retriever.retrieve("hr query", top_k=2, tag_filter=["hr"])
 
         assert len(results) == 2

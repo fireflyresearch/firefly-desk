@@ -52,6 +52,7 @@ class ContextEnricher:
         message: str,
         *,
         conversation_history: list[dict[str, str]] | None = None,
+        knowledge_tag_filter: list[str] | None = None,
     ) -> EnrichedContext:
         """Build an enriched context for the given user message.
 
@@ -62,6 +63,8 @@ class ContextEnricher:
             conversation_history: Optional prior conversation turns.
                 When a conversation memory store is available this will
                 be fetched automatically; for now callers may pass it in.
+            knowledge_tag_filter: When set, only retrieval results from
+                documents whose tags overlap with this list are included.
 
         Returns:
             A fully populated ``EnrichedContext``.
@@ -70,7 +73,11 @@ class ContextEnricher:
             self._knowledge_graph.find_relevant_entities(
                 message, limit=self._entity_limit
             ),
-            self._retriever.retrieve(message, top_k=self._retrieval_top_k),
+            self._retriever.retrieve(
+                message,
+                top_k=self._retrieval_top_k,
+                tag_filter=knowledge_tag_filter,
+            ),
         )
 
         return EnrichedContext(
