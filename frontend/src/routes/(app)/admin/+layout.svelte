@@ -22,7 +22,9 @@
 		Download,
 		Shield,
 		ShieldAlert,
-		ShieldCheck
+		ShieldCheck,
+		Sparkles,
+		FileCode
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -37,6 +39,8 @@
 		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
 		{ href: '/admin/users', label: 'Users', icon: Users },
 		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck },
+		{ href: '/admin/skills', label: 'Skills', icon: Sparkles },
+		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
 		{ href: '/admin/sso', label: 'SSO', icon: Shield }
 	];
