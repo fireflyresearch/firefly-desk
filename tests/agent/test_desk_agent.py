@@ -329,10 +329,17 @@ class TestDeskAgentRun:
         assert "After." in result.text
         assert len(result.widgets) == 1
 
-    async def test_run_with_no_tools(self, desk_agent, prompt_builder, user_session):
+    async def test_run_with_no_catalog_tools_still_has_builtins(
+        self, desk_agent, prompt_builder, user_session
+    ):
+        """Without catalog_repo, only built-in tools are provided."""
         await desk_agent.run("Hello", user_session, "conv-1")
         call_ctx = prompt_builder.build.call_args[0][0]
-        assert call_ctx.tool_summaries == []
+        names = {t["name"] for t in call_ctx.tool_summaries}
+        # Platform status is always available (no special permissions needed)
+        assert "get_platform_status" in names
+        # No catalog tools since there's no catalog_repo
+        assert "list_catalog_systems" not in names
 
     async def test_run_generates_unique_turn_ids(self, desk_agent, user_session):
         r1 = await desk_agent.run("Hello", user_session, "conv-1")

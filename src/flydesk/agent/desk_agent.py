@@ -26,10 +26,12 @@ from flydesk.api.events import SSEEvent, SSEEventType
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.auth.models import UserSession
+from flydesk.tools.builtin import BuiltinToolExecutor, BuiltinToolRegistry
 from flydesk.tools.factory import ToolDefinition, ToolFactory
 from flydesk.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
+    from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.files.repository import FileUploadRepository
     from flydesk.llm.repository import LLMProviderRepository
@@ -63,10 +65,12 @@ class DeskAgent:
         agent_name: str = "Ember",
         company_name: str | None = None,
         tool_executor: ToolExecutor | None = None,
+        builtin_executor: BuiltinToolExecutor | None = None,
         file_repo: FileUploadRepository | None = None,
         confirmation_service: ConfirmationService | None = None,
         conversation_repo: ConversationRepository | None = None,
         llm_repo: LLMProviderRepository | None = None,
+        catalog_repo: CatalogRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -76,10 +80,12 @@ class DeskAgent:
         self._agent_name = agent_name
         self._company_name = company_name
         self._tool_executor = tool_executor
+        self._builtin_executor = builtin_executor
         self._file_repo = file_repo
         self._confirmation_service = confirmation_service
         self._conversation_repo = conversation_repo
         self._llm_repo = llm_repo
+        self._catalog_repo = catalog_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -103,6 +109,27 @@ class DeskAgent:
         6. Return AgentResponse
         """
         turn_id = str(uuid.uuid4())
+
+        # 0. Auto-load tools from catalog + built-ins if not provided
+        if tools is None:
+            tools = []
+            # Catalog-derived tools (external system endpoints)
+            if self._catalog_repo is not None:
+                try:
+                    endpoints = await self._catalog_repo.list_endpoints()
+                    tools = self._tool_factory.build_tool_definitions(
+                        endpoints, list(session.permissions),
+                    )
+                    _logger.debug("Loaded %d catalog tools for user %s", len(tools), session.user_id)
+                except Exception:
+                    _logger.debug("Failed to load tools from catalog.", exc_info=True)
+
+            # Built-in platform tools
+            builtin_tools = BuiltinToolRegistry.get_tool_definitions(
+                list(session.permissions),
+            )
+            tools.extend(builtin_tools)
+            _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
 
         # 1. Context enrichment (with user-scoped conversation history)
         history = await self._load_conversation_history(
