@@ -34,3 +34,17 @@ class AppSettings(BaseModel):
     accent_color: str = "#2563EB"
     max_turns_per_conversation: int = 200
     default_llm_provider_id: str | None = None
+
+
+class AgentSettings(BaseModel):
+    """Agent customization settings stored in the DB."""
+
+    name: str = "Ember"
+    display_name: str = "Ember"
+    avatar_url: str = ""  # Empty = default Ember avatar
+    personality: str = "warm, professional, knowledgeable"
+    tone: str = "friendly yet precise"
+    greeting: str = "Hello! I'm {name}, your intelligent assistant."
+    behavior_rules: list[str] = Field(default_factory=list)
+    custom_instructions: str = ""  # Free-form additional instructions
+    language: str = "en"

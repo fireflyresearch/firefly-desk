@@ -382,6 +382,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
 
+    # Agent customization service
+    from flydesk.agent.customization import AgentCustomizationService
+
+    customization_service = AgentCustomizationService(settings_repo)
+    app.state.customization_service = customization_service
+
     desk_agent = DeskAgent(
         context_enricher=context_enricher,
         prompt_builder=prompt_builder,
@@ -396,6 +402,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         conversation_repo=conversation_repo,
         agent_factory=agent_factory,
         catalog_repo=catalog_repo,
+        customization_service=customization_service,
     )
     app.state.desk_agent = desk_agent
 

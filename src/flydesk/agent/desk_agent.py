@@ -31,6 +31,7 @@ from flydesk.tools.genai_adapter import adapt_tools
 from flydesk.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
+    from flydesk.agent.customization import AgentCustomizationService
     from flydesk.agent.genai_bridge import DeskAgentFactory
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
@@ -93,6 +94,7 @@ class DeskAgent:
         conversation_repo: ConversationRepository | None = None,
         agent_factory: DeskAgentFactory | None = None,
         catalog_repo: CatalogRepository | None = None,
+        customization_service: AgentCustomizationService | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -108,6 +110,7 @@ class DeskAgent:
         self._conversation_repo = conversation_repo
         self._agent_factory = agent_factory
         self._catalog_repo = catalog_repo
+        self._customization_service = customization_service
 
     # ------------------------------------------------------------------
     # Public API
@@ -715,8 +718,27 @@ class DeskAgent:
             enriched.conversation_history,
         )
 
+        # Load agent profile from customization service (if available)
+        agent_name = self._agent_name
+        personality = ""
+        tone = ""
+        behavior_rules: list[str] = []
+        custom_instructions = ""
+        language = "en"
+        if self._customization_service is not None:
+            try:
+                profile = await self._customization_service.get_profile()
+                agent_name = profile.name
+                personality = profile.personality
+                tone = profile.tone
+                behavior_rules = profile.behavior_rules
+                custom_instructions = profile.custom_instructions
+                language = profile.language
+            except Exception:
+                _logger.debug("Failed to load agent profile; using defaults.", exc_info=True)
+
         prompt_context = PromptContext(
-            agent_name=self._agent_name,
+            agent_name=agent_name,
             company_name=self._company_name,
             user_name=session.display_name,
             user_roles=list(session.roles),
@@ -727,6 +749,11 @@ class DeskAgent:
             knowledge_context=knowledge_context,
             file_context=file_context,
             conversation_summary=conversation_summary,
+            personality=personality,
+            tone=tone,
+            behavior_rules=behavior_rules,
+            custom_instructions=custom_instructions,
+            language=language,
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 
