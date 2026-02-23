@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.catalog.enums import AuthType, HttpMethod, ProtocolType, RiskLevel, SystemStatus
 
 
 class ParamSchema(BaseModel):
@@ -84,10 +84,23 @@ class ServiceEndpoint(BaseModel):
     risk_level: RiskLevel
     required_permissions: list[str]
 
+    protocol_type: ProtocolType = ProtocolType.REST
     rate_limit: RateLimit | None = None
     timeout_seconds: float = 30.0
     retry_policy: RetryPolicy | None = None
     tags: list[str] = Field(default_factory=list)
+
+    # GraphQL-specific fields
+    graphql_query: str | None = None
+    graphql_operation_name: str | None = None
+
+    # SOAP-specific fields
+    soap_action: str | None = None
+    soap_body_template: str | None = None
+
+    # gRPC-specific fields
+    grpc_service: str | None = None
+    grpc_method_name: str | None = None
 
 
 class Credential(BaseModel):

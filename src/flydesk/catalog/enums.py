@@ -36,3 +36,10 @@ class RiskLevel(StrEnum):
     LOW_WRITE = "low_write"
     HIGH_WRITE = "high_write"
     DESTRUCTIVE = "destructive"
+
+
+class ProtocolType(StrEnum):
+    REST = "rest"
+    GRAPHQL = "graphql"
+    SOAP = "soap"
+    GRPC = "grpc"
