@@ -77,6 +77,14 @@ class DeskConfig(BaseSettings):
     rag_top_k: int = 3
     kg_max_entities_in_context: int = 5
 
+    # -- Vector Store --
+    vector_store: Literal["pgvector", "chromadb", "pinecone", "sqlite"] = "sqlite"
+    chroma_path: str = ""
+    chroma_url: str = ""
+    pinecone_api_key: str = ""
+    pinecone_index_name: str = ""
+    pinecone_environment: str = ""
+
     # -- Security --
     credential_encryption_key: str = ""
     audit_retention_days: int = 365

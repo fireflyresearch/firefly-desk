@@ -230,6 +230,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Graceful fallback to zero vectors (keyword search) if no key available.
     from flydesk.knowledge.embeddings import LLMEmbeddingProvider
     from flydesk.knowledge.indexer import KnowledgeIndexer
+    from flydesk.knowledge.stores import create_vector_store
 
     embed_settings = await settings_repo.get_all_app_settings(category="embedding")
     embed_model = embed_settings.get("embedding_model") or config.embedding_model
@@ -249,9 +250,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         base_url=embed_url or None,
     )
 
+    # Instantiate the configured vector store backend
+    try:
+        vector_store = create_vector_store(config, session_factory)
+    except Exception:
+        logger.warning("Failed to create vector store; falling back to direct SQLAlchemy.", exc_info=True)
+        vector_store = None
+
     indexer = KnowledgeIndexer(
         session_factory=session_factory,
         embedding_provider=embedding_provider,
+        vector_store=vector_store,
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
@@ -295,7 +304,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from flydesk.widgets.parser import WidgetParser
 
     knowledge_graph = KnowledgeGraph(session_factory)
-    retriever = KnowledgeRetriever(session_factory, embedding_provider)
+    retriever = KnowledgeRetriever(session_factory, embedding_provider, vector_store=vector_store)
     context_enricher = ContextEnricher(
         knowledge_graph=knowledge_graph,
         retriever=retriever,
@@ -492,6 +501,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     await indexing_consumer.stop()
     await indexing_producer.stop()
+    if vector_store is not None:
+        await vector_store.close()
     if hasattr(memory_store, "close"):
         await memory_store.close()
     await http_client.aclose()

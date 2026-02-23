@@ -17,6 +17,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.knowledge.models import DocumentChunk, KnowledgeDocument
+from flydesk.knowledge.vector_store import VectorStore
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 
@@ -52,15 +53,17 @@ class KnowledgeIndexer:
         embedding_provider: EmbeddingProvider,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
+        vector_store: VectorStore | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
+        self._vector_store = vector_store
 
     async def index_document(self, document: KnowledgeDocument) -> list[DocumentChunk]:
         """Index a document: store it, chunk it, embed chunks, persist chunks."""
-        # 1. Store the document
+        # 1. Store the document metadata via SQLAlchemy
         async with self._session_factory() as session:
             doc_row = KnowledgeDocumentRow(
                 id=document.id,
@@ -82,19 +85,28 @@ class KnowledgeIndexer:
         embeddings = await self._embedding_provider.embed(texts)
 
         # 4. Store chunks with embeddings
-        async with self._session_factory() as session:
-            dialect = session.bind.dialect.name if session.bind else "sqlite"
+        if self._vector_store is not None:
+            store_chunks: list[tuple[str, str, list[float], dict]] = []
             for chunk, embedding in zip(chunks, embeddings):
-                row = DocumentChunkRow(
-                    id=chunk.chunk_id,
-                    document_id=chunk.document_id,
-                    content=chunk.content,
-                    chunk_index=chunk.chunk_index,
-                    embedding=_serialize_embedding(embedding, dialect),
-                    metadata_=_to_json(chunk.metadata),
-                )
-                session.add(row)
-            await session.commit()
+                metadata = dict(chunk.metadata)
+                metadata["chunk_index"] = chunk.chunk_index
+                metadata["tags"] = document.tags
+                store_chunks.append((chunk.chunk_id, chunk.content, embedding, metadata))
+            await self._vector_store.store(document.id, store_chunks)
+        else:
+            async with self._session_factory() as session:
+                dialect = session.bind.dialect.name if session.bind else "sqlite"
+                for chunk, embedding in zip(chunks, embeddings):
+                    row = DocumentChunkRow(
+                        id=chunk.chunk_id,
+                        document_id=chunk.document_id,
+                        content=chunk.content,
+                        chunk_index=chunk.chunk_index,
+                        embedding=_serialize_embedding(embedding, dialect),
+                        metadata_=_to_json(chunk.metadata),
+                    )
+                    session.add(row)
+                await session.commit()
 
         return chunks
 
@@ -146,10 +158,18 @@ class KnowledgeIndexer:
         """Delete a document and all its chunks."""
         from sqlalchemy import delete
 
+        # Delete chunks via vector store if available, otherwise via SQLAlchemy
+        if self._vector_store is not None:
+            await self._vector_store.delete(document_id)
+        else:
+            async with self._session_factory() as session:
+                await session.execute(
+                    delete(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
+                )
+                await session.commit()
+
+        # Always delete the document metadata via SQLAlchemy
         async with self._session_factory() as session:
-            await session.execute(
-                delete(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
-            )
             await session.execute(
                 delete(KnowledgeDocumentRow).where(KnowledgeDocumentRow.id == document_id)
             )
