@@ -276,12 +276,32 @@ async def test_database(body: DatabaseTestRequest, request: Request) -> Database
             )
     else:
         # Test the provided connection string.
+        from sqlalchemy.engine import make_url
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        db_type = "PostgreSQL" if "postgresql" in body.connection_string else "SQLite"
+        _ALLOWED_SCHEMES = {"postgresql+asyncpg", "sqlite+aiosqlite"}
+
+        try:
+            url = make_url(body.connection_string)
+        except Exception:
+            return DatabaseTestResult(
+                success=False,
+                database_type="unknown",
+                error="Invalid connection string format.",
+            )
+
+        if url.drivername not in _ALLOWED_SCHEMES:
+            return DatabaseTestResult(
+                success=False,
+                database_type="unknown",
+                error=f"Unsupported database scheme: {url.drivername}. "
+                f"Allowed: {', '.join(sorted(_ALLOWED_SCHEMES))}",
+            )
+
+        db_type = "PostgreSQL" if "postgresql" in url.drivername else "SQLite"
         engine = None
         try:
-            engine = create_async_engine(body.connection_string)
+            engine = create_async_engine(url)
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             return DatabaseTestResult(success=True, database_type=db_type)

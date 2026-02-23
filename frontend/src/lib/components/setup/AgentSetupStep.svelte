@@ -69,6 +69,7 @@
 	let selectedPreset = $state('warm');
 	let customPersonality = $state('');
 	let avatarUrl = $state('');
+	let avatarLoadFailed = $state(false);
 	let greeting = $state("Hello! I'm {name}, your intelligent assistant.");
 
 	// -----------------------------------------------------------------------
@@ -95,6 +96,12 @@
 			.toUpperCase()
 			.slice(0, 2)
 	);
+
+	// Reset avatar error state when URL changes
+	$effect(() => {
+		avatarUrl;
+		avatarLoadFailed = false;
+	});
 
 	// Keep display_name in sync with name by default
 	let nameManuallyEdited = $state(false);
@@ -230,26 +237,13 @@
 				<div
 					class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-ember/10"
 				>
-					{#if avatarUrl}
+					{#if avatarUrl && !avatarLoadFailed}
 						<img
 							src={avatarUrl}
 							alt={displayName || agentName}
 							class="h-full w-full object-cover"
-							onerror={(e) => {
-								const img = e.currentTarget as HTMLImageElement;
-								img.style.display = 'none';
-								const parent = img.parentElement;
-								if (parent) {
-									const fallback = parent.querySelector('.avatar-fallback');
-									if (fallback instanceof HTMLElement) fallback.style.display = 'flex';
-								}
-							}}
+							onerror={() => { avatarLoadFailed = true; }}
 						/>
-						<span
-							class="avatar-fallback hidden h-full w-full items-center justify-center text-xs font-semibold text-ember"
-						>
-							{initials}
-						</span>
 					{:else}
 						<span class="text-xs font-semibold text-ember">{initials}</span>
 					{/if}
@@ -280,15 +274,12 @@
 				<div
 					class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ember/10"
 				>
-					{#if avatarUrl}
+					{#if avatarUrl && !avatarLoadFailed}
 						<img
 							src={avatarUrl}
 							alt={displayName || agentName}
 							class="h-full w-full object-cover"
-							onerror={(e) => {
-								const img = e.currentTarget as HTMLImageElement;
-								img.style.display = 'none';
-							}}
+							onerror={() => { avatarLoadFailed = true; }}
 						/>
 					{:else}
 						<span class="text-xs font-semibold text-ember">{initials}</span>

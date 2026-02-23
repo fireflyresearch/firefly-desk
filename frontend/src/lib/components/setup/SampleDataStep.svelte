@@ -234,6 +234,9 @@
 			{#if seeding}
 				<Loader2 size={16} class="animate-spin" />
 				Seeding...
+			{:else if error}
+				Retry
+				<ArrowRight size={16} />
 			{:else}
 				Continue
 				<ArrowRight size={16} />
