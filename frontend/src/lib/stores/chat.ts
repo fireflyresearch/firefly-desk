@@ -43,6 +43,18 @@ export interface Message {
 	files?: MessageFile[];
 }
 
+export interface ReasoningStep {
+	step_number: number;
+	step_type: string;
+	description: string;
+	status: string;
+}
+
+export interface ReasoningPlanStep {
+	description: string;
+	status: string;
+}
+
 export interface Conversation {
 	id: string;
 	title: string;
@@ -58,6 +70,8 @@ export const conversations = writable<Conversation[]>([]);
 export const activeConversationId = writable<string | null>(null);
 export const messages = writable<Message[]>([]);
 export const isStreaming = writable<boolean>(false);
+export const reasoningSteps = writable<ReasoningStep[]>([]);
+export const reasoningPlan = writable<ReasoningPlanStep[]>([]);
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -94,6 +108,22 @@ export function appendWidget(widget: WidgetDirective): void {
 		updated[idx] = { ...updated[idx], widgets: [...updated[idx].widgets, widget] };
 		return updated;
 	});
+}
+
+/** Append a reasoning step to the current reasoning steps store. */
+export function appendReasoningStep(step: ReasoningStep): void {
+	reasoningSteps.update((steps) => [...steps, step]);
+}
+
+/** Set the reasoning plan steps. */
+export function setReasoningPlan(steps: ReasoningPlanStep[]): void {
+	reasoningPlan.set(steps);
+}
+
+/** Clear reasoning state (call when streaming finishes). */
+export function clearReasoningState(): void {
+	reasoningSteps.set([]);
+	reasoningPlan.set([]);
 }
 
 /** Mark the currently-streaming assistant message as complete. */

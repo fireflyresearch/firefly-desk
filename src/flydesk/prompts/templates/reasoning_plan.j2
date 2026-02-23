@@ -1,0 +1,5 @@
+# Reasoning Plan
+
+{% for step in steps %}
+{{ loop.index }}. {{ step.description }} [{{ step.status }}]
+{% endfor %}

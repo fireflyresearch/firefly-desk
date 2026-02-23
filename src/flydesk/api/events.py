@@ -24,6 +24,8 @@ class SSEEventType(StrEnum):
     TOOL_END = "tool_end"
     TOOL_SUMMARY = "tool_summary"
     CONFIRMATION = "confirmation"
+    REASONING_STEP = "reasoning_step"
+    PLAN = "plan"
     ERROR = "error"
     DONE = "done"
 
