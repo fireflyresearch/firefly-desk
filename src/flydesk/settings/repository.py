@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
-from flydesk.settings.models import UserSettings
+from flydesk.settings.models import AgentSettings, UserSettings
 
 
 def _to_json(value: Any) -> str | None:
@@ -108,3 +108,45 @@ class SettingsRepository:
                 stmt = stmt.where(AppSettingRow.category == category)
             result = await session.execute(stmt)
             return {row.key: row.value for row in result.scalars().all()}
+
+    # -- Agent Settings --
+
+    async def get_agent_settings(self) -> AgentSettings:
+        """Retrieve agent customization settings from the ``agent`` category.
+
+        Returns :class:`AgentSettings` with defaults for any keys not stored
+        in the database.
+        """
+        raw = await self.get_all_app_settings(category="agent")
+        if not raw:
+            return AgentSettings()
+
+        # Convert the flat key-value store into AgentSettings fields.
+        data: dict[str, Any] = {}
+        for field_name in AgentSettings.model_fields:
+            if field_name in raw:
+                field_info = AgentSettings.model_fields[field_name]
+                raw_val = raw[field_name]
+                # Deserialize list/complex fields from JSON
+                if field_info.annotation is list or (
+                    hasattr(field_info.annotation, "__origin__")
+                    and getattr(field_info.annotation, "__origin__", None) is list
+                ):
+                    data[field_name] = json.loads(raw_val) if raw_val else []
+                else:
+                    data[field_name] = raw_val
+        return AgentSettings(**data)
+
+    async def set_agent_settings(self, settings: AgentSettings) -> None:
+        """Persist agent customization settings under the ``agent`` category.
+
+        Each field of :class:`AgentSettings` is stored as a separate
+        key-value pair so individual values can be read independently.
+        """
+        dumped = settings.model_dump()
+        for key, value in dumped.items():
+            if isinstance(value, (list, dict)):
+                str_value = json.dumps(value)
+            else:
+                str_value = str(value)
+            await self.set_app_setting(key, str_value, category="agent")

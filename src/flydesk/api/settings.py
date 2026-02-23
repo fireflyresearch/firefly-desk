@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from flydesk.rbac.guards import AdminSettings
-from flydesk.settings.models import UserSettings
+from flydesk.settings.models import AgentSettings, UserSettings
 from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,38 @@ async def update_app_settings(
     """Update application-wide settings (key-value pairs)."""
     for key, value in settings.items():
         await repo.set_app_setting(key, value)
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# Agent Settings (admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent", dependencies=[AdminSettings])
+async def get_agent_settings(repo: Repo) -> AgentSettings:
+    """Return the current agent customization settings."""
+    return await repo.get_agent_settings()
+
+
+@router.put("/agent", dependencies=[AdminSettings])
+async def update_agent_settings(
+    settings: AgentSettings, request: Request, repo: Repo
+) -> AgentSettings:
+    """Update agent customization settings.
+
+    Also invalidates the cached :class:`AgentProfile` on the live
+    :class:`AgentCustomizationService` so the next turn picks up changes.
+    """
+    await repo.set_agent_settings(settings)
+
+    # Invalidate the in-memory cache on the live customization service.
+    customization_svc = getattr(
+        getattr(request.app, "state", None), "customization_service", None
+    )
+    if customization_svc is not None:
+        customization_svc.invalidate_cache()
+
     return settings
 
 

@@ -40,6 +40,8 @@ class SetupStatus(BaseModel):
     app_version: str
     agent_name: str
     accent_color: str
+    agent_avatar_url: str = ""
+    agent_display_name: str = ""
 
 
 class SeedRequest(BaseModel):
@@ -247,6 +249,17 @@ async def get_setup_status(request: Request) -> SetupStatus:
         providers = await llm_repo.list_providers()
         llm_configured = len(providers) > 0
 
+    # Load agent customization for display name / avatar
+    agent_display_name = config.agent_name
+    agent_avatar_url = ""
+    if session_factory:
+        try:
+            agent_settings = await settings_repo.get_agent_settings()
+            agent_display_name = agent_settings.display_name or agent_settings.name
+            agent_avatar_url = agent_settings.avatar_url
+        except Exception:
+            logger.debug("Failed to load agent settings for setup status.", exc_info=True)
+
     return SetupStatus(
         dev_mode=config.dev_mode,
         database_configured="sqlite" not in config.database_url,
@@ -258,6 +271,8 @@ async def get_setup_status(request: Request) -> SetupStatus:
         app_version=__version__,
         agent_name=config.agent_name,
         accent_color=config.accent_color,
+        agent_avatar_url=agent_avatar_url,
+        agent_display_name=agent_display_name,
     )
 
 
