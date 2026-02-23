@@ -9,8 +9,69 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
 Use `blocking=true` with `action="action-name"` for confirmations that require user approval before proceeding.
+
+## mermaid-diagram
+
+Renders a Mermaid diagram from code. Use for flowcharts, sequence diagrams, ER diagrams, etc.
+
+```
+:::widget{type="mermaid-diagram" inline=true}
+{"code": "graph TD\n  A[Start] --> B[End]", "title": "Process Flow"}
+:::
+```
+
+Props:
+- `code` (required): Mermaid diagram source code.
+- `title` (optional): Heading displayed above the diagram.
+
+## citation-card
+
+Shows a knowledge-base citation with source reference and relevance score.
+
+```
+:::widget{type="citation-card" inline=true}
+{"source_title": "Employee Handbook", "snippet": "Employees are entitled to 20 days of annual leave...", "score": 0.92}
+:::
+```
+
+Props:
+- `source_title` (required): Name of the source document.
+- `snippet` (required): Relevant excerpt from the source.
+- `score` (optional): Relevance score between 0 and 1 (displayed as percentage).
+- `document_id` (optional): Internal document identifier.
+- `source_url` (optional): URL to the source document (renders as a clickable link).
+
+## progress-bar
+
+Displays an animated progress bar. Set `value` to null for an indeterminate shimmer animation.
+
+```
+:::widget{type="progress-bar" inline=true}
+{"value": 75, "max": 100, "label": "Upload Progress", "variant": "success"}
+:::
+```
+
+Props:
+- `value` (optional): Current progress value. Omit or set to null for indeterminate mode.
+- `max` (optional, default 100): Maximum value.
+- `label` (optional): Text label displayed above the bar.
+- `variant` (optional): Color variant — one of "default", "success", "warning", "danger".
+
+## accordion
+
+Collapsible sections for organizing related content. Multiple sections can be open at once.
+
+```
+:::widget{type="accordion" inline=true}
+{"sections": [{"title": "Section 1", "content": "Content for section 1."}, {"title": "Section 2", "content": "Content for section 2."}], "defaultOpen": 0}
+:::
+```
+
+Props:
+- `sections` (required): Array of objects with `title` (string) and `content` (string).
+- `defaultOpen` (optional): Index or array of indices of sections to open by default.
