@@ -25,6 +25,7 @@ from flydesk.api.audit import router as audit_router
 from flydesk.api.auth import get_oidc_client as auth_get_oidc_client
 from flydesk.api.auth import get_oidc_repo as auth_get_oidc_repo
 from flydesk.api.auth import router as auth_router
+from flydesk.api.catalog import get_auto_trigger as catalog_get_auto_trigger
 from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.chat import router as chat_router
@@ -47,6 +48,7 @@ from flydesk.api.health import router as health_router
 from flydesk.api.jobs import get_job_repo, get_job_runner
 from flydesk.api.jobs import router as jobs_router
 from flydesk.api.knowledge import (
+    get_auto_trigger as knowledge_get_auto_trigger,
     get_indexing_producer,
     get_knowledge_doc_store,
     get_knowledge_graph,
@@ -401,6 +403,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.process_repo = process_repo
     app.dependency_overrides[get_process_repo] = lambda: process_repo
 
+    # KG extraction and recomputation handler
+    from flydesk.jobs.handlers import KGRecomputeHandler
+    from flydesk.knowledge.kg_extractor import KGExtractor
+
+    kg_extractor = KGExtractor(agent_factory)
+    kg_recompute_handler = KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor)
+    job_runner.register_handler("kg_recompute", kg_recompute_handler)
+    app.state.kg_extractor = kg_extractor
+
+    # Auto-trigger service (debounced triggers for KG recompute and process discovery)
+    from flydesk.triggers.auto_trigger import AutoTriggerService
+
+    auto_trigger = AutoTriggerService(config, job_runner)
+    app.state.auto_trigger = auto_trigger
+    app.dependency_overrides[knowledge_get_auto_trigger] = lambda: auto_trigger
+    app.dependency_overrides[catalog_get_auto_trigger] = lambda: auto_trigger
+
     # Agent customization service
     from flydesk.agent.customization import AgentCustomizationService
 
@@ -533,8 +552,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown -- stop the indexing consumer first (no new tasks enqueued),
-    # then the job runner (drain in-progress jobs), then the producer.
+    # Shutdown -- cancel pending auto-triggers first, then stop the indexing
+    # consumer (no new tasks enqueued), then the job runner (drain in-progress
+    # jobs), then the producer.
+    auto_trigger.cancel_pending()
     await indexing_consumer.stop()
     await indexing_producer.stop()
     await job_runner.stop()

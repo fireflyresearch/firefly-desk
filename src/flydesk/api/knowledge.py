@@ -23,6 +23,7 @@ from flydesk.knowledge.models import DocumentType, KnowledgeDocument
 from flydesk.knowledge.openapi_parser import OpenAPIParser
 from flydesk.knowledge.queue import IndexingQueueProducer, IndexingTask
 from flydesk.rbac.guards import KnowledgeDelete, KnowledgeRead, KnowledgeWrite
+from flydesk.triggers.auto_trigger import AutoTriggerService
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -215,11 +216,21 @@ def get_knowledge_graph() -> KnowledgeGraph:
     )
 
 
+def get_auto_trigger() -> AutoTriggerService | None:
+    """Provide the AutoTriggerService instance (or None if not wired).
+
+    In production this is wired via the lifespan.
+    In tests the dependency is overridden with a mock.
+    """
+    return None
+
+
 Indexer = Annotated[KnowledgeIndexer, Depends(get_knowledge_indexer)]
 DocStore = Annotated[KnowledgeDocumentStore, Depends(get_knowledge_doc_store)]
 Importer = Annotated[KnowledgeImporter, Depends(get_knowledge_importer)]
 Graph = Annotated[KnowledgeGraph, Depends(get_knowledge_graph)]
 Producer = Annotated[IndexingQueueProducer, Depends(get_indexing_producer)]
+Trigger = Annotated[AutoTriggerService | None, Depends(get_auto_trigger)]
 
 
 # ---------------------------------------------------------------------------
@@ -258,11 +269,14 @@ async def get_document(document_id: str, store: DocStore) -> dict[str, Any]:
 
 
 @router.post("/documents", status_code=202, dependencies=[KnowledgeWrite])
-async def create_document(document: KnowledgeDocument, producer: Producer) -> IndexingEnqueued:
+async def create_document(
+    document: KnowledgeDocument, producer: Producer, trigger: Trigger
+) -> IndexingEnqueued:
     """Enqueue a knowledge document for background indexing.
 
     Returns immediately with ``status: "indexing"`` while the document is
     chunked and embedded asynchronously by the indexing queue consumer.
+    If auto-analysis is enabled, schedules KG recomputation.
     """
     task = IndexingTask(
         document_id=document.id,
@@ -274,6 +288,10 @@ async def create_document(document: KnowledgeDocument, producer: Producer) -> In
         metadata=document.metadata,
     )
     await producer.enqueue(task)
+
+    if trigger is not None:
+        await trigger.on_document_indexed(document.id)
+
     return IndexingEnqueued(document_id=document.id)
 
 

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
+from flydesk.triggers.auto_trigger import AutoTriggerService
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -37,7 +38,17 @@ def get_catalog_repo() -> CatalogRepository:
     )
 
 
+def get_auto_trigger() -> AutoTriggerService | None:
+    """Provide the AutoTriggerService instance (or None if not wired).
+
+    In production this is wired via the lifespan.
+    In tests the dependency is overridden with a mock.
+    """
+    return None
+
+
 Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
+Trigger = Annotated[AutoTriggerService | None, Depends(get_auto_trigger)]
 
 
 # ---------------------------------------------------------------------------
@@ -46,9 +57,13 @@ Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 
 
 @router.post("/systems", status_code=201, dependencies=[CatalogWrite])
-async def create_system(system: ExternalSystem, repo: Repo) -> ExternalSystem:
+async def create_system(
+    system: ExternalSystem, repo: Repo, trigger: Trigger
+) -> ExternalSystem:
     """Register a new external system."""
     await repo.create_system(system)
+    if trigger is not None:
+        await trigger.on_catalog_updated(system.id)
     return system
 
 
@@ -69,13 +84,15 @@ async def get_system(system_id: str, repo: Repo) -> ExternalSystem:
 
 @router.put("/systems/{system_id}", dependencies=[CatalogWrite])
 async def update_system(
-    system_id: str, system: ExternalSystem, repo: Repo
+    system_id: str, system: ExternalSystem, repo: Repo, trigger: Trigger
 ) -> ExternalSystem:
     """Update an existing external system."""
     existing = await repo.get_system(system_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
     await repo.update_system(system)
+    if trigger is not None:
+        await trigger.on_catalog_updated(system.id)
     return system
 
 
@@ -98,13 +115,15 @@ async def delete_system(system_id: str, repo: Repo) -> Response:
     "/systems/{system_id}/endpoints", status_code=201, dependencies=[CatalogWrite]
 )
 async def create_endpoint(
-    system_id: str, endpoint: ServiceEndpoint, repo: Repo
+    system_id: str, endpoint: ServiceEndpoint, repo: Repo, trigger: Trigger
 ) -> ServiceEndpoint:
     """Add an endpoint to an existing system."""
     system = await repo.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
     await repo.create_endpoint(endpoint)
+    if trigger is not None:
+        await trigger.on_catalog_updated(system_id)
     return endpoint
 
 
