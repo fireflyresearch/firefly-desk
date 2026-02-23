@@ -54,7 +54,7 @@ class DeskAgentFactory:
     async def create_agent(
         self,
         system_prompt: str,
-        tools: list | None = None,
+        tools: list[object] | None = None,
     ) -> FireflyAgent | None:
         """Create a FireflyAgent from the default LLM provider.
 

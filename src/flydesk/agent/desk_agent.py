@@ -583,7 +583,7 @@ class DeskAgent:
 
     @staticmethod
     def _echo_fallback_chunks(message: str) -> list[str]:
-        """Yield the echo fallback text as fixed-size chunks for streaming."""
+        """Return the echo fallback text as fixed-size chunks for streaming."""
         text = DeskAgent._echo_fallback(message)
         return [
             text[i : i + _STREAM_CHUNK_SIZE]
