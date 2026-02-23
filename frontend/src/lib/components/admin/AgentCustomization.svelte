@@ -44,16 +44,9 @@
 	let avatarError = $state(false);
 
 	// Tone presets -- "custom" means the user typed something freeform.
-	const TONE_PRESETS = [
-		'friendly yet precise',
-		'professional',
-		'casual',
-		'formal',
-		'empathetic',
-		'custom'
-	] as const;
+	const TONE_PRESETS = ['friendly', 'professional', 'casual', 'formal', 'custom'] as const;
 
-	let tonePreset = $state<string>('friendly yet precise');
+	let tonePreset = $state<string>('friendly');
 
 	// Language options
 	const LANGUAGES = [
@@ -356,31 +349,28 @@
 						</label>
 
 						<!-- Tone -->
-						<div class="flex flex-col gap-1">
+						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Tone</span>
-							<div class="flex flex-wrap gap-2">
+							<select
+								value={tonePreset}
+								onchange={(e) => handleToneChange(e.currentTarget.value)}
+								class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
+							>
 								{#each TONE_PRESETS as preset}
-									<button
-										type="button"
-										onclick={() => handleToneChange(preset)}
-										class="rounded-md border px-3 py-1.5 text-sm transition-colors
-											{tonePreset === preset
-											? 'border-accent bg-accent/10 font-medium text-accent'
-											: 'border-border text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
-									>
-										{preset === 'custom' ? 'Custom' : preset}
-									</button>
+									<option value={preset}>
+										{preset === 'custom' ? 'Custom' : preset.charAt(0).toUpperCase() + preset.slice(1)}
+									</option>
 								{/each}
-							</div>
+							</select>
 							{#if tonePreset === 'custom'}
 								<input
 									type="text"
 									bind:value={form.tone}
 									placeholder="Describe the desired tone..."
-									class="mt-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
+									class="mt-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
 								/>
 							{/if}
-						</div>
+						</label>
 
 						<!-- Greeting -->
 						<label class="flex flex-col gap-1">
