@@ -8,8 +8,9 @@
  * Licensed under the Apache License, Version 2.0.
  */
 
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
+import { conversations } from './chat.js';
 
 const STORAGE_KEY = 'firefly_sidebar_open';
 
@@ -28,6 +29,15 @@ sidebarOpen.subscribe((value) => {
 		localStorage.setItem(STORAGE_KEY, String(value));
 	}
 });
+
+/**
+ * Effective sidebar visibility — auto-hides when there are no conversations
+ * since showing an empty sidebar wastes space.
+ */
+export const effectiveSidebarOpen = derived(
+	[sidebarOpen, conversations],
+	([$sidebarOpen, $conversations]) => $sidebarOpen && $conversations.length > 0
+);
 
 /** Toggle the sidebar open/closed state. */
 export function toggleSidebar(): void {

@@ -5,7 +5,7 @@
 	import TopBar from './TopBar.svelte';
 	import ResizableSplit from './ResizableSplit.svelte';
 	import ConversationList from '../chat/ConversationList.svelte';
-	import { sidebarOpen, toggleSidebar } from '$lib/stores/sidebar.js';
+	import { sidebarOpen, effectiveSidebarOpen, toggleSidebar } from '$lib/stores/sidebar.js';
 
 	interface AppShellProps {
 		title?: string;
@@ -23,16 +23,17 @@
 		panel
 	}: AppShellProps = $props();
 
-	/** Hide the conversation sidebar on admin pages (admin has its own nav). */
+	/** Hide the conversation sidebar on admin/settings pages (they have their own nav). */
 	let isAdminPage = $derived($page.url.pathname.startsWith('/admin'));
-	let showSidebar = $derived($sidebarOpen && !isAdminPage);
+	let isSettingsPage = $derived($page.url.pathname.startsWith('/settings'));
+	let showSidebar = $derived($effectiveSidebarOpen && !isAdminPage && !isSettingsPage);
 </script>
 
 <div class="flex h-screen flex-col bg-surface">
 	<TopBar
 		{title}
 		{userName}
-		onToggleSidebar={isAdminPage ? undefined : toggleSidebar}
+		onToggleSidebar={isAdminPage || isSettingsPage ? undefined : toggleSidebar}
 		sidebarOpen={showSidebar}
 	/>
 
