@@ -277,18 +277,19 @@ class TestIdentityCustomTemplate:
         assert "## Knowledge and Honesty" in prompt
         assert "backoffice operations assistant" in prompt
 
-    def test_fallback_to_ember_template_when_no_customization(self):
-        """When no customization fields are set, Ember still uses identity_ember."""
+    def test_ember_defaults_when_no_customization(self):
+        """When no customization fields are set, Ember defaults are applied."""
         ctx = PromptContext(agent_name="Ember")
         prompt = self.builder.build(ctx)
-        assert "steady, persistent glow of a firefly" in prompt
+        assert "Ember" in prompt
+        assert "warm, professional, knowledgeable" in prompt
 
-    def test_fallback_to_generic_template_for_non_ember(self):
-        """When no customization fields are set, non-Ember uses generic identity."""
+    def test_non_ember_defaults_when_no_customization(self):
+        """Non-Ember agent with no customization still uses custom template with defaults."""
         ctx = PromptContext(agent_name="Custom Bot")
         prompt = self.builder.build(ctx)
         assert "Custom Bot" in prompt
-        assert "steady, persistent glow of a firefly" not in prompt
+        assert "warm, professional, knowledgeable" in prompt
 
     def test_ember_with_customization_uses_custom_template(self):
         """Ember with personality override should use the custom template."""
