@@ -26,6 +26,7 @@ from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.auth.models import UserSession
 from flydesk.tools.builtin import BuiltinToolExecutor, BuiltinToolRegistry
 from flydesk.tools.factory import ToolDefinition, ToolFactory
+from flydesk.tools.genai_adapter import adapt_tools
 from flydesk.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
@@ -113,8 +114,9 @@ class DeskAgent:
             message, session, conversation_id, tools, file_ids,
         )
 
-        # 3. LLM execution
-        raw_text = await self._call_llm(message, system_prompt, conversation_id)
+        # 3. Adapt catalog tools for genai tool-use and execute LLM
+        adapted = self._adapt_tools(tools, session, conversation_id)
+        raw_text = await self._call_llm(message, system_prompt, conversation_id, tools=adapted)
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -197,9 +199,12 @@ class DeskAgent:
             },
         )
 
+        # Adapt catalog tools for genai tool-use
+        adapted = self._adapt_tools(tools, session, conversation_id)
+
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
-        async for token in self._stream_llm(message, system_prompt, conversation_id):
+        async for token in self._stream_llm(message, system_prompt, conversation_id, tools=adapted):
             full_text += token
             yield SSEEvent(
                 event=SSEEventType.TOKEN,
@@ -512,11 +517,28 @@ class DeskAgent:
 
         return tools, system_prompt
 
+    def _adapt_tools(
+        self,
+        tools: list[ToolDefinition] | None,
+        session: UserSession,
+        conversation_id: str,
+    ) -> list[object] | None:
+        """Wrap ToolDefinitions as genai BaseTools if a ToolExecutor is available.
+
+        Returns ``None`` when there is no executor or no tools, so
+        :meth:`_call_llm` / :meth:`_stream_llm` can pass the value
+        directly to :meth:`DeskAgentFactory.create_agent`.
+        """
+        if not tools or self._tool_executor is None:
+            return None
+        return adapt_tools(tools, self._tool_executor, session, conversation_id)
+
     async def _stream_llm(
         self,
         message: str,
         system_prompt: str,
         conversation_id: str | None = None,
+        tools: list[object] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream tokens from the LLM via FireflyAgent.run_stream().
 
@@ -527,6 +549,7 @@ class DeskAgent:
             message: The user message.
             system_prompt: The assembled system prompt.
             conversation_id: Conversation ID for MemoryManager auto-injection.
+            tools: Adapted genai tools for the FireflyAgent.
 
         Yields:
             Individual token strings as they arrive from the model.
@@ -536,7 +559,7 @@ class DeskAgent:
                 yield chunk
             return
 
-        agent = await self._agent_factory.create_agent(system_prompt)
+        agent = await self._agent_factory.create_agent(system_prompt, tools=tools)
         if agent is None:
             for chunk in self._echo_fallback_chunks(message):
                 yield chunk
@@ -564,6 +587,7 @@ class DeskAgent:
         message: str,
         system_prompt: str,
         conversation_id: str | None = None,
+        tools: list[object] | None = None,
     ) -> str:
         """Call the LLM via FireflyAgent.
 
@@ -571,11 +595,12 @@ class DeskAgent:
             message: The user message.
             system_prompt: The assembled system prompt.
             conversation_id: Conversation ID for MemoryManager auto-injection.
+            tools: Adapted genai tools for the FireflyAgent.
         """
         if self._agent_factory is None:
             return self._echo_fallback(message)
 
-        agent = await self._agent_factory.create_agent(system_prompt)
+        agent = await self._agent_factory.create_agent(system_prompt, tools=tools)
         if agent is None:
             return self._echo_fallback(message)
 
