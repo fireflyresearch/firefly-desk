@@ -2,8 +2,7 @@
   ChatContainer.svelte - Main chat view combining messages and input.
 
   Renders the message list with auto-scroll, streaming indicators, and
-  the InputBar. Handles the sendMessage flow. On first run, automatically
-  initiates the setup conversation with Ember. Supports drag-and-drop
+  the InputBar. Handles the sendMessage flow. Supports drag-and-drop
   file uploads.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
@@ -21,11 +20,10 @@
 		activeConversationId,
 		isStreaming
 	} from '$lib/stores/chat.js';
-	import { sendMessage, checkFirstRun } from '$lib/services/chat.js';
+	import { sendMessage } from '$lib/services/chat.js';
 	import type { UploadedFile } from '$lib/services/files.js';
 
 	let scrollContainer: HTMLDivElement | undefined = $state();
-	let checkingFirstRun = $state(true);
 	let showDropOverlay = $state(false);
 	let pendingFiles: File[] = $state([]);
 	let dragCounter = $state(0);
@@ -35,32 +33,6 @@
 		// Subscribe to messages to trigger on changes
 		const _ = $messages;
 		scrollToBottom();
-	});
-
-	// Check first-run on mount (with retry for slow backend startup)
-	$effect(() => {
-		(async () => {
-			try {
-				let isFirstRun = await checkFirstRun();
-				// If first check returns false, wait and try once more
-				// (backend may still be initializing)
-				if (!isFirstRun) {
-					await new Promise((r) => setTimeout(r, 1500));
-					isFirstRun = await checkFirstRun();
-				}
-				if (isFirstRun) {
-					console.log('[Setup] First run detected, starting setup wizard');
-					const conversationId = crypto.randomUUID();
-					$activeConversationId = conversationId;
-					await sendMessage(conversationId, '__setup_init__');
-				}
-			} catch (error) {
-				console.error('[Setup] Setup wizard failed:', error);
-				// Non-fatal -- continue with normal chat
-			} finally {
-				checkingFirstRun = false;
-			}
-		})();
 	});
 
 	function scrollToBottom() {
