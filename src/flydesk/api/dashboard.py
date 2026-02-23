@@ -24,7 +24,7 @@ from flydesk.catalog.repository import CatalogRepository
 from flydesk.llm.health import LLMHealthChecker
 from flydesk.llm.repository import LLMProviderRepository
 from flydesk.models.audit import AuditEventRow
-from flydesk.models.conversation import ConversationRow
+from flydesk.models.conversation import ConversationRow, MessageRow
 from flydesk.rbac.guards import AdminDashboard
 
 logger = logging.getLogger(__name__)
@@ -160,8 +160,6 @@ async def get_stats(
             active_user_count = result.scalar() or 0
 
             # Message count (only from non-deleted conversations)
-            from flydesk.models.conversation import MessageRow
-
             result = await session.execute(
                 select(func.count())
                 .select_from(MessageRow)
