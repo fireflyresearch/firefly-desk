@@ -23,6 +23,9 @@ import MermaidDiagram from '$lib/components/widgets/MermaidDiagram.svelte';
 import CitationCard from '$lib/components/widgets/CitationCard.svelte';
 import ProgressBar from '$lib/components/widgets/ProgressBar.svelte';
 import AccordionWidget from '$lib/components/widgets/AccordionWidget.svelte';
+import MetricCard from '$lib/components/widgets/MetricCard.svelte';
+import CodeBlock from '$lib/components/widgets/CodeBlock.svelte';
+import ActionButtons from '$lib/components/widgets/ActionButtons.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -44,7 +47,10 @@ export const widgetRegistry: Record<string, Component> = {
 	'mermaid-diagram': MermaidDiagram,
 	'citation-card': CitationCard,
 	'progress-bar': ProgressBar,
-	'accordion': AccordionWidget
+	'accordion': AccordionWidget,
+	'metric-card': MetricCard,
+	'code-block': CodeBlock,
+	'action-buttons': ActionButtons
 };
 
 // ---------------------------------------------------------------------------
