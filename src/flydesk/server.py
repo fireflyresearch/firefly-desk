@@ -236,6 +236,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.desk_agent import DeskAgent
     from flydesk.agent.prompt import SystemPromptBuilder
+    from flydesk.prompts.registry import register_desk_prompts
     from flydesk.knowledge.graph import KnowledgeGraph
     from flydesk.knowledge.retriever import KnowledgeRetriever
     from flydesk.tools.executor import ToolExecutor
@@ -250,7 +251,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         entity_limit=config.kg_max_entities_in_context,
         retrieval_top_k=config.rag_top_k,
     )
-    prompt_builder = SystemPromptBuilder()
+    prompt_registry = register_desk_prompts()
+    prompt_builder = SystemPromptBuilder(prompt_registry)
     tool_factory = ToolFactory()
     widget_parser = WidgetParser()
 

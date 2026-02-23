@@ -11,13 +11,15 @@
 from __future__ import annotations
 
 from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
+from flydesk.prompts.registry import register_desk_prompts
 
 
 class TestSystemPromptBuilder:
     """Tests for SystemPromptBuilder."""
 
     def setup_method(self):
-        self.builder = SystemPromptBuilder()
+        registry = register_desk_prompts()
+        self.builder = SystemPromptBuilder(registry)
 
     def test_build_includes_all_base_sections(self):
         """Identity, User, Tools, Widget, and Guidelines sections are all present."""
@@ -205,7 +207,8 @@ class TestPromptContextPersonalization:
     """Tests for PromptContext department/title fields and their rendering."""
 
     def setup_method(self):
-        self.builder = SystemPromptBuilder()
+        registry = register_desk_prompts()
+        self.builder = SystemPromptBuilder(registry)
 
     def test_prompt_context_department_and_title_defaults(self):
         """PromptContext defaults department and title to empty strings."""

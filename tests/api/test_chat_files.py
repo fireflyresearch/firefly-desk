@@ -327,8 +327,9 @@ class TestFileContextInPrompt:
     def test_file_context_section_included_when_set(self):
         """File context section appears in the prompt when file_context is non-empty."""
         from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
+        from flydesk.prompts.registry import register_desk_prompts
 
-        builder = SystemPromptBuilder()
+        builder = SystemPromptBuilder(register_desk_prompts())
         ctx = PromptContext(
             file_context="- [report.pdf]: Q1 revenue was $10M",
         )
@@ -341,8 +342,9 @@ class TestFileContextInPrompt:
     def test_file_context_section_excluded_when_empty(self):
         """File context section is omitted when file_context is empty."""
         from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
+        from flydesk.prompts.registry import register_desk_prompts
 
-        builder = SystemPromptBuilder()
+        builder = SystemPromptBuilder(register_desk_prompts())
         ctx = PromptContext(file_context="")
         prompt = builder.build(ctx)
 

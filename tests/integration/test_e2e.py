@@ -250,7 +250,9 @@ def context_enricher(knowledge_graph, knowledge_retriever) -> ContextEnricher:
 
 @pytest.fixture
 def prompt_builder() -> SystemPromptBuilder:
-    return SystemPromptBuilder()
+    from flydesk.prompts.registry import register_desk_prompts
+
+    return SystemPromptBuilder(register_desk_prompts())
 
 
 @pytest.fixture
