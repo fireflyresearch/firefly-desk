@@ -175,6 +175,21 @@
 	// Helpers
 	// -----------------------------------------------------------------------
 
+	let confirmingDeleteId = $state<string | null>(null);
+
+	function startDelete(id: string) {
+		confirmingDeleteId = id;
+	}
+
+	function cancelDeleteConfirm() {
+		confirmingDeleteId = null;
+	}
+
+	async function confirmAndDelete(id: string) {
+		confirmingDeleteId = null;
+		await deleteSystem(id);
+	}
+
 	function statusVariant(status: string): string {
 		switch (status) {
 			case 'active':
@@ -182,6 +197,22 @@
 			case 'inactive':
 				return 'bg-text-secondary/10 text-text-secondary';
 			case 'error':
+				return 'bg-danger/10 text-danger';
+			default:
+				return 'bg-text-secondary/10 text-text-secondary';
+		}
+	}
+
+	function methodVariant(method: string): string {
+		switch (method.toUpperCase()) {
+			case 'GET':
+				return 'bg-success/10 text-success';
+			case 'POST':
+				return 'bg-accent/10 text-accent';
+			case 'PUT':
+			case 'PATCH':
+				return 'bg-warning/10 text-warning';
+			case 'DELETE':
 				return 'bg-danger/10 text-danger';
 			default:
 				return 'bg-text-secondary/10 text-text-secondary';
@@ -369,24 +400,44 @@
 									{/if}
 								</td>
 								<td class="px-4 py-2">
-									<div class="flex items-center gap-1">
-										<button
-											type="button"
-											onclick={() => openEditForm(system)}
-											class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-											title="Edit"
-										>
-											<Pencil size={14} />
-										</button>
-										<button
-											type="button"
-											onclick={() => deleteSystem(system.id)}
-											class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
-											title="Delete"
-										>
-											<Trash2 size={14} />
-										</button>
-									</div>
+									{#if confirmingDeleteId === system.id}
+										<div class="flex items-center gap-1.5">
+											<span class="text-xs text-danger">Delete?</span>
+											<button
+												type="button"
+												onclick={() => confirmAndDelete(system.id)}
+												class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
+											>
+												Yes
+											</button>
+											<button
+												type="button"
+												onclick={cancelDeleteConfirm}
+												class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
+											>
+												No
+											</button>
+										</div>
+									{:else}
+										<div class="flex items-center gap-1">
+											<button
+												type="button"
+												onclick={() => openEditForm(system)}
+												class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+												title="Edit"
+											>
+												<Pencil size={14} />
+											</button>
+											<button
+												type="button"
+												onclick={() => startDelete(system.id)}
+												class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+												title="Delete"
+											>
+												<Trash2 size={14} />
+											</button>
+										</div>
+									{/if}
 								</td>
 							</tr>
 
@@ -413,7 +464,7 @@
 													{#each endpointCache[system.id] as ep}
 														<tr class="border-b border-border/50 last:border-b-0">
 															<td class="px-3 py-1.5">
-																<span class="rounded bg-accent/10 px-1.5 py-0.5 font-mono font-medium text-accent">
+																<span class="rounded px-1.5 py-0.5 font-mono font-medium {methodVariant(ep.method)}">
 																	{ep.method}
 																</span>
 															</td>
