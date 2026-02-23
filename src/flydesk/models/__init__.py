@@ -19,6 +19,7 @@ from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 from flydesk.models.llm import LLMProviderRow
 from flydesk.models.oidc import OIDCProviderRow
 from flydesk.models.role import RoleRow
+from flydesk.models.skill import SkillRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
 
 __all__ = [
@@ -40,5 +41,6 @@ __all__ = [
     "RelationRow",
     "RoleRow",
     "ServiceEndpointRow",
+    "SkillRow",
     "UserSettingRow",
 ]
