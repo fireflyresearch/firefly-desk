@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -224,46 +224,27 @@ class TestWizardState:
         assert data["step"] == "completed"
         assert data["completed"] is True
 
-    async def test_wizard_state_with_active_handler(self, client):
-        """When an active handler exists, return its current step."""
-        from flydesk.agent.setup_handler import SetupStep
-
-        mock_handler = MagicMock()
-        mock_handler.current_step = SetupStep.DATABASE_CHECK
-
-        transport = client._transport
-        app = transport.app
-        if not hasattr(app.state, "setup_handlers"):
-            app.state.setup_handlers = {}
-        app.state.setup_handlers["test-conv"] = mock_handler
-
-        response = await client.get("/api/setup/wizard-state")
+    async def test_wizard_state_not_started_with_db(self, db_client):
+        """With a database but no setup_completed setting, return not_started."""
+        response = await db_client.get("/api/setup/wizard-state")
         assert response.status_code == 200
         data = response.json()
-        assert data["step"] == "database_check"
+        assert data["step"] == "not_started"
         assert data["completed"] is False
 
-        # Cleanup
-        del app.state.setup_handlers["test-conv"]
+    async def test_wizard_state_completed_from_setting(self, db_client):
+        """When setup_completed setting is 'true', return completed."""
+        from flydesk.settings.repository import SettingsRepository
 
-    async def test_wizard_state_done_handler(self, client):
-        """When handler is at DONE step, completed should be True."""
-        from flydesk.agent.setup_handler import SetupStep
+        # Manually set the setup_completed flag via the settings repository
+        session_factory = db_client._transport.app.state.session_factory
+        settings_repo = SettingsRepository(session_factory)
+        await settings_repo.set_app_setting(
+            "setup_completed", "true", category="setup"
+        )
 
-        mock_handler = MagicMock()
-        mock_handler.current_step = SetupStep.DONE
-
-        transport = client._transport
-        app = transport.app
-        if not hasattr(app.state, "setup_handlers"):
-            app.state.setup_handlers = {}
-        app.state.setup_handlers["test-conv"] = mock_handler
-
-        response = await client.get("/api/setup/wizard-state")
+        response = await db_client.get("/api/setup/wizard-state")
         assert response.status_code == 200
         data = response.json()
-        assert data["step"] == "done"
+        assert data["step"] == "completed"
         assert data["completed"] is True
-
-        # Cleanup
-        del app.state.setup_handlers["test-conv"]
