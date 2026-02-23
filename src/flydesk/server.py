@@ -254,6 +254,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         file_repo=file_repo,
         confirmation_service=confirmation_service,
         conversation_repo=conversation_repo,
+        llm_repo=llm_repo,
     )
     app.state.desk_agent = desk_agent
 
