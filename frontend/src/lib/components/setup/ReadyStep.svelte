@@ -10,9 +10,19 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { ArrowLeft, Loader2, CheckCircle } from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import EmberAvatar from '$lib/components/chat/EmberAvatar.svelte';
+
+	// -----------------------------------------------------------------------
+	// Types
+	// -----------------------------------------------------------------------
+
+	interface ConfigureResult {
+		success: boolean;
+		message: string;
+	}
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -30,7 +40,25 @@
 	// -----------------------------------------------------------------------
 
 	let launching = $state(false);
+	let mountChecking = $state(true);
 	let error = $state('');
+
+	// -----------------------------------------------------------------------
+	// Guard: redirect if setup is already completed (e.g. back-button)
+	// -----------------------------------------------------------------------
+
+	onMount(async () => {
+		try {
+			const status = await apiJson<{ setup_completed?: boolean }>('/setup/status');
+			if (status?.setup_completed) {
+				window.location.href = '/';
+				return;
+			}
+		} catch {
+			// Status endpoint failed — allow the wizard to proceed normally
+		}
+		mountChecking = false;
+	});
 
 	// -----------------------------------------------------------------------
 	// Derived summary
@@ -172,10 +200,15 @@
 				};
 			}
 
-			await apiJson('/setup/configure', {
+			const result = await apiJson<ConfigureResult>('/setup/configure', {
 				method: 'POST',
 				body: JSON.stringify(configureBody)
 			});
+
+			if (!result.success) {
+				error = result.message || 'Configuration failed. Please try again.';
+				return;
+			}
 
 			window.location.href = '/';
 		} catch (e) {
@@ -230,7 +263,7 @@
 	<button
 		type="button"
 		onclick={handleLaunch}
-		disabled={launching}
+		disabled={launching || mountChecking}
 		class="btn-hover mt-8 inline-flex items-center gap-2 rounded-lg bg-ember px-8 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
 	>
 		{#if launching}
