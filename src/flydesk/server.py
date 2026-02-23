@@ -65,6 +65,9 @@ from flydesk.api.settings import router as settings_router
 from flydesk.api.skills import get_skill_repo
 from flydesk.api.skills import router as skills_router
 from flydesk.api.setup import router as setup_router
+from flydesk.api.tools_admin import get_catalog_repo as tools_get_catalog
+from flydesk.api.tools_admin import get_settings_repo as tools_get_settings
+from flydesk.api.tools_admin import router as tools_admin_router
 from flydesk.api.users import get_session_factory as users_get_session
 from flydesk.api.users import get_settings_repo as users_get_settings
 from flydesk.api.users import router as users_router
@@ -119,6 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings_repo = SettingsRepository(session_factory)
     app.dependency_overrides[get_settings_repo] = lambda: settings_repo
     app.dependency_overrides[prompts_get_settings] = lambda: settings_repo
+    app.dependency_overrides[tools_get_settings] = lambda: settings_repo
 
     # Skills repository
     from flydesk.skills.repository import SkillRepository
@@ -127,6 +131,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_skill_repo] = lambda: skill_repo
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
+    app.dependency_overrides[tools_get_catalog] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
     app.dependency_overrides[feedback_get_audit] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
@@ -561,5 +566,6 @@ def create_app() -> FastAPI:
     app.include_router(roles_router)
     app.include_router(skills_router)
     app.include_router(prompts_router)
+    app.include_router(tools_admin_router)
 
     return app
