@@ -136,6 +136,31 @@ class TestDatabaseEndpoint:
         assert data["success"] is False
         assert "No database session" in data["error"]
 
+    async def test_test_database_rejects_unsupported_scheme(self, db_client):
+        """Unsupported database scheme (e.g. mysql) should be rejected."""
+        response = await db_client.post(
+            "/api/setup/test-database",
+            json={"connection_string": "mysql+pymysql://user:pass@host:3306/db"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["database_type"] == "unknown"
+        assert "Unsupported database scheme" in data["error"]
+        assert "mysql" in data["error"]
+
+    async def test_test_database_rejects_malformed_url(self, db_client):
+        """Completely invalid connection string should be rejected gracefully."""
+        response = await db_client.post(
+            "/api/setup/test-database",
+            json={"connection_string": "not-a-valid-connection-string"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        # Either invalid format or unsupported scheme
+        assert data["error"] is not None
+
 
 class TestConfigureWithAgentSettings:
     """Tests for agent_settings support in POST /api/setup/configure."""

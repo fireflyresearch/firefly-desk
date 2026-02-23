@@ -47,6 +47,7 @@
 	let testResult = $state<'success' | 'failure' | null>(null);
 	let testMessage = $state('');
 	let testedCurrentDb = $state(false);
+	let autoTested = $state(false);
 
 	// -----------------------------------------------------------------------
 	// Handlers
@@ -97,9 +98,10 @@
 		});
 	}
 
-	// Auto-test the current database on mount for SQLite
+	// Auto-test the current database on mount for SQLite (one-shot)
 	$effect(() => {
-		if (!isPostgres && !testedCurrentDb && !testing) {
+		if (!isPostgres && !autoTested) {
+			autoTested = true;
 			testConnection();
 		}
 	});

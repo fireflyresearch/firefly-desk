@@ -180,6 +180,7 @@
 			window.location.href = '/';
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to complete setup.';
+		} finally {
 			launching = false;
 		}
 	}
