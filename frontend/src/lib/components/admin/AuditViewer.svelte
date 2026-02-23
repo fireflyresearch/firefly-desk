@@ -20,7 +20,11 @@
 		event_type: string;
 		user_id: string;
 		action: string;
-		details: string;
+		detail: Record<string, unknown>;
+		conversation_id?: string;
+		system_id?: string;
+		endpoint_id?: string;
+		risk_level?: string;
 	}
 
 	// -----------------------------------------------------------------------
@@ -42,18 +46,15 @@
 
 	const eventTypes = [
 		'',
-		'auth.login',
-		'auth.logout',
-		'catalog.create',
-		'catalog.update',
-		'catalog.delete',
-		'credential.create',
-		'credential.rotate',
-		'credential.revoke',
-		'knowledge.upload',
-		'knowledge.delete',
-		'chat.message',
-		'tool.execute'
+		'tool_call',
+		'tool_result',
+		'confirmation_requested',
+		'confirmation_response',
+		'agent_response',
+		'auth_login',
+		'auth_logout',
+		'catalog_change',
+		'knowledge_update'
 	];
 
 	// -----------------------------------------------------------------------
@@ -116,17 +117,28 @@
 		});
 	}
 
+	function formatDetail(detail: Record<string, unknown>): string {
+		if (!detail || Object.keys(detail).length === 0) return '--';
+		return JSON.stringify(detail);
+	}
+
 	function truncate(text: string, maxLen: number = 80): string {
 		if (!text) return '--';
 		return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
 	}
 
 	function eventTypeColor(type: string): string {
-		if (type.startsWith('auth.')) return 'bg-accent/10 text-accent';
-		if (type.includes('delete') || type.includes('revoke')) return 'bg-danger/10 text-danger';
-		if (type.includes('create') || type.includes('upload')) return 'bg-success/10 text-success';
-		if (type.includes('update') || type.includes('rotate')) return 'bg-warning/10 text-warning';
+		if (type.startsWith('auth_')) return 'bg-accent/10 text-accent';
+		if (type === 'tool_call' || type === 'tool_result') return 'bg-warning/10 text-warning';
+		if (type === 'agent_response') return 'bg-success/10 text-success';
+		if (type.includes('confirmation')) return 'bg-danger/10 text-danger';
+		if (type === 'catalog_change') return 'bg-accent/10 text-accent';
+		if (type === 'knowledge_update') return 'bg-success/10 text-success';
 		return 'bg-text-secondary/10 text-text-secondary';
+	}
+
+	function formatEventType(type: string): string {
+		return type.replace(/_/g, ' ');
 	}
 
 	function applyFilters() {
@@ -188,7 +200,7 @@
 			>
 				<option value="">All types</option>
 				{#each eventTypes.slice(1) as type}
-					<option value={type}>{type}</option>
+					<option value={type}>{formatEventType(type)}</option>
 				{/each}
 			</select>
 		</label>
@@ -257,15 +269,15 @@
 									<span
 										class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {eventTypeColor(event.event_type)}"
 									>
-										{event.event_type}
+										{formatEventType(event.event_type)}
 									</span>
 								</td>
 								<td class="px-4 py-2 font-mono text-xs text-text-secondary">
 									{event.user_id}
 								</td>
 								<td class="px-4 py-2 text-text-primary">{event.action}</td>
-								<td class="max-w-xs px-4 py-2 text-xs text-text-secondary" title={event.details}>
-									{truncate(event.details)}
+								<td class="max-w-xs px-4 py-2 text-xs text-text-secondary" title={formatDetail(event.detail)}>
+									{truncate(formatDetail(event.detail))}
 								</td>
 							</tr>
 						{:else}
