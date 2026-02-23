@@ -14,7 +14,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from flydesk.agent.confirmation import ConfirmationService
 from flydesk.agent.context import ContextEnricher
@@ -264,6 +264,141 @@ class DeskAgent:
                 "turn_id": turn_id,
             },
         )
+
+    async def run_with_reasoning(
+        self,
+        message: str,
+        session: UserSession,
+        conversation_id: str,
+        *,
+        pattern: str = "auto",
+        tools: list[ToolDefinition] | None = None,
+        file_ids: list[str] | None = None,
+    ) -> AsyncGenerator[SSEEvent, None]:
+        """Run the agent with a reasoning pattern, yielding SSE events for progress."""
+        turn_id = str(uuid.uuid4())
+
+        # Shared context enrichment + prompt building
+        tools, system_prompt = await self._prepare_turn(
+            message, session, conversation_id, tools, file_ids,
+        )
+        adapted = self._adapt_tools(tools, session, conversation_id)
+
+        # Create agent
+        if self._agent_factory is None:
+            yield SSEEvent(event=SSEEventType.TOKEN, data={"content": self._echo_fallback(message)})
+            yield SSEEvent(event=SSEEventType.DONE, data={"conversation_id": conversation_id, "turn_id": turn_id})
+            return
+
+        agent = await self._agent_factory.create_agent(system_prompt, tools=adapted)
+        if agent is None:
+            yield SSEEvent(event=SSEEventType.TOKEN, data={"content": self._echo_fallback(message)})
+            yield SSEEvent(event=SSEEventType.DONE, data={"conversation_id": conversation_id, "turn_id": turn_id})
+            return
+
+        # Select reasoning pattern
+        pattern_instance = self._select_reasoning_pattern(pattern, tools)
+
+        # Execute reasoning
+        try:
+            result = await agent.run_with_reasoning(pattern_instance, message, conversation_id=conversation_id)
+
+            # Emit reasoning steps as SSE events
+            for i, step in enumerate(result.trace.steps):
+                yield SSEEvent(
+                    event=SSEEventType.REASONING_STEP,
+                    data={
+                        "step_number": i + 1,
+                        "step_type": step.kind if hasattr(step, "kind") else type(step).__name__,
+                        "description": step.content if hasattr(step, "content") else str(step),
+                        "status": "completed",
+                    },
+                )
+
+            # If PlanAndExecute, emit plan event
+            if hasattr(result, "trace") and result.trace.pattern_name == "plan_and_execute":
+                plan_steps = [
+                    s for s in result.trace.steps
+                    if hasattr(s, "kind") and s.kind == "plan"
+                ]
+                if plan_steps:
+                    yield SSEEvent(
+                        event=SSEEventType.PLAN,
+                        data={"steps": [{"description": str(s), "status": "completed"} for s in plan_steps]},
+                    )
+
+            # Emit final text as tokens
+            output_text = str(result.output) if result.output else ""
+            for i in range(0, len(output_text), _STREAM_CHUNK_SIZE):
+                yield SSEEvent(
+                    event=SSEEventType.TOKEN,
+                    data={"content": output_text[i : i + _STREAM_CHUNK_SIZE]},
+                )
+
+            # Parse widgets from output
+            parse_result = self._widget_parser.parse(output_text)
+            for widget in parse_result.widgets:
+                yield SSEEvent(
+                    event=SSEEventType.WIDGET,
+                    data={
+                        "widget_id": widget.widget_id,
+                        "type": widget.type,
+                        "props": widget.props,
+                        "display": widget.display,
+                    },
+                )
+
+            # Audit
+            audit_event = AuditEvent(
+                event_type=AuditEventType.AGENT_RESPONSE,
+                user_id=session.user_id,
+                conversation_id=conversation_id,
+                action="agent_reasoning_turn",
+                detail={
+                    "turn_id": turn_id,
+                    "pattern": result.trace.pattern_name,
+                    "steps_taken": result.steps_taken,
+                },
+            )
+            await self._audit_logger.log(audit_event)
+
+        except Exception as exc:
+            _logger.error("Reasoning failed: %s", exc, exc_info=True)
+            error_msg = f"Reasoning failed: {exc}"
+            yield SSEEvent(event=SSEEventType.TOKEN, data={"content": error_msg})
+
+        # Done
+        yield SSEEvent(
+            event=SSEEventType.DONE,
+            data={"conversation_id": conversation_id, "turn_id": turn_id},
+        )
+
+    def _select_reasoning_pattern(self, pattern_name: str, tools: list | None) -> Any:
+        """Select the reasoning pattern to use."""
+        from fireflyframework_genai.reasoning import (
+            PlanAndExecutePattern,
+            ReActPattern,
+        )
+
+        if pattern_name == "auto":
+            # Auto-detect: if tools available and more than 2, use PlanAndExecute; otherwise ReAct
+            if tools and len(tools) > 2:
+                return PlanAndExecutePattern(max_steps=8)
+            return ReActPattern(max_steps=5)
+
+        match pattern_name:
+            case "react":
+                return ReActPattern(max_steps=5)
+            case "plan_and_execute":
+                return PlanAndExecutePattern(max_steps=8)
+            case "chain_of_thought":
+                from fireflyframework_genai.reasoning import ChainOfThoughtPattern
+                return ChainOfThoughtPattern(max_steps=5)
+            case "reflexion":
+                from fireflyframework_genai.reasoning import ReflexionPattern
+                return ReflexionPattern(max_steps=5)
+            case _:
+                return ReActPattern(max_steps=5)
 
     # ------------------------------------------------------------------
     # Tool execution infrastructure
