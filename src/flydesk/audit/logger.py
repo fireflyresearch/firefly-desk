@@ -115,6 +115,8 @@ class AuditLogger:
         if isinstance(detail, str):
             detail = json.loads(detail)
         return AuditEvent(
+            id=row.id,
+            timestamp=row.created_at,
             event_type=row.event_type,
             user_id=row.user_id,
             conversation_id=row.conversation_id,
