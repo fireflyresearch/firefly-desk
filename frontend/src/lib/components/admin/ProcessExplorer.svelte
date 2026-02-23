@@ -227,6 +227,9 @@
 	$effect(() => {
 		loadProcesses();
 		loadAnalysisSettings();
+		return () => {
+			stopJobPolling();
+		};
 	});
 
 	// -----------------------------------------------------------------------
@@ -278,6 +281,10 @@
 
 	async function saveStep() {
 		if (!selectedProcess || !editingStep) return;
+		if (!stepForm.name.trim()) {
+			error = 'Step name is required.';
+			return;
+		}
 		savingStep = true;
 		error = '';
 		try {
