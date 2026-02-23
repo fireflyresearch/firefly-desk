@@ -153,6 +153,11 @@ class JobRunner:
 
         try:
             result = await handler.execute(job_id, job.payload, _on_progress)
+            # Re-check status — job may have been cancelled while running
+            current = await self._repo.get(job_id)
+            if current and current.status == JobStatus.CANCELLED:
+                logger.info("Job %s was cancelled during execution", job_id)
+                return
             await self._repo.update_status(
                 job_id,
                 JobStatus.COMPLETED,

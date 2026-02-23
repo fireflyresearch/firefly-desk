@@ -32,7 +32,7 @@ class Job(BaseModel):
     id: str
     job_type: str  # "indexing", "process_discovery", "kg_recompute", ...
     status: JobStatus = JobStatus.PENDING
-    progress_pct: int = 0
+    progress_pct: int = Field(default=0, ge=0, le=100)
     progress_message: str = ""
     result: dict | None = None
     error: str | None = None

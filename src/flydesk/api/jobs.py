@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Annotated
 
@@ -53,7 +52,7 @@ def get_job_runner() -> JobRunner:
 
 
 JobRepo = Annotated[JobRepository, Depends(get_job_repo)]
-Runner = Annotated[JobRunner, Depends(get_job_runner)]
+Runner = Annotated[JobRunner, Depends(get_job_runner)]  # Used by future submit endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +132,7 @@ async def stream_job_progress(
     async def _event_generator():
         """Poll the job status and yield SSE events."""
         last_pct = -1
+        last_msg = ""
         while True:
             if await request.is_disconnected():
                 break
@@ -142,8 +142,9 @@ async def stream_job_progress(
                 break
 
             # Emit progress if changed
-            if current.progress_pct != last_pct:
+            if current.progress_pct != last_pct or current.progress_message != last_msg:
                 last_pct = current.progress_pct
+                last_msg = current.progress_message
                 event = SSEEvent(
                     event=SSEEventType.JOB_PROGRESS,
                     data={
