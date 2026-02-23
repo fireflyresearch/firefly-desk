@@ -266,35 +266,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
-    # Background indexing queue -- offloads embedding work from HTTP handlers.
-    from flydesk.knowledge.queue import IndexingTask, create_indexing_queue
-
-    async def _handle_indexing_task(task: IndexingTask) -> None:
-        """Consumer handler: rebuild a KnowledgeDocument and index it."""
-        from flydesk.knowledge.models import KnowledgeDocument
-
-        doc = KnowledgeDocument(
-            id=task.document_id,
-            title=task.title,
-            content=task.content,
-            document_type=task.document_type,
-            source=task.source,
-            tags=task.tags,
-            metadata=task.metadata,
-        )
-        await indexer.index_document(doc)
-
-    indexing_producer, indexing_consumer = create_indexing_queue(
-        backend=config.queue_backend,
-        handler=_handle_indexing_task,
-        redis_url=config.redis_url,
-    )
-    await indexing_consumer.start()
-    app.state.indexing_producer = indexing_producer
-    app.state.indexing_consumer = indexing_consumer
-    app.dependency_overrides[get_indexing_producer] = lambda: indexing_producer
-
     # Background job system -- general-purpose job runner with typed handlers.
+    # Initialised *before* the indexing queue so that the queue consumer can
+    # route indexing tasks through the job system for tracking.
     from flydesk.jobs.handlers import IndexingJobHandler
     from flydesk.jobs.repository import JobRepository
     from flydesk.jobs.runner import JobRunner
@@ -307,6 +281,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.job_repo = job_repo
     app.dependency_overrides[get_job_repo] = lambda: job_repo
     app.dependency_overrides[get_job_runner] = lambda: job_runner
+
+    # Background indexing queue -- offloads embedding work from HTTP handlers.
+    # The consumer handler delegates to the job system so that every indexing
+    # task appears in the jobs list with progress tracking.
+    from flydesk.knowledge.queue import IndexingTask, create_indexing_queue
+
+    async def _handle_indexing_task(task: IndexingTask) -> None:
+        """Consumer handler: submit indexing work through the job system."""
+        await job_runner.submit("indexing", task.model_dump())
+
+    indexing_producer, indexing_consumer = create_indexing_queue(
+        backend=config.queue_backend,
+        handler=_handle_indexing_task,
+        redis_url=config.redis_url,
+    )
+    await indexing_consumer.start()
+    app.state.indexing_producer = indexing_producer
+    app.state.indexing_consumer = indexing_consumer
+    app.dependency_overrides[get_indexing_producer] = lambda: indexing_producer
 
     # Wire the DeskAgent and its dependencies
     from flydesk.agent.context import ContextEnricher
@@ -514,10 +507,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown
-    await job_runner.stop()
+    # Shutdown -- stop the indexing consumer first (no new tasks enqueued),
+    # then the job runner (drain in-progress jobs), then the producer.
     await indexing_consumer.stop()
     await indexing_producer.stop()
+    await job_runner.stop()
     if vector_store is not None:
         await vector_store.close()
     if hasattr(memory_store, "close"):

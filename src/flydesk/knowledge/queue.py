@@ -12,6 +12,14 @@ Provides an in-memory queue (``asyncio.Queue``) and an optional Redis-backed
 queue so that document indexing can happen outside the HTTP request cycle.
 Both backends satisfy the ``QueueProducer`` / ``QueueConsumer`` protocols
 from ``fireflyframework_genai.exposure.queues``.
+
+.. note::
+
+   The consumer handler wired in ``flydesk.server`` delegates to the
+   general-purpose **job system** (``flydesk.jobs.runner.JobRunner``) so that
+   every indexing task is tracked as a ``Job`` with status and progress.
+   The ``IndexingJobHandler`` in ``flydesk.jobs.handlers`` performs the
+   actual indexing via ``KnowledgeIndexer``.
 """
 
 from __future__ import annotations
