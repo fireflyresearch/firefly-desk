@@ -382,6 +382,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
 
+    # Process discovery engine -- analyses catalog, KG, and KB to find processes.
+    from flydesk.jobs.handlers import ProcessDiscoveryHandler
+    from flydesk.processes.discovery import ProcessDiscoveryEngine
+    from flydesk.processes.repository import ProcessRepository
+
+    process_repo = ProcessRepository(session_factory)
+    discovery_engine = ProcessDiscoveryEngine(
+        agent_factory=agent_factory,
+        process_repo=process_repo,
+        catalog_repo=catalog_repo,
+        knowledge_graph=knowledge_graph,
+    )
+    job_runner.register_handler("process_discovery", ProcessDiscoveryHandler(discovery_engine))
+    app.state.discovery_engine = discovery_engine
+    app.state.process_repo = process_repo
+
     # Agent customization service
     from flydesk.agent.customization import AgentCustomizationService
 

@@ -11,11 +11,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Coroutine, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Protocol, runtime_checkable
 
 from flydesk.knowledge.indexer import KnowledgeIndexer
 from flydesk.knowledge.models import KnowledgeDocument
 from flydesk.knowledge.queue import IndexingTask
+
+if TYPE_CHECKING:
+    from flydesk.processes.discovery import ProcessDiscoveryEngine
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +79,24 @@ class IndexingJobHandler:
 
         await on_progress(100, "Indexing complete")
         return {"document_id": task.document_id, "title": task.title}
+
+
+class ProcessDiscoveryHandler:
+    """Wraps ``ProcessDiscoveryEngine`` as a ``JobHandler``.
+
+    Delegates the full discovery analysis pipeline to the engine, which
+    gathers context, calls the LLM, parses results, and merges with
+    existing processes.
+    """
+
+    def __init__(self, engine: ProcessDiscoveryEngine) -> None:
+        self._engine = engine
+
+    async def execute(
+        self,
+        job_id: str,
+        payload: dict,
+        on_progress: ProgressCallback,
+    ) -> dict:
+        """Run process discovery analysis."""
+        return await self._engine._analyze(job_id, payload, on_progress)

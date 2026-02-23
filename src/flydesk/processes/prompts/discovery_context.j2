@@ -1,0 +1,63 @@
+Analyze the following enterprise context to discover business processes:
+
+{% if systems %}
+## Available Systems and Endpoints
+
+{% for system in systems %}
+### {{ system.name }} (ID: {{ system.id }})
+{{ system.description }}
+Base URL: {{ system.base_url }}
+Status: {{ system.status }}
+{% if system.tags %}Tags: {{ system.tags | join(', ') }}{% endif %}
+
+{% if system.endpoints %}
+Endpoints:
+{% for ep in system.endpoints %}
+  - {{ ep.name }} (ID: {{ ep.id }}): {{ ep.description }}
+    Method: {{ ep.method }} {{ ep.path }}
+    When to use: {{ ep.when_to_use }}
+    Risk level: {{ ep.risk_level }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No external systems are currently registered in the catalog.
+{% endif %}
+
+{% if entities %}
+## Knowledge Graph Entities and Relations
+
+{% for entity in entities %}
+- {{ entity.name }} (type: {{ entity.entity_type }}, confidence: {{ entity.confidence }})
+  {% if entity.properties %}Properties: {{ entity.properties }}{% endif %}
+
+{% endfor %}
+
+{% if relations %}
+### Relations
+{% for rel in relations %}
+- {{ rel.source_id }} --[{{ rel.relation_type }}]--> {{ rel.target_id }}
+  {% if rel.properties %}Properties: {{ rel.properties }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% else %}
+No knowledge graph entities are currently available.
+{% endif %}
+
+{% if documents %}
+## Knowledge Base Documents
+
+{% for doc in documents %}
+### {{ doc.title }} (type: {{ doc.document_type }})
+{% if doc.tags %}Tags: {{ doc.tags | join(', ') }}{% endif %}
+
+{{ doc.content[:500] }}{% if doc.content | length > 500 %}...{% endif %}
+
+{% endfor %}
+{% else %}
+No knowledge base documents are currently available.
+{% endif %}
+
+Based on the above context, identify all business processes, their steps, system interactions, and step dependencies. Return the result as structured JSON.
