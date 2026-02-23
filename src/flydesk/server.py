@@ -56,6 +56,8 @@ from flydesk.api.knowledge import (
 from flydesk.api.knowledge import router as knowledge_router
 from flydesk.api.llm_providers import get_llm_repo
 from flydesk.api.llm_providers import router as llm_providers_router
+from flydesk.api.processes import get_process_repo
+from flydesk.api.processes import router as processes_router
 from flydesk.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
 from flydesk.api.oidc_providers import router as oidc_providers_router
 from flydesk.api.prompts import get_settings_repo as prompts_get_settings
@@ -397,6 +399,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     job_runner.register_handler("process_discovery", ProcessDiscoveryHandler(discovery_engine))
     app.state.discovery_engine = discovery_engine
     app.state.process_repo = process_repo
+    app.dependency_overrides[get_process_repo] = lambda: process_repo
 
     # Agent customization service
     from flydesk.agent.customization import AgentCustomizationService
@@ -617,5 +620,6 @@ def create_app() -> FastAPI:
     app.include_router(tools_admin_router)
     app.include_router(sso_mappings_router)
     app.include_router(jobs_router)
+    app.include_router(processes_router)
 
     return app

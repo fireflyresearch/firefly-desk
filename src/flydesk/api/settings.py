@@ -124,6 +124,41 @@ async def update_agent_settings(
 
 
 # ---------------------------------------------------------------------------
+# Analysis Configuration (admin only)
+# ---------------------------------------------------------------------------
+
+
+class AnalysisConfig(BaseModel):
+    """Analysis / auto-discovery toggle configuration."""
+
+    auto_analyze: bool = False
+
+
+@router.get("/analysis", dependencies=[AdminSettings])
+async def get_analysis_config(request: Request, repo: Repo) -> AnalysisConfig:
+    """Return the current analysis configuration (from DB, falling back to env)."""
+    settings = await repo.get_all_app_settings(category="analysis")
+    config = getattr(request.app.state, "config", None)
+
+    auto_analyze_str = settings.get(
+        "auto_analyze",
+        str(config.auto_analyze).lower() if config else "false",
+    )
+    return AnalysisConfig(auto_analyze=auto_analyze_str in ("true", "1", "True"))
+
+
+@router.put("/analysis", dependencies=[AdminSettings])
+async def update_analysis_config(
+    body: AnalysisConfig, repo: Repo
+) -> AnalysisConfig:
+    """Update analysis configuration (auto_analyze toggle)."""
+    await repo.set_app_setting(
+        "auto_analyze", str(body.auto_analyze).lower(), category="analysis"
+    )
+    return body
+
+
+# ---------------------------------------------------------------------------
 # Embedding Configuration (admin only)
 # ---------------------------------------------------------------------------
 
