@@ -10,9 +10,11 @@
 -->
 <script lang="ts">
 	import { Plus, MessageSquare, Trash2, Check, X, Search, Sparkles, Pencil } from 'lucide-svelte';
+	import { goto } from '$app/navigation';
 	import {
 		conversations,
 		activeConversationId,
+		clearMessages,
 		loadConversations,
 		selectConversation,
 		createNewConversation
@@ -129,6 +131,8 @@
 			conversations.update((convs) => convs.filter((c) => c.id !== id));
 			if ($activeConversationId === id) {
 				$activeConversationId = null;
+				clearMessages();
+				goto('/');
 			}
 		} catch (error) {
 			console.error('[ConversationList] Delete failed:', error);
