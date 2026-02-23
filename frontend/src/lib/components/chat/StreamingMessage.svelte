@@ -2,13 +2,15 @@
   StreamingMessage.svelte - Shows the currently streaming assistant response.
 
   Displays the ThinkingIndicator when no text has arrived yet, and a
-  blinking cursor at the end of text while content is streaming.
+  blinking cursor at the end of text while content is streaming. Features
+  a pulsing ember gradient left border during streaming and a smooth
+  fade-in when first content arrives.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { fly } from 'svelte/transition';
+	import { fly, fade } from 'svelte/transition';
 	import ThinkingIndicator from './ThinkingIndicator.svelte';
 	import MarkdownContent from './MarkdownContent.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
@@ -31,9 +33,12 @@
 		<!-- Content area -->
 		<div class="flex flex-col items-start">
 			{#if hasContent}
-				<div class="text-sm leading-relaxed">
+				<div
+					class="streaming-border border-l-2 pl-3 text-sm leading-relaxed"
+					in:fade={{ duration: 300 }}
+				>
 					<MarkdownContent content={content} /><span
-						class="streaming-cursor ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-text-primary"
+						class="streaming-cursor ml-0.5 inline-block h-4 w-[1.5px] translate-y-0.5 rounded-full bg-ember"
 					></span>
 				</div>
 			{:else}
@@ -49,12 +54,29 @@
 		100% {
 			opacity: 1;
 		}
-		50% {
+		40% {
 			opacity: 0;
 		}
 	}
 
 	.streaming-cursor {
-		animation: blink 1s step-end infinite;
+		animation: blink 1.1s ease-in-out infinite;
+	}
+
+	@keyframes ember-border-pulse {
+		0%,
+		100% {
+			border-left-color: var(--color-ember, #f59e0b);
+			box-shadow: -2px 0 8px -2px rgba(245, 158, 11, 0.3);
+		}
+		50% {
+			border-left-color: rgba(245, 158, 11, 0.5);
+			box-shadow: -2px 0 4px -2px rgba(245, 158, 11, 0.1);
+		}
+	}
+
+	.streaming-border {
+		border-left-color: var(--color-ember, #f59e0b);
+		animation: ember-border-pulse 2s ease-in-out infinite;
 	}
 </style>
