@@ -26,7 +26,8 @@
 		ShieldCheck,
 		Sparkles,
 		FileCode,
-		Wrench
+		Wrench,
+		GitBranch
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -35,6 +36,7 @@
 	const navItems = [
 		{ href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
 		{ href: '/admin/agent', label: 'Agent', icon: Bot },
+		{ href: '/admin/processes', label: 'Processes', icon: GitBranch },
 		{ href: '/admin/catalog', label: 'Catalog', icon: Database },
 		{ href: '/admin/credentials', label: 'Credentials', icon: Key },
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
