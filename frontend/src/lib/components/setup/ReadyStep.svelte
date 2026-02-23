@@ -1,15 +1,16 @@
 <!--
   ReadyStep.svelte -- Final confirmation step of the setup wizard.
 
-  Displays a summary of everything configured (LLM provider + model,
-  sample data) and a "Launch Firefly Desk" button that calls
-  POST /api/setup/configure to persist everything then redirects to "/".
+  Displays a summary of everything configured (database, LLM provider,
+  embeddings, agent settings, sample data) and a "Launch Firefly Desk"
+  button that calls POST /api/setup/configure to persist everything
+  then redirects to "/".
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Flame, ArrowLeft, Loader2, CheckCircle } from 'lucide-svelte';
+	import { ArrowLeft, Loader2, CheckCircle } from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import EmberAvatar from '$lib/components/chat/EmberAvatar.svelte';
 
@@ -44,6 +45,18 @@
 	let summaryRows: SummaryRow[] = $derived.by(() => {
 		const rows: SummaryRow[] = [];
 
+		// Database
+		const db = wizardData.database as Record<string, unknown> | undefined;
+		if (db) {
+			const dbType = (db.type as string) === 'postgresql' ? 'PostgreSQL' : 'SQLite';
+			rows.push({
+				label: 'Database',
+				value: dbType,
+				ok: true
+			});
+		}
+
+		// LLM Provider
 		const llm = wizardData.llm_provider as Record<string, unknown> | null | undefined;
 		if (llm) {
 			rows.push({
@@ -62,6 +75,46 @@
 			rows.push({ label: 'LLM Provider', value: 'Skipped', ok: false });
 		}
 
+		// Embedding
+		const embedding = wizardData.embedding as Record<string, unknown> | null | undefined;
+		if (embedding) {
+			const embModel = (embedding.model as string) ?? 'Configured';
+			rows.push({
+				label: 'Embeddings',
+				value: embModel,
+				ok: true
+			});
+		}
+
+		// Vector store
+		const vectorStore = wizardData.vector_store as Record<string, unknown> | undefined;
+		if (vectorStore && vectorStore.type) {
+			const storeNames: Record<string, string> = {
+				sqlite: 'SQLite',
+				pgvector: 'pgvector',
+				chromadb: 'ChromaDB',
+				pinecone: 'Pinecone'
+			};
+			rows.push({
+				label: 'Vector Store',
+				value: storeNames[vectorStore.type as string] ?? (vectorStore.type as string),
+				ok: true
+			});
+		}
+
+		// Agent settings
+		const agent = wizardData.agent_settings as Record<string, unknown> | undefined;
+		if (agent) {
+			const agentName = (agent.display_name as string) || (agent.name as string) || 'Ember';
+			const agentTone = (agent.tone as string) || 'friendly';
+			rows.push({
+				label: 'Agent',
+				value: `${agentName} (${agentTone})`,
+				ok: true
+			});
+		}
+
+		// Dev user
 		const devUser = wizardData.dev_user as Record<string, unknown> | undefined;
 		if (devUser) {
 			rows.push({
@@ -71,6 +124,7 @@
 			});
 		}
 
+		// Sample data
 		rows.push({
 			label: 'Sample Data',
 			value: wizardData.sample_data ? 'Banking Demo' : 'None',
@@ -89,8 +143,9 @@
 		error = '';
 		try {
 			const llm = wizardData.llm_provider as Record<string, unknown> | null | undefined;
+			const agent = wizardData.agent_settings as Record<string, unknown> | undefined;
 
-			// Use /api/setup/configure to persist LLM provider + seed data + mark complete
+			// Build the configure request body
 			const configureBody: Record<string, unknown> = {
 				seed_data: wizardData.sample_data === true
 			};
@@ -103,6 +158,17 @@
 					base_url: llm.base_url ?? null,
 					model_id: llm.model_id ?? null,
 					model_name: llm.model_name ?? null
+				};
+			}
+
+			if (agent) {
+				configureBody.agent_settings = {
+					name: agent.name ?? 'Ember',
+					display_name: agent.display_name ?? agent.name ?? 'Ember',
+					personality: agent.personality ?? 'warm, professional, knowledgeable',
+					tone: agent.tone ?? 'friendly',
+					greeting:
+						agent.greeting ?? "Hello! I'm {name}, your intelligent assistant."
 				};
 			}
 

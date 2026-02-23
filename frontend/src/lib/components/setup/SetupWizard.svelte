@@ -5,14 +5,26 @@
   right. Collects data from each step via onNext callbacks and aggregates
   it in a wizardData object.
 
+  Steps:
+    1. Welcome
+    2. Database (new)
+    3. LLM Provider
+    4. Embeddings (skipped if LLM is skipped)
+    5. Agent Setup (new)
+    6. User Profile (dev mode only)
+    7. Sample Data (enhanced)
+    8. Ready
+
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
 	import { Check } from 'lucide-svelte';
 	import WelcomeStep from './WelcomeStep.svelte';
+	import DatabaseStep from './DatabaseStep.svelte';
 	import LLMProviderStep from './LLMProviderStep.svelte';
 	import EmbeddingStep from './EmbeddingStep.svelte';
+	import AgentSetupStep from './AgentSetupStep.svelte';
 	import UserProfileStep from './UserProfileStep.svelte';
 	import SampleDataStep from './SampleDataStep.svelte';
 	import ReadyStep from './ReadyStep.svelte';
@@ -35,19 +47,32 @@
 		id: string;
 		label: string;
 		devOnly?: boolean;
+		skipWhenLlmSkipped?: boolean;
 	}
 
 	const allSteps: StepDef[] = [
 		{ id: 'welcome', label: 'Welcome' },
+		{ id: 'database', label: 'Database' },
 		{ id: 'llm', label: 'LLM Provider' },
-		{ id: 'embedding', label: 'Embeddings' },
+		{ id: 'embedding', label: 'Embeddings', skipWhenLlmSkipped: true },
+		{ id: 'agent', label: 'Agent Setup' },
 		{ id: 'profile', label: 'User Profile', devOnly: true },
 		{ id: 'data', label: 'Sample Data' },
 		{ id: 'ready', label: 'Ready' }
 	];
 
 	let isDevMode = $derived(status?.mode === 'dev');
-	let steps = $derived(allSteps.filter((s) => !s.devOnly || isDevMode));
+
+	// Track whether LLM was skipped to conditionally skip embedding step
+	let llmSkipped = $state(false);
+
+	let steps = $derived(
+		allSteps.filter((s) => {
+			if (s.devOnly && !isDevMode) return false;
+			if (s.skipWhenLlmSkipped && llmSkipped) return false;
+			return true;
+		})
+	);
 
 	// -----------------------------------------------------------------------
 	// State
@@ -65,6 +90,16 @@
 	function handleNext(stepData?: Record<string, unknown>) {
 		if (stepData) {
 			wizardData = { ...wizardData, ...stepData };
+
+			// Track whether the LLM provider was skipped
+			if ('llm_provider' in stepData) {
+				const wasSkipped = stepData.llm_provider === null;
+				if (wasSkipped !== llmSkipped) {
+					llmSkipped = wasSkipped;
+					// Steps list will re-derive; currentIndex stays the same
+					// which effectively advances past the now-removed embedding step
+				}
+			}
 		}
 		if (currentIndex < steps.length - 1) {
 			currentIndex++;
@@ -126,7 +161,7 @@
 		</nav>
 
 		<!-- Step content area -->
-		<div class="flex min-h-[480px] flex-1 flex-col">
+		<div class="flex min-h-[520px] flex-1 flex-col">
 			<!-- Mobile step indicator -->
 			<div class="border-b border-border px-6 py-3 text-xs text-text-secondary sm:hidden">
 				Step {currentIndex + 1} of {steps.length}: {currentStep?.label}
@@ -135,10 +170,14 @@
 			<div class="flex-1 p-6 sm:p-8">
 				{#if currentStep?.id === 'welcome'}
 					<WelcomeStep {status} onNext={handleNext} />
+				{:else if currentStep?.id === 'database'}
+					<DatabaseStep {status} onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'llm'}
 					<LLMProviderStep {status} onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'embedding'}
 					<EmbeddingStep onNext={handleNext} onBack={handleBack} />
+				{:else if currentStep?.id === 'agent'}
+					<AgentSetupStep onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'profile'}
 					<UserProfileStep onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'data'}
