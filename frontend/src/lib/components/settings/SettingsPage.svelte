@@ -251,6 +251,7 @@
 				type="button"
 				role="switch"
 				aria-checked={$userSettings.agentVerbose}
+				aria-label="Toggle verbose mode"
 				onclick={() => handleToggle('agentVerbose')}
 				class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out
 					{$userSettings.agentVerbose ? 'bg-ember' : 'bg-border'}"
@@ -258,7 +259,7 @@
 				<span
 					class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out
 						{$userSettings.agentVerbose ? 'translate-x-5' : 'translate-x-0'}"
-				/>
+				></span>
 			</button>
 		</div>
 	</div>
@@ -292,6 +293,7 @@
 				type="button"
 				role="switch"
 				aria-checked={$userSettings.notificationsEnabled}
+				aria-label="Toggle notifications"
 				onclick={() => handleToggle('notificationsEnabled')}
 				class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out
 					{$userSettings.notificationsEnabled ? 'bg-ember' : 'bg-border'}"
@@ -299,7 +301,7 @@
 				<span
 					class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out
 						{$userSettings.notificationsEnabled ? 'translate-x-5' : 'translate-x-0'}"
-				/>
+				></span>
 			</button>
 		</div>
 	</div>

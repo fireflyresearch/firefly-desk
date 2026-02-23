@@ -6,11 +6,10 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { panelStack, popPanel, closePanel } from '$lib/stores/panel.js';
+	import { panelStack, popPanel, closePanel, type PanelItem } from '$lib/stores/panel.js';
 	import { getWidget } from '$lib/widgets/registry.js';
-	import { get } from 'svelte/store';
 
-	let stack: typeof import('$lib/stores/panel.js').PanelItem[] = $state([]);
+	let stack: PanelItem[] = $state([]);
 
 	$effect(() => {
 		const unsub = panelStack.subscribe((value) => {

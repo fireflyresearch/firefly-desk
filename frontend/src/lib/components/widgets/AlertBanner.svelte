@@ -5,7 +5,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Info, AlertTriangle, CircleX, CheckCircle } from 'lucide-svelte';
+	import { Info, TriangleAlert, CircleX, CircleCheckBig } from 'lucide-svelte';
 	import type { Component } from 'svelte';
 
 	interface AlertBannerProps {
@@ -16,11 +16,12 @@
 
 	let { message, severity, title }: AlertBannerProps = $props();
 
-	const icons: Record<AlertBannerProps['severity'], Component> = {
-		info: Info,
-		warning: AlertTriangle,
-		error: CircleX,
-		success: CheckCircle
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- lucide-svelte types use legacy Svelte component signature
+	const icons: Record<AlertBannerProps['severity'], Component<any>> = {
+		info: Info as unknown as Component<any>,
+		warning: TriangleAlert as unknown as Component<any>,
+		error: CircleX as unknown as Component<any>,
+		success: CircleCheckBig as unknown as Component<any>
 	};
 
 	const borderColors: Record<AlertBannerProps['severity'], string> = {
