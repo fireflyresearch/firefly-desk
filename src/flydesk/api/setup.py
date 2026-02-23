@@ -15,6 +15,7 @@ allows seeding and configuring the instance from the web UI.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -97,6 +98,25 @@ class LLMTestResult(BaseModel):
     error: str | None = None
 
 
+class TestEmbeddingRequest(BaseModel):
+    """Request body for testing an embedding provider."""
+
+    provider: str  # "openai", "voyage", "google", "ollama"
+    api_key: str = ""
+    base_url: str = ""
+    model: str
+    dimensions: int = 0
+
+
+class TestEmbeddingResult(BaseModel):
+    """Result of an embedding test."""
+
+    success: bool
+    dimensions: int = 0
+    duration_ms: float = 0
+    error: str | None = None
+
+
 class WizardState(BaseModel):
     """Current wizard state for resumption."""
 
@@ -138,6 +158,58 @@ async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
         latency_ms=status.latency_ms,
         error=status.error,
     )
+
+
+@router.post("/test-embedding")
+async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
+    """Generate a test embedding to verify provider configuration.
+
+    This is used by the setup wizard to verify embedding credentials
+    before the user has any permissions or stored configuration.
+    No authentication is required.
+    """
+    import httpx
+
+    model_str = f"{body.provider}:{body.model}"
+    dimensions = body.dimensions or 1536
+
+    try:
+        from flydesk.knowledge.embeddings import LLMEmbeddingProvider
+
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            provider = LLMEmbeddingProvider(
+                http_client=http_client,
+                embedding_model=model_str,
+                dimensions=dimensions,
+                llm_repo=None,  # type: ignore[arg-type]
+                api_key=body.api_key or None,
+                base_url=body.base_url or None,
+            )
+
+            start = time.monotonic()
+            vectors = await provider.embed(["Hello, world!"])
+            elapsed_ms = (time.monotonic() - start) * 1000
+
+            vec = vectors[0]
+            if all(v == 0.0 for v in vec):
+                return TestEmbeddingResult(
+                    success=False,
+                    dimensions=0,
+                    duration_ms=elapsed_ms,
+                    error="Received zero vector -- check API key and provider.",
+                )
+
+            return TestEmbeddingResult(
+                success=True,
+                dimensions=len(vec),
+                duration_ms=round(elapsed_ms, 1),
+            )
+    except Exception as exc:
+        logger.error("Embedding test failed: %s", exc, exc_info=True)
+        return TestEmbeddingResult(
+            success=False,
+            error=str(exc),
+        )
 
 
 @router.get("/status")
