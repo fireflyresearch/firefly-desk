@@ -745,3 +745,324 @@ class TestDeskAgentConversationHistory:
             audit_logger=audit_logger,
         )
         assert agent._conversation_repo is None
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent._call_llm() tests with agent_factory
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentCallLlm:
+    """Tests for _call_llm when an agent_factory is provided."""
+
+    @pytest.fixture
+    def mock_agent_factory(self) -> MagicMock:
+        from flydesk.agent.genai_bridge import DeskAgentFactory
+
+        factory = MagicMock(spec=DeskAgentFactory)
+        factory.create_agent = AsyncMock()
+        return factory
+
+    @pytest.fixture
+    def desk_agent_with_factory(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        mock_agent_factory,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            agent_factory=mock_agent_factory,
+        )
+
+    async def test_call_llm_calls_create_agent_with_system_prompt(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm should call agent_factory.create_agent with the system prompt."""
+        mock_agent = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.output = "Hello from LLM"
+        mock_agent.run = AsyncMock(return_value=mock_result)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        await desk_agent_with_factory._call_llm("user message", "system prompt text")
+        mock_agent_factory.create_agent.assert_awaited_once_with("system prompt text")
+
+    async def test_call_llm_returns_agent_output(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm should return str(result.output) from agent.run()."""
+        mock_agent = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.output = "The answer is 42."
+        mock_agent.run = AsyncMock(return_value=mock_result)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        result = await desk_agent_with_factory._call_llm("question", "prompt")
+        assert result == "The answer is 42."
+
+    async def test_call_llm_returns_error_on_exception(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm should return an error message when agent.run() raises."""
+        mock_agent = AsyncMock()
+        mock_agent.run = AsyncMock(side_effect=ConnectionError("API unreachable"))
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        result = await desk_agent_with_factory._call_llm("question", "prompt")
+        assert "error connecting to the language model" in result.lower()
+        assert "API unreachable" in result
+
+    async def test_call_llm_falls_back_to_echo_when_no_agent(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_call_llm should use echo fallback when create_agent() returns None."""
+        mock_agent_factory.create_agent.return_value = None
+
+        result = await desk_agent_with_factory._call_llm("hello world", "prompt")
+        assert "No language model provider is configured" in result
+        assert "hello world" in result
+
+    async def test_call_llm_without_factory_uses_echo(self, desk_agent):
+        """_call_llm should use echo fallback when no agent_factory is set."""
+        result = await desk_agent._call_llm("test message", "prompt")
+        assert "No language model provider is configured" in result
+        assert "test message" in result
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent._stream_llm() tests with agent_factory
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentStreamLlm:
+    """Tests for _stream_llm when an agent_factory is provided."""
+
+    @pytest.fixture
+    def mock_agent_factory(self) -> MagicMock:
+        from flydesk.agent.genai_bridge import DeskAgentFactory
+
+        factory = MagicMock(spec=DeskAgentFactory)
+        factory.create_agent = AsyncMock()
+        return factory
+
+    @pytest.fixture
+    def desk_agent_with_factory(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        mock_agent_factory,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            agent_factory=mock_agent_factory,
+        )
+
+    async def test_stream_llm_without_factory_yields_echo_chunks(self, desk_agent):
+        """_stream_llm should yield echo fallback chunks when no factory is set."""
+        tokens: list[str] = []
+        async for token in desk_agent._stream_llm("hello", "prompt"):
+            tokens.append(token)
+        full_text = "".join(tokens)
+        assert "No language model provider is configured" in full_text
+        assert "hello" in full_text
+
+    async def test_stream_llm_yields_echo_when_agent_is_none(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_stream_llm should yield echo when create_agent() returns None."""
+        mock_agent_factory.create_agent.return_value = None
+        tokens: list[str] = []
+        async for token in desk_agent_with_factory._stream_llm("hi", "prompt"):
+            tokens.append(token)
+        full_text = "".join(tokens)
+        assert "No language model provider is configured" in full_text
+
+    async def test_stream_llm_yields_tokens_from_agent(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_stream_llm should yield tokens from agent.run_stream()."""
+        # Build a mock that simulates the async context manager + async iterator
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            for tok in ["Hello", " world", "!"]:
+                yield tok
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        tokens: list[str] = []
+        async for token in desk_agent_with_factory._stream_llm("test", "prompt"):
+            tokens.append(token)
+
+        assert tokens == ["Hello", " world", "!"]
+        mock_agent.run_stream.assert_awaited_once_with(
+            "test", streaming_mode="incremental",
+        )
+
+    async def test_stream_llm_yields_error_on_exception(
+        self, desk_agent_with_factory, mock_agent_factory
+    ):
+        """_stream_llm should yield an error message when streaming raises."""
+        mock_agent = AsyncMock()
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(side_effect=ConnectionError("stream failed"))
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        tokens: list[str] = []
+        async for token in desk_agent_with_factory._stream_llm("test", "prompt"):
+            tokens.append(token)
+
+        full_text = "".join(tokens)
+        assert "error connecting to the language model" in full_text.lower()
+        assert "stream failed" in full_text
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent.stream() with real streaming tests
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentStreamWithFactory:
+    """Tests for DeskAgent.stream() when agent_factory is provided (real streaming)."""
+
+    @pytest.fixture
+    def mock_agent_factory(self) -> MagicMock:
+        from flydesk.agent.genai_bridge import DeskAgentFactory
+
+        factory = MagicMock(spec=DeskAgentFactory)
+        factory.create_agent = AsyncMock()
+        return factory
+
+    @pytest.fixture
+    def desk_agent_with_factory(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        mock_agent_factory,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            agent_factory=mock_agent_factory,
+        )
+
+    async def test_stream_with_factory_emits_real_tokens(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """stream() with agent_factory should emit TOKEN events from real streaming."""
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            for tok in ["Hello", ", ", "Alice", "!"]:
+                yield tok
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hi", user_session, "conv-1"):
+            events.append(evt)
+
+        token_events = [e for e in events if e.event == SSEEventType.TOKEN]
+        token_contents = [e.data["content"] for e in token_events]
+        assert token_contents == ["Hello", ", ", "Alice", "!"]
+
+    async def test_stream_with_factory_emits_all_event_types(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """stream() should emit TOOL_START, TOOL_END, TOKEN+, TOOL_SUMMARY, DONE."""
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            yield "response"
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        event_types: list[SSEEventType] = []
+        async for evt in desk_agent_with_factory.stream("test", user_session, "conv-1"):
+            event_types.append(evt.event)
+
+        assert event_types[0] == SSEEventType.TOOL_START
+        assert event_types[1] == SSEEventType.TOOL_END
+        assert SSEEventType.TOKEN in event_types
+        assert SSEEventType.TOOL_SUMMARY in event_types
+        assert event_types[-1] == SSEEventType.DONE
+
+    async def test_stream_with_factory_logs_audit(
+        self, desk_agent_with_factory, mock_agent_factory, audit_logger, user_session
+    ):
+        """stream() should write an audit log entry."""
+        mock_agent = AsyncMock()
+
+        async def fake_stream_tokens():
+            yield "audited text"
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        events = []
+        async for evt in desk_agent_with_factory.stream("msg", user_session, "conv-1"):
+            events.append(evt)
+
+        audit_logger.log.assert_awaited_once()
+        logged_event = audit_logger.log.call_args[0][0]
+        assert logged_event.user_id == "user-42"
+        assert logged_event.conversation_id == "conv-1"
