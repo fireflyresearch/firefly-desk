@@ -87,6 +87,33 @@ FLYDESK_CORS_ORIGINS=https://desk.example.com
 
 The agent name defaults to "Ember," which includes a carefully designed personality and behavioral profile. If you override the agent name, the system uses a generic professional identity instead. The turn and tool limits exist as safety guardrails to prevent runaway conversations or excessive API calls against registered systems.
 
+## Analysis
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDESK_AUTO_ANALYZE` | bool | `false` | Enable automatic process discovery and KG recomputation when data changes. |
+
+When auto-analyze is enabled, data change events (new knowledge documents, catalog system updates) automatically trigger background jobs for knowledge graph recomputation and process discovery. Rapid changes are debounced with a 5-second window to prevent redundant work.
+
+This setting can also be toggled at runtime through the API (`PUT /api/settings/analysis`) or the setup wizard, in which case the database value takes precedence over the environment variable.
+
+## Agent Customization
+
+Agent customization settings (name, personality, tone, greeting, behavior rules, custom instructions, language) are stored in the database rather than environment variables. This allows changes to take effect immediately without restarting the application.
+
+The following environment variables serve as initial defaults that are overridden once settings are saved to the database:
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDESK_AGENT_NAME` | str | `Ember` | Initial agent name (overridden by DB settings). |
+| `FLYDESK_AGENT_INSTRUCTIONS` | str or None | `None` | Initial custom instructions (overridden by DB settings). |
+
+For full details on all customizable fields and how to configure them, see the [Agent Customization](agent-customization.md) documentation.
+
+## Background Jobs
+
+The background job system runs automatically and requires no configuration. Jobs are submitted by internal services (process discovery, KG recomputation, knowledge indexing) and executed by the built-in `JobRunner`. Job status and history are available through the `GET /api/jobs` endpoint.
+
 ## Knowledge
 
 | Variable | Type | Default | Description |
@@ -179,6 +206,9 @@ FLYDESK_RATE_LIMIT_PER_USER=60
 # Knowledge
 FLYDESK_EMBEDDING_MODEL=openai:text-embedding-3-small
 FLYDESK_RAG_TOP_K=5
+
+# Analysis
+FLYDESK_AUTO_ANALYZE=true
 
 # File Uploads
 FLYDESK_FILE_STORAGE_PATH=/data/flydesk/uploads

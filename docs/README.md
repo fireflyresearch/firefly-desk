@@ -27,7 +27,9 @@ This directory contains the complete documentation for Firefly Desk, an AI-power
 | [SSO and OIDC](sso-oidc.md) | Setup guides for Keycloak, Google, Microsoft Entra ID, Auth0, Cognito, and Okta. Claim mapping and troubleshooting. |
 | [Exports](exports.md) | CSV, JSON, and PDF export system. Templates, column mapping, and API reference. |
 | [File Uploads](file-uploads.md) | Supported formats, content extraction, storage configuration, and chat integration. |
-| [Agent Customization](agent-customization.md) | Customizing Ember's behavior, personality, instructions, and tool access. |
+| [Agent Customization](agent-customization.md) | Customizing the agent's identity, personality, tone, behavior rules, and instructions. |
+| [Widgets](widgets.md) | Complete reference for all 19 chat widget types with props, examples, and usage guidelines. |
+| [Process Discovery](processes.md) | LLM-based process discovery, auto-triggers, user corrections, and API reference. |
 
 ## Operations
 

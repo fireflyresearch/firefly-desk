@@ -140,3 +140,205 @@ Props:
 - `title` (optional): Heading displayed above the diagram.
 - `interactive` (optional): Allow drag/zoom. Default false for inline, true for panel.
 - `height` (optional): Diagram height (CSS value). Default "300px".
+
+## status-badge
+
+Small inline badge showing a status with a colored dot. Ideal for displaying system health, job state, or ticket status.
+
+```
+:::widget{type="status-badge" inline=true}
+{"label": "Active", "status": "success"}
+:::
+```
+
+Props:
+- `label` (required): Text displayed next to the dot (e.g. "Active", "Failed").
+- `status` (required): Color variant — "success", "warning", "error", "info", or "neutral".
+
+Active-sounding labels (e.g. "Active", "Running", "Processing") automatically pulse.
+
+## entity-card
+
+Card showing an entity's details with labeled fields and an optional status badge. Use for displaying a single record like a customer, ticket, or system.
+
+```
+:::widget{type="entity-card" inline=true}
+{"title": "Customer #1042", "subtitle": "Premium Account", "fields": [{"label": "Name", "value": "Acme Corp"}, {"label": "Status", "value": "Active"}], "status": "Active"}
+:::
+```
+
+Props:
+- `title` (required): Primary heading for the entity.
+- `subtitle` (optional): Secondary text below the title.
+- `fields` (required): Array of `{label, value}` pairs displayed in a two-column grid.
+- `status` (optional): Status string rendered as a StatusBadge. Auto-mapped to color.
+
+## data-table
+
+Tabular display with column headers and alternating row stripes. Best for multi-row structured data.
+
+```
+:::widget{type="data-table" panel=true}
+{"title": "Recent Transactions", "columns": [{"key": "id", "label": "ID"}, {"key": "amount", "label": "Amount"}, {"key": "status", "label": "Status"}], "rows": [{"id": "TXN-001", "amount": "$1,200", "status": "Completed"}, {"id": "TXN-002", "amount": "$340", "status": "Pending"}]}
+:::
+```
+
+Props:
+- `columns` (required): Array of `{key, label}` defining column order and header text.
+- `rows` (required): Array of objects; each key matches a column key.
+- `title` (optional): Heading displayed above the table.
+
+## key-value
+
+Vertical list of key-value pairs. Use for configuration summaries, metadata, or details panels.
+
+```
+:::widget{type="key-value" inline=true}
+{"title": "Connection Details", "items": [{"key": "Host", "value": "db-prod-01.internal"}, {"key": "Port", "value": "5432"}, {"key": "SSL", "value": "Enabled"}]}
+:::
+```
+
+Props:
+- `items` (required): Array of `{key, value}` pairs.
+- `title` (optional): Heading displayed above the list.
+
+## alert
+
+Alert banner with severity-based styling and icon. Use for warnings, errors, success confirmations, or informational notices.
+
+```
+:::widget{type="alert" inline=true}
+{"severity": "warning", "title": "Rate Limit Approaching", "message": "API usage is at 85% of the hourly quota."}
+:::
+```
+
+Props:
+- `message` (required): Alert body text.
+- `severity` (required): One of "info", "warning", "error", "success".
+- `title` (optional): Bold heading above the message.
+
+## timeline
+
+Vertical timeline of events with connecting lines and optional status badges. Use for audit trails, incident timelines, or process histories.
+
+```
+:::widget{type="timeline" panel=true}
+{"events": [{"timestamp": "2026-02-23 14:30", "title": "Ticket Created", "description": "Opened by J. Smith"}, {"timestamp": "2026-02-23 15:10", "title": "Assigned", "status": "In Progress"}]}
+:::
+```
+
+Props:
+- `events` (required): Array of event objects, each with:
+  - `timestamp` (required): Display timestamp string.
+  - `title` (required): Event headline.
+  - `description` (optional): Additional detail text.
+  - `status` (optional): Badge text displayed beside the title.
+
+## diff-viewer
+
+Before/after comparison table. Changed fields are highlighted (red for before, green for after). Use when showing what changed in an update.
+
+```
+:::widget{type="diff-viewer" panel=true}
+{"title": "Configuration Change", "before": {"timeout": "30s", "retries": "3"}, "after": {"timeout": "60s", "retries": "3"}}
+:::
+```
+
+Props:
+- `before` (required): Object of `{field: value}` representing the original state.
+- `after` (required): Object of `{field: value}` representing the new state.
+- `title` (optional): Heading displayed above the diff.
+
+## confirmation
+
+Safety confirmation card for high-risk tool operations. Requires user approval (Approve/Reject) before proceeding. Always use `blocking=true`.
+
+```
+:::widget{type="confirmation" blocking=true action="delete-account"}
+{"confirmation_id": "abc-123", "tool_name": "delete_user_account", "risk_level": "destructive", "description": "Permanently delete user account #1042.", "parameters": {"user_id": "1042"}, "expires_at": 1740000000}
+:::
+```
+
+Props:
+- `confirmation_id` (required): Unique ID for tracking this confirmation.
+- `tool_name` (required): Name of the tool requesting confirmation.
+- `risk_level` (required): "high_write" (yellow) or "destructive" (red).
+- `description` (optional): Explanation of the action.
+- `message` (optional): Alternative to description.
+- `parameters` (optional): Object of parameters being passed to the tool.
+- `tool_call_id` (optional): Internal tool call identifier.
+- `expires_at` (optional): Unix timestamp for expiration countdown.
+
+## export
+
+Download card for export results with format badge, status indicator, and download button.
+
+```
+:::widget{type="export" inline=true}
+{"export_id": "exp-001", "title": "Transaction Report", "format": "csv", "status": "completed", "row_count": 1250, "file_size": 45056}
+:::
+```
+
+Props:
+- `export_id` (required): Export identifier used for the download URL.
+- `title` (required): Export name displayed in the card header.
+- `format` (required): "csv", "json", or "pdf".
+- `status` (required): "pending", "generating", "completed", or "failed".
+- `row_count` (optional): Number of rows in the export.
+- `file_size` (optional): File size in bytes (auto-formatted to KB/MB).
+- `error` (optional): Error message when status is "failed".
+
+## image
+
+Displays an image with an optional caption. Clicking opens a lightbox. Use for screenshots, charts, or visual evidence.
+
+```
+:::widget{type="image" inline=true}
+{"src": "/uploads/screenshot.png", "alt": "Dashboard screenshot", "caption": "Current dashboard view showing KPI metrics."}
+:::
+```
+
+Props:
+- `src` (required): Image URL or path.
+- `alt` (optional): Alt text for accessibility.
+- `caption` (optional): Caption displayed below the image.
+
+## chart
+
+Interactive Chart.js chart. Supports bar, line, pie, doughnut, radar, and polarArea chart types.
+
+```
+:::widget{type="chart" panel=true}
+{"chartType": "bar", "title": "Monthly Revenue", "labels": ["Jan", "Feb", "Mar"], "datasets": [{"label": "Revenue", "data": [4200, 5100, 4800]}]}
+:::
+```
+
+Props:
+- `chartType` (optional, default "bar"): Chart type — "bar", "line", "pie", "doughnut", "radar", "polarArea".
+- `title` (optional): Heading displayed above the chart.
+- `labels` (optional): Array of category labels for the x-axis (or segments for pie/doughnut).
+- `datasets` (optional): Array of dataset objects, each with:
+  - `label` (required): Dataset legend label.
+  - `data` (required): Array of numeric values.
+  - `backgroundColor` (optional): Fill color(s). Auto-assigned if omitted.
+  - `borderColor` (optional): Border color(s). Auto-assigned if omitted.
+  - `borderWidth` (optional): Border width in pixels.
+- `options` (optional): Chart.js options object for advanced customization.
+
+## Usage Guidelines
+
+**Inline vs. Panel:**
+- Use `inline=true` (default) for small, self-contained information: badges, alerts, short tables, key-value pairs.
+- Use `panel=true` for detailed views that benefit from more space: large tables, timelines, charts, diff viewers, data tables with many columns.
+
+**Blocking:**
+- Use `blocking=true` only with `confirmation` widgets for high-risk operations.
+- Never use blocking for informational widgets.
+
+## Best Practices
+
+- **Prefer text for simple answers.** If the answer is one sentence, do not wrap it in a widget. Use widgets when structured presentation adds genuine value.
+- **Do not overuse widgets.** One or two widgets per response is usually sufficient. A wall of widgets is harder to read than prose.
+- **Combine related data.** Use one `data-table` instead of multiple `key-value` widgets when showing a collection of similar items.
+- **flow-diagram guidance:** Use `flow-diagram` for process flows, entity relationships, and decision trees. For standard flowcharts and sequence diagrams where Mermaid syntax is well-known, prefer `mermaid-diagram`.
+- **Match widget to data shape.** Single record = `entity-card`. List of records = `data-table`. Status indicator = `status-badge`. Comparison = `diff-viewer`.
