@@ -18,6 +18,9 @@ from flydesk.knowledge.models import KnowledgeDocument
 from flydesk.knowledge.queue import IndexingTask
 
 if TYPE_CHECKING:
+    from flydesk.catalog.repository import CatalogRepository
+    from flydesk.knowledge.graph import KnowledgeGraph
+    from flydesk.knowledge.kg_extractor import KGExtractor
     from flydesk.processes.discovery import ProcessDiscoveryEngine
 
 logger = logging.getLogger(__name__)
@@ -100,3 +103,99 @@ class ProcessDiscoveryHandler:
     ) -> dict:
         """Run process discovery analysis."""
         return await self._engine._analyze(job_id, payload, on_progress)
+
+
+class KGRecomputeHandler:
+    """Recomputes the knowledge graph by extracting entities and relations
+    from all knowledge documents via ``KGExtractor``.
+
+    Iterates every document in the knowledge base, calls the LLM-based
+    extractor for each, and upserts the resulting entities and relations
+    into the ``KnowledgeGraph``.  Progress is reported per document.
+    """
+
+    def __init__(
+        self,
+        catalog_repo: CatalogRepository,
+        knowledge_graph: KnowledgeGraph,
+        extractor: KGExtractor,
+    ) -> None:
+        self._catalog_repo = catalog_repo
+        self._knowledge_graph = knowledge_graph
+        self._extractor = extractor
+
+    async def execute(
+        self,
+        job_id: str,
+        payload: dict,
+        on_progress: ProgressCallback,
+    ) -> dict:
+        """Extract entities/relations from all documents and upsert into the KG."""
+        from flydesk.knowledge.graph import Entity, Relation
+
+        await on_progress(0, "Loading knowledge documents")
+
+        docs = await self._catalog_repo.list_knowledge_documents()
+        total = len(docs)
+
+        if total == 0:
+            await on_progress(100, "No documents to process")
+            return {"entities_added": 0, "relations_added": 0, "documents_processed": 0}
+
+        entities_added = 0
+        relations_added = 0
+
+        for i, doc in enumerate(docs):
+            doc_title = getattr(doc, "title", "Untitled")
+            doc_content = getattr(doc, "content", "")
+
+            if not doc_content:
+                logger.debug("Skipping empty document: %s", doc_title)
+                pct = int((i + 1) / total * 100)
+                await on_progress(pct, f"Skipped {doc_title} (empty)")
+                continue
+
+            try:
+                entities, relations = await self._extractor.extract_from_document(
+                    doc_content, doc_title
+                )
+            except Exception:
+                logger.warning("Extraction failed for '%s'.", doc_title, exc_info=True)
+                pct = int((i + 1) / total * 100)
+                await on_progress(pct, f"Extraction failed for {doc_title}")
+                continue
+
+            for ent_dict in entities:
+                entity = Entity(
+                    id=ent_dict["id"],
+                    entity_type=ent_dict["entity_type"],
+                    name=ent_dict["name"],
+                    properties=ent_dict.get("properties", {}),
+                    source_system=ent_dict.get("source_system"),
+                    confidence=ent_dict.get("confidence", 1.0),
+                )
+                await self._knowledge_graph.upsert_entity(entity)
+                entities_added += 1
+
+            for rel_dict in relations:
+                relation = Relation(
+                    source_id=rel_dict["source_id"],
+                    target_id=rel_dict["target_id"],
+                    relation_type=rel_dict["relation_type"],
+                    properties=rel_dict.get("properties", {}),
+                    confidence=rel_dict.get("confidence", 1.0),
+                )
+                await self._knowledge_graph.add_relation(relation)
+                relations_added += 1
+
+            pct = int((i + 1) / total * 100)
+            await on_progress(
+                pct,
+                f"Processed {i + 1}/{total} documents ({entities_added} entities, {relations_added} relations)",
+            )
+
+        return {
+            "entities_added": entities_added,
+            "relations_added": relations_added,
+            "documents_processed": total,
+        }

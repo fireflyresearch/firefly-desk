@@ -1,0 +1,233 @@
+# Copyright 2026 Firefly Software Solutions Inc
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+"""Tests for AutoTriggerService -- debounced auto-triggers for KG recomputation
+and process discovery."""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from flydesk.triggers.auto_trigger import AutoTriggerService, DEFAULT_DEBOUNCE_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_config():
+    """DeskConfig mock with auto_analyze enabled by default."""
+    config = MagicMock()
+    config.auto_analyze = True
+    return config
+
+
+@pytest.fixture
+def mock_config_disabled():
+    """DeskConfig mock with auto_analyze disabled."""
+    config = MagicMock()
+    config.auto_analyze = False
+    return config
+
+
+@pytest.fixture
+def mock_job_runner():
+    """JobRunner mock that records submitted jobs."""
+    runner = AsyncMock()
+    runner.submit.return_value = MagicMock(id="job-1")
+    return runner
+
+
+@pytest.fixture
+def trigger(mock_config, mock_job_runner):
+    """AutoTriggerService with a very short debounce window for tests."""
+    return AutoTriggerService(mock_config, mock_job_runner, debounce_seconds=0.05)
+
+
+@pytest.fixture
+def trigger_disabled(mock_config_disabled, mock_job_runner):
+    """AutoTriggerService with auto_analyze disabled."""
+    return AutoTriggerService(mock_config_disabled, mock_job_runner, debounce_seconds=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Tests: on_document_indexed
+# ---------------------------------------------------------------------------
+
+
+class TestOnDocumentIndexed:
+    """Tests for the on_document_indexed event hook."""
+
+    async def test_schedules_kg_recompute(self, trigger, mock_job_runner):
+        """Documents trigger kg_recompute when auto_analyze is enabled."""
+        await trigger.on_document_indexed("doc-1")
+        # Wait for debounce to fire
+        await asyncio.sleep(0.15)
+        mock_job_runner.submit.assert_called_once_with("kg_recompute", {})
+
+    async def test_no_trigger_when_disabled(self, trigger_disabled, mock_job_runner):
+        """No trigger fires when auto_analyze is disabled."""
+        await trigger_disabled.on_document_indexed("doc-1")
+        await asyncio.sleep(0.15)
+        mock_job_runner.submit.assert_not_called()
+
+    async def test_debounces_rapid_documents(self, trigger, mock_job_runner):
+        """Rapid document events are coalesced into a single trigger."""
+        for i in range(5):
+            await trigger.on_document_indexed(f"doc-{i}")
+        await asyncio.sleep(0.15)
+        # Should only fire once (debounced)
+        mock_job_runner.submit.assert_called_once_with("kg_recompute", {})
+
+
+# ---------------------------------------------------------------------------
+# Tests: on_catalog_updated
+# ---------------------------------------------------------------------------
+
+
+class TestOnCatalogUpdated:
+    """Tests for the on_catalog_updated event hook."""
+
+    async def test_schedules_both_triggers(self, trigger, mock_job_runner):
+        """Catalog updates schedule both kg_recompute and process_discovery."""
+        await trigger.on_catalog_updated("sys-1")
+        await asyncio.sleep(0.15)
+        # Both trigger types should be submitted (sorted: kg_recompute, process_discovery)
+        assert mock_job_runner.submit.call_count == 2
+        submitted_types = {call.args[0] for call in mock_job_runner.submit.call_args_list}
+        assert submitted_types == {"kg_recompute", "process_discovery"}
+
+    async def test_no_trigger_when_disabled(self, trigger_disabled, mock_job_runner):
+        """No trigger fires when auto_analyze is disabled."""
+        await trigger_disabled.on_catalog_updated("sys-1")
+        await asyncio.sleep(0.15)
+        mock_job_runner.submit.assert_not_called()
+
+    async def test_debounces_rapid_catalog_updates(self, trigger, mock_job_runner):
+        """Rapid catalog updates are coalesced."""
+        for i in range(3):
+            await trigger.on_catalog_updated(f"sys-{i}")
+        await asyncio.sleep(0.15)
+        # Both trigger types only once each (debounced and deduplicated via set)
+        assert mock_job_runner.submit.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Tests: Debounce logic
+# ---------------------------------------------------------------------------
+
+
+class TestDebounceLogic:
+    """Tests for the internal debounce mechanism."""
+
+    async def test_pending_triggers_cleared_after_fire(self, trigger, mock_job_runner):
+        """After firing, the pending triggers set is empty."""
+        await trigger.on_document_indexed("doc-1")
+        await asyncio.sleep(0.15)
+        assert len(trigger._pending_triggers) == 0
+
+    async def test_mixed_events_coalesced(self, trigger, mock_job_runner):
+        """Document and catalog events within the debounce window are combined."""
+        await trigger.on_document_indexed("doc-1")
+        await trigger.on_catalog_updated("sys-1")
+        await asyncio.sleep(0.15)
+        # kg_recompute (from both) and process_discovery (from catalog) = 2 types
+        assert mock_job_runner.submit.call_count == 2
+        submitted_types = {call.args[0] for call in mock_job_runner.submit.call_args_list}
+        assert submitted_types == {"kg_recompute", "process_discovery"}
+
+    async def test_timer_reset_on_new_event(self, trigger, mock_job_runner):
+        """A new event resets the debounce timer."""
+        await trigger.on_document_indexed("doc-1")
+        # Wait less than the debounce period
+        await asyncio.sleep(0.02)
+        # This should reset the timer
+        await trigger.on_document_indexed("doc-2")
+        # If we waited the original time, it should not have fired yet
+        await asyncio.sleep(0.04)
+        mock_job_runner.submit.assert_not_called()
+        # Wait for the reset timer to fire
+        await asyncio.sleep(0.1)
+        mock_job_runner.submit.assert_called_once()
+
+    async def test_cancel_pending(self, trigger, mock_job_runner):
+        """cancel_pending() prevents scheduled triggers from firing."""
+        await trigger.on_document_indexed("doc-1")
+        trigger.cancel_pending()
+        await asyncio.sleep(0.15)
+        mock_job_runner.submit.assert_not_called()
+        assert len(trigger._pending_triggers) == 0
+        assert trigger._debounce_timer is None
+
+    async def test_fire_triggers_handles_submit_error(self, trigger, mock_job_runner):
+        """_fire_triggers gracefully handles job submission errors."""
+        mock_job_runner.submit.side_effect = RuntimeError("Queue full")
+        await trigger.on_document_indexed("doc-1")
+        # Should not raise
+        await asyncio.sleep(0.15)
+        # The error is logged but no exception propagates
+        assert len(trigger._pending_triggers) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Constructor and defaults
+# ---------------------------------------------------------------------------
+
+
+class TestConstruction:
+    """Tests for AutoTriggerService construction and configuration."""
+
+    def test_default_debounce_seconds(self, mock_config, mock_job_runner):
+        """Default debounce seconds is used when not specified."""
+        svc = AutoTriggerService(mock_config, mock_job_runner)
+        assert svc._debounce_seconds == DEFAULT_DEBOUNCE_SECONDS
+
+    def test_custom_debounce_seconds(self, mock_config, mock_job_runner):
+        """Custom debounce seconds can be set."""
+        svc = AutoTriggerService(mock_config, mock_job_runner, debounce_seconds=10.0)
+        assert svc._debounce_seconds == 10.0
+
+    def test_initial_state_clean(self, mock_config, mock_job_runner):
+        """Service starts with no pending triggers and no timer."""
+        svc = AutoTriggerService(mock_config, mock_job_runner)
+        assert len(svc._pending_triggers) == 0
+        assert svc._debounce_timer is None
+
+    async def test_cancel_pending_on_fresh_service(self, mock_config, mock_job_runner):
+        """cancel_pending() on a fresh service is a no-op."""
+        svc = AutoTriggerService(mock_config, mock_job_runner)
+        svc.cancel_pending()  # Should not raise
+        assert svc._debounce_timer is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: Multiple trigger cycles
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleCycles:
+    """Tests for re-using the service across multiple trigger cycles."""
+
+    async def test_sequential_trigger_cycles(self, trigger, mock_job_runner):
+        """Service can handle multiple independent trigger cycles."""
+        # First cycle
+        await trigger.on_document_indexed("doc-1")
+        await asyncio.sleep(0.15)
+        assert mock_job_runner.submit.call_count == 1
+
+        mock_job_runner.submit.reset_mock()
+
+        # Second cycle
+        await trigger.on_catalog_updated("sys-1")
+        await asyncio.sleep(0.15)
+        assert mock_job_runner.submit.call_count == 2  # kg_recompute + process_discovery
