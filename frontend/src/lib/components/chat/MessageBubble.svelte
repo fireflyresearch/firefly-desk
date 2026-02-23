@@ -15,6 +15,7 @@
 	import { currentUser } from '$lib/stores/user.js';
 	import MarkdownContent from './MarkdownContent.svelte';
 	import ToolSummary from './ToolSummary.svelte';
+	import TokenUsage from './TokenUsage.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
 
@@ -164,6 +165,9 @@
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
 					<ToolSummary tools={message.toolExecutions} />
+				{/if}
+				{#if !message.isStreaming && message.usage}
+					<TokenUsage usage={message.usage} />
 				{/if}
 				<span
 					class="mt-1 px-1 text-xs text-text-secondary opacity-0 transition-opacity group-hover:opacity-100"

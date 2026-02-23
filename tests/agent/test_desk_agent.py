@@ -1146,3 +1146,252 @@ class TestDeskAgentStreamWithFactory:
         logged_event = audit_logger.log.call_args[0][0]
         assert logged_event.user_id == "user-42"
         assert logged_event.conversation_id == "conv-1"
+
+
+# ---------------------------------------------------------------------------
+# DeskAgent USAGE event emission tests
+# ---------------------------------------------------------------------------
+
+class TestDeskAgentUsageEvent:
+    """Tests for USAGE SSE event emission in stream() and run_with_reasoning()."""
+
+    @pytest.fixture
+    def mock_agent_factory(self) -> MagicMock:
+        from flydesk.agent.genai_bridge import DeskAgentFactory
+
+        factory = MagicMock(spec=DeskAgentFactory)
+        factory.create_agent = AsyncMock()
+        return factory
+
+    @pytest.fixture
+    def desk_agent_with_factory(
+        self,
+        context_enricher,
+        prompt_builder,
+        tool_factory,
+        widget_parser,
+        audit_logger,
+        mock_agent_factory,
+    ) -> DeskAgent:
+        return DeskAgent(
+            context_enricher=context_enricher,
+            prompt_builder=prompt_builder,
+            tool_factory=tool_factory,
+            widget_parser=widget_parser,
+            audit_logger=audit_logger,
+            agent_name="Test Assistant",
+            company_name="TestCo",
+            agent_factory=mock_agent_factory,
+        )
+
+    def _make_mock_agent_with_usage(self, mock_agent_factory, tokens=("Hello",)):
+        """Create a mock agent with streaming that exposes usage() on the stream."""
+        mock_agent = AsyncMock()
+        # Give the agent a _model_identifier for usage extraction
+        mock_agent._model_identifier = "openai:gpt-4o"
+
+        async def fake_stream_tokens():
+            for tok in tokens:
+                yield tok
+
+        mock_stream = MagicMock()
+        mock_stream.stream_tokens = fake_stream_tokens
+
+        # The stream.usage() method returns token counts
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 150
+        mock_usage.output_tokens = 50
+        mock_usage.total_tokens = 200
+        mock_stream.usage = MagicMock(return_value=mock_usage)
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_agent.run_stream = AsyncMock(return_value=mock_stream_ctx)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        return mock_agent
+
+    async def test_stream_emits_usage_event_before_done(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """stream() should emit a USAGE event before the DONE event."""
+        self._make_mock_agent_with_usage(mock_agent_factory)
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        event_types = [e.event for e in events]
+        assert SSEEventType.USAGE in event_types
+        usage_idx = event_types.index(SSEEventType.USAGE)
+        done_idx = event_types.index(SSEEventType.DONE)
+        assert usage_idx < done_idx
+
+    async def test_stream_usage_event_contains_token_counts(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """The USAGE event should contain input_tokens, output_tokens, total_tokens."""
+        self._make_mock_agent_with_usage(mock_agent_factory)
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        usage_events = [e for e in events if e.event == SSEEventType.USAGE]
+        assert len(usage_events) == 1
+
+        data = usage_events[0].data
+        assert data["input_tokens"] == 150
+        assert data["output_tokens"] == 50
+        assert data["total_tokens"] == 200
+
+    async def test_stream_usage_event_contains_model(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """The USAGE event should contain the model identifier."""
+        self._make_mock_agent_with_usage(mock_agent_factory)
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        usage_events = [e for e in events if e.event == SSEEventType.USAGE]
+        assert len(usage_events) == 1
+        assert usage_events[0].data["model"] == "openai:gpt-4o"
+
+    async def test_stream_usage_event_contains_cost(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """The USAGE event should contain a cost_usd field."""
+        self._make_mock_agent_with_usage(mock_agent_factory)
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        usage_events = [e for e in events if e.event == SSEEventType.USAGE]
+        assert len(usage_events) == 1
+        assert "cost_usd" in usage_events[0].data
+
+    async def test_stream_no_usage_when_no_factory(
+        self, desk_agent, user_session
+    ):
+        """stream() without agent_factory should not emit a USAGE event (fallback echo)."""
+        events: list[SSEEvent] = []
+        async for evt in desk_agent.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        usage_events = [e for e in events if e.event == SSEEventType.USAGE]
+        assert len(usage_events) == 0
+
+    async def test_stream_no_usage_when_agent_is_none(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """stream() should not emit USAGE when create_agent() returns None."""
+        mock_agent_factory.create_agent.return_value = None
+
+        events: list[SSEEvent] = []
+        async for evt in desk_agent_with_factory.stream("Hello", user_session, "conv-1"):
+            events.append(evt)
+
+        usage_events = [e for e in events if e.event == SSEEventType.USAGE]
+        assert len(usage_events) == 0
+
+    async def test_stream_event_order_with_usage(
+        self, desk_agent_with_factory, mock_agent_factory, user_session
+    ):
+        """Events should follow: TOOL_START, TOOL_END, TOKEN+, TOOL_SUMMARY, USAGE, DONE."""
+        self._make_mock_agent_with_usage(mock_agent_factory)
+
+        event_types: list[SSEEventType] = []
+        async for evt in desk_agent_with_factory.stream("test", user_session, "conv-1"):
+            event_types.append(evt.event)
+
+        assert event_types[0] == SSEEventType.TOOL_START
+        assert event_types[1] == SSEEventType.TOOL_END
+        assert SSEEventType.TOKEN in event_types
+        assert SSEEventType.TOOL_SUMMARY in event_types
+
+        summary_idx = event_types.index(SSEEventType.TOOL_SUMMARY)
+        usage_idx = event_types.index(SSEEventType.USAGE)
+        done_idx = event_types.index(SSEEventType.DONE)
+        assert summary_idx < usage_idx < done_idx
+
+    async def test_usage_event_serializes_to_sse(self):
+        """SSEEvent with USAGE type should serialize correctly."""
+        event = SSEEvent(
+            event=SSEEventType.USAGE,
+            data={
+                "input_tokens": 100,
+                "output_tokens": 25,
+                "total_tokens": 125,
+                "cost_usd": 0.0012,
+                "model": "anthropic:claude-sonnet-4-20250514",
+            },
+        )
+        sse_str = event.to_sse()
+        assert "event: usage" in sse_str
+        assert '"input_tokens": 100' in sse_str
+        assert '"model": "anthropic:claude-sonnet-4-20250514"' in sse_str
+
+    async def test_extract_stream_usage_populates_dict(self):
+        """_extract_stream_usage should populate the usage_out dict from a stream."""
+        mock_stream = MagicMock()
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 300
+        mock_usage.output_tokens = 100
+        mock_usage.total_tokens = 400
+        mock_stream.usage = MagicMock(return_value=mock_usage)
+
+        mock_agent = MagicMock()
+        mock_agent._model_identifier = "google-gla:gemini-2.0-flash"
+
+        usage_out: dict = {}
+        DeskAgent._extract_stream_usage(mock_stream, mock_agent, usage_out)
+
+        assert usage_out["input_tokens"] == 300
+        assert usage_out["output_tokens"] == 100
+        assert usage_out["total_tokens"] == 400
+        assert usage_out["model"] == "google-gla:gemini-2.0-flash"
+        assert "cost_usd" in usage_out
+
+    async def test_extract_stream_usage_handles_missing_usage(self):
+        """_extract_stream_usage should handle streams without usage()."""
+        mock_stream = MagicMock(spec=[])  # No attributes at all
+        mock_agent = MagicMock()
+        mock_agent._model_identifier = "openai:gpt-4o"
+
+        usage_out: dict = {}
+        DeskAgent._extract_stream_usage(mock_stream, mock_agent, usage_out)
+
+        assert usage_out == {}
+
+    async def test_extract_result_usage_returns_dict(self):
+        """_extract_result_usage should return a populated dict from a result."""
+        mock_result = MagicMock()
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 200
+        mock_usage.output_tokens = 75
+        mock_usage.total_tokens = 275
+        mock_result.usage = MagicMock(return_value=mock_usage)
+
+        mock_agent = MagicMock()
+        mock_agent._model_identifier = "openai:gpt-4o-mini"
+
+        result = DeskAgent._extract_result_usage(mock_result, mock_agent)
+
+        assert result["input_tokens"] == 200
+        assert result["output_tokens"] == 75
+        assert result["total_tokens"] == 275
+        assert result["model"] == "openai:gpt-4o-mini"
+
+    async def test_extract_result_usage_returns_empty_on_no_usage(self):
+        """_extract_result_usage should return {} when result has no usage()."""
+        mock_result = MagicMock(spec=[])
+        mock_agent = MagicMock()
+        mock_agent._model_identifier = "openai:gpt-4o"
+
+        result = DeskAgent._extract_result_usage(mock_result, mock_agent)
+        assert result == {}
