@@ -100,12 +100,12 @@
 	let operationCount = $derived(operations?.length ?? 0);
 </script>
 
-<div class="rounded-xl border border-border border-l-4 {overallConfig.borderColor} bg-surface-elevated shadow-sm">
+<div class="rounded-xl border border-border border-l-4 {overallConfig.borderColor} bg-surface-elevated shadow-sm transition-shadow hover:shadow-md">
 	<!-- Header: collapsible -->
 	<button
 		type="button"
 		onclick={() => (expanded = !expanded)}
-		class="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-surface-hover rounded-t-xl"
+		class="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-surface-hover rounded-t-xl"
 	>
 		<div class="flex items-center gap-2.5 min-w-0">
 			<span class="{overallConfig.color} shrink-0">
@@ -145,7 +145,7 @@
 				{#each operations as op, i}
 					{@const meta = riskMeta[op.risk_level] ?? riskMeta.read}
 					{@const OpIcon = meta.icon}
-					<li class="flex items-center gap-3 px-5 py-3">
+					<li class="flex items-center gap-3 px-4 py-3">
 						<!-- Risk icon -->
 						<span class="{meta.color} shrink-0">
 							<OpIcon size={16} />

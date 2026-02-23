@@ -15,14 +15,14 @@
 
 <div class="rounded-xl border border-border bg-surface-elevated shadow-sm">
 	{#if title}
-		<div class="border-b border-border px-5 py-3">
+		<div class="border-b border-border px-4 py-3">
 			<h3 class="text-sm font-semibold text-text-primary">{title}</h3>
 		</div>
 	{/if}
 
 	<dl class="divide-y divide-border">
 		{#each items as item}
-			<div class="flex items-baseline justify-between gap-4 px-5 py-3">
+			<div class="flex items-baseline justify-between gap-4 px-4 py-3">
 				<dt class="shrink-0 text-xs font-medium uppercase tracking-wider text-text-secondary">{item.key}</dt>
 				<dd class="truncate text-right text-sm text-text-primary">{item.value}</dd>
 			</div>

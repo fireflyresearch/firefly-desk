@@ -61,7 +61,7 @@
 	}
 </script>
 
-<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm hover:shadow-md transition-shadow">
+<div class="rounded-xl border border-border bg-surface-elevated p-4 shadow-sm transition-shadow hover:shadow-md">
 	<!-- Header row: icon + title + format badge -->
 	<div class="flex items-start justify-between gap-3">
 		<div class="flex items-center gap-2.5 min-w-0">
