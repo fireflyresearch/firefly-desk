@@ -21,6 +21,7 @@ from flydesk.knowledge.importer import KnowledgeImporter
 from flydesk.knowledge.indexer import KnowledgeIndexer
 from flydesk.knowledge.models import DocumentType, KnowledgeDocument
 from flydesk.knowledge.openapi_parser import OpenAPIParser
+from flydesk.knowledge.queue import IndexingQueueProducer, IndexingTask
 from flydesk.rbac.guards import KnowledgeDelete, KnowledgeRead, KnowledgeWrite
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -65,6 +66,13 @@ class IndexResult(BaseModel):
 
     document_id: str
     chunks_created: int
+
+
+class IndexingEnqueued(BaseModel):
+    """Response returned when a document has been enqueued for background indexing."""
+
+    document_id: str
+    status: str = "indexing"
 
 
 class DocumentMetadataUpdate(BaseModel):
@@ -185,6 +193,17 @@ def get_knowledge_importer() -> KnowledgeImporter:
     )
 
 
+def get_indexing_producer() -> IndexingQueueProducer:
+    """Provide the background indexing queue producer.
+
+    In production this is wired via the lifespan.
+    In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_indexing_producer must be overridden via app.dependency_overrides"
+    )
+
+
 def get_knowledge_graph() -> KnowledgeGraph:
     """Provide a KnowledgeGraph instance.
 
@@ -200,6 +219,7 @@ Indexer = Annotated[KnowledgeIndexer, Depends(get_knowledge_indexer)]
 DocStore = Annotated[KnowledgeDocumentStore, Depends(get_knowledge_doc_store)]
 Importer = Annotated[KnowledgeImporter, Depends(get_knowledge_importer)]
 Graph = Annotated[KnowledgeGraph, Depends(get_knowledge_graph)]
+Producer = Annotated[IndexingQueueProducer, Depends(get_indexing_producer)]
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +257,24 @@ async def get_document(document_id: str, store: DocStore) -> dict[str, Any]:
     return doc.model_dump(mode="json")
 
 
-@router.post("/documents", status_code=201, dependencies=[KnowledgeWrite])
-async def create_document(document: KnowledgeDocument, indexer: Indexer) -> IndexResult:
-    """Upload and index a knowledge document."""
-    chunks = await indexer.index_document(document)
-    return IndexResult(document_id=document.id, chunks_created=len(chunks))
+@router.post("/documents", status_code=202, dependencies=[KnowledgeWrite])
+async def create_document(document: KnowledgeDocument, producer: Producer) -> IndexingEnqueued:
+    """Enqueue a knowledge document for background indexing.
+
+    Returns immediately with ``status: "indexing"`` while the document is
+    chunked and embedded asynchronously by the indexing queue consumer.
+    """
+    task = IndexingTask(
+        document_id=document.id,
+        title=document.title,
+        content=document.content,
+        document_type=str(document.document_type),
+        source=document.source or "",
+        tags=document.tags,
+        metadata=document.metadata,
+    )
+    await producer.enqueue(task)
+    return IndexingEnqueued(document_id=document.id)
 
 
 @router.put("/documents/{document_id}", dependencies=[KnowledgeWrite])

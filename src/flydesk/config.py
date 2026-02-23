@@ -66,6 +66,9 @@ class DeskConfig(BaseSettings):
     memory_max_tokens: int = 128_000
     memory_summarize_threshold: int = 10
 
+    # -- Queue --
+    queue_backend: Literal["memory", "redis"] = "memory"
+
     # -- Knowledge --
     embedding_model: str = "openai:text-embedding-3-small"
     embedding_dimensions: int = 1536
