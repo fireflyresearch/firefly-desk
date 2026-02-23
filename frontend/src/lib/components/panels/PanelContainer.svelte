@@ -10,9 +10,9 @@
 <script lang="ts">
 	import PanelHeader from './PanelHeader.svelte';
 	import PanelStack from './PanelStack.svelte';
-	import { panelStack, popPanel, closePanel } from '$lib/stores/panel.js';
+	import { panelStack, popPanel, closePanel, type PanelItem } from '$lib/stores/panel.js';
 
-	let stack: typeof import('$lib/stores/panel.js').PanelItem[] = $state([]);
+	let stack: PanelItem[] = $state([]);
 
 	$effect(() => {
 		const unsub = panelStack.subscribe((value) => {

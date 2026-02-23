@@ -34,13 +34,15 @@
 	// Risk-level configuration
 	// -----------------------------------------------------------------------
 
-	const riskMeta: Record<RiskLevel, { label: string; color: string; bgColor: string; borderColor: string; icon: Component; order: number }> = {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- lucide-svelte types use legacy Svelte component signature
+	type IconComponent = Component<any>;
+	const riskMeta: Record<RiskLevel, { label: string; color: string; bgColor: string; borderColor: string; icon: IconComponent; order: number }> = {
 		read: {
 			label: 'READ',
 			color: 'text-success',
 			bgColor: 'bg-success/10 text-success border-success/20',
 			borderColor: 'border-l-success',
-			icon: ShieldCheck,
+			icon: ShieldCheck as unknown as IconComponent,
 			order: 0
 		},
 		low_write: {
@@ -48,7 +50,7 @@
 			color: 'text-accent',
 			bgColor: 'bg-accent/10 text-accent border-accent/20',
 			borderColor: 'border-l-accent',
-			icon: Shield,
+			icon: Shield as unknown as IconComponent,
 			order: 1
 		},
 		high_write: {
@@ -56,7 +58,7 @@
 			color: 'text-warning',
 			bgColor: 'bg-warning/10 text-warning border-warning/20',
 			borderColor: 'border-l-warning',
-			icon: ShieldAlert,
+			icon: ShieldAlert as unknown as IconComponent,
 			order: 2
 		},
 		destructive: {
@@ -64,7 +66,7 @@
 			color: 'text-danger',
 			bgColor: 'bg-danger/10 text-danger border-danger/20',
 			borderColor: 'border-l-danger',
-			icon: ShieldX,
+			icon: ShieldX as unknown as IconComponent,
 			order: 3
 		}
 	};
@@ -73,7 +75,7 @@
 	// Derived computations
 	// -----------------------------------------------------------------------
 
-	let computedOverallRisk = $derived<RiskLevel>(() => {
+	let computedOverallRisk: RiskLevel = $derived.by(() => {
 		if (overall_risk) return overall_risk;
 		if (!operations || operations.length === 0) return 'read';
 
@@ -89,8 +91,7 @@
 		return maxRisk;
 	});
 
-	let overallRiskResolved = $derived(computedOverallRisk());
-	let overallConfig = $derived(riskMeta[overallRiskResolved] ?? riskMeta.read);
+	let overallConfig = $derived(riskMeta[computedOverallRisk] ?? riskMeta.read);
 	let OverallIcon = $derived(overallConfig.icon);
 
 	let confirmationCount = $derived(

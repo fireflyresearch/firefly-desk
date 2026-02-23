@@ -31,7 +31,8 @@ import ActionButtons from '$lib/components/widgets/ActionButtons.svelte';
 // Registry
 // ---------------------------------------------------------------------------
 
-export const widgetRegistry: Record<string, Component> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const widgetRegistry: Record<string, Component<any>> = {
 	'status-badge': StatusBadge,
 	'entity-card': EntityCard,
 	'data-table': DataTable,
@@ -58,6 +59,7 @@ export const widgetRegistry: Record<string, Component> = {
 // ---------------------------------------------------------------------------
 
 /** Resolve a widget type string to its Svelte component, or undefined. */
-export function getWidget(type: string): Component | undefined {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getWidget(type: string): Component<any> | undefined {
 	return widgetRegistry[type];
 }
