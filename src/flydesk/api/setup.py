@@ -69,11 +69,22 @@ class LLMProviderConfig(BaseModel):
     model_name: str | None = None
 
 
+class AgentSettingsConfig(BaseModel):
+    """Agent customization from the setup wizard."""
+
+    name: str = "Ember"
+    display_name: str = "Ember"
+    personality: str = "warm, professional, knowledgeable"
+    tone: str = "friendly"
+    greeting: str = "Hello! I'm {name}, your intelligent assistant."
+
+
 class ConfigureRequest(BaseModel):
     """Request body for the setup wizard configure endpoint."""
 
     llm_provider: LLMProviderConfig | None = None
     seed_data: bool | None = None
+    agent_settings: AgentSettingsConfig | None = None
 
 
 class ConfigureResult(BaseModel):
@@ -116,6 +127,20 @@ class TestEmbeddingResult(BaseModel):
     success: bool
     dimensions: int = 0
     duration_ms: float = 0
+    error: str | None = None
+
+
+class DatabaseTestRequest(BaseModel):
+    """Request body for testing database connectivity."""
+
+    connection_string: str = ""
+
+
+class DatabaseTestResult(BaseModel):
+    """Result of a database connectivity test."""
+
+    success: bool
+    database_type: str = ""
     error: str | None = None
 
 
@@ -212,6 +237,64 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
             success=False,
             error=str(exc),
         )
+
+
+@router.post("/test-database")
+async def test_database(body: DatabaseTestRequest, request: Request) -> DatabaseTestResult:
+    """Test database connectivity.
+
+    If no connection_string is provided, test the current database connection
+    (which should always succeed since the application is already running).
+    If a connection_string is provided, attempt to connect and execute a
+    simple query to verify connectivity.
+    """
+    from sqlalchemy import text
+
+    if not body.connection_string:
+        # Test the current database -- just verify the session factory works.
+        session_factory = getattr(request.app.state, "session_factory", None)
+        if not session_factory:
+            return DatabaseTestResult(
+                success=False,
+                database_type="unknown",
+                error="No database session available.",
+            )
+        try:
+            async with session_factory() as session:
+                await session.execute(text("SELECT 1"))
+            from flydesk.config import get_config
+
+            config = get_config()
+            db_type = "PostgreSQL" if "postgresql" in config.database_url else "SQLite"
+            return DatabaseTestResult(success=True, database_type=db_type)
+        except Exception as exc:
+            logger.error("Current database test failed: %s", exc)
+            return DatabaseTestResult(
+                success=False,
+                database_type="unknown",
+                error=str(exc),
+            )
+    else:
+        # Test the provided connection string.
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        db_type = "PostgreSQL" if "postgresql" in body.connection_string else "SQLite"
+        engine = None
+        try:
+            engine = create_async_engine(body.connection_string)
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return DatabaseTestResult(success=True, database_type=db_type)
+        except Exception as exc:
+            logger.error("Database connection test failed: %s", exc)
+            return DatabaseTestResult(
+                success=False,
+                database_type=db_type,
+                error=str(exc),
+            )
+        finally:
+            if engine:
+                await engine.dispose()
 
 
 @router.get("/status")
@@ -447,7 +530,31 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 success=False, message=f"Failed to seed data: {exc}"
             )
 
-    # 3. Mark setup as complete
+    # 3. Save agent settings if provided
+    if body.agent_settings:
+        try:
+            from flydesk.settings.models import AgentSettings
+            from flydesk.settings.repository import SettingsRepository
+
+            agent_settings_repo = SettingsRepository(session_factory)
+            agent = AgentSettings(
+                name=body.agent_settings.name,
+                display_name=body.agent_settings.display_name,
+                personality=body.agent_settings.personality,
+                tone=body.agent_settings.tone,
+                greeting=body.agent_settings.greeting,
+            )
+            await agent_settings_repo.set_agent_settings(agent)
+            details["agent_settings"] = "configured"
+            logger.info("Agent settings configured via setup: %s", agent.name)
+        except Exception as exc:
+            logger.error("Failed to save agent settings: %s", exc)
+            return ConfigureResult(
+                success=False,
+                message=f"Failed to save agent settings: {exc}",
+            )
+
+    # 4. Mark setup as complete
     try:
         from flydesk.settings.repository import SettingsRepository
 
