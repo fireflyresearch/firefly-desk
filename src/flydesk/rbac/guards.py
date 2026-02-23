@@ -71,6 +71,10 @@ AuditRead = require_permission("audit:read")
 CredentialsRead = require_permission("credentials:read")
 CredentialsWrite = require_permission("credentials:write")
 
+# Jobs
+JobsRead = require_permission("jobs:read")
+JobsCancel = require_permission("jobs:cancel")
+
 # Administration
 AdminUsers = require_permission("admin:users")
 AdminSettings = require_permission("admin:settings")

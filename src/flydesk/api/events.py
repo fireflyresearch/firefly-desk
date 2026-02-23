@@ -29,6 +29,7 @@ class SSEEventType(StrEnum):
     USAGE = "usage"
     ERROR = "error"
     DONE = "done"
+    JOB_PROGRESS = "job_progress"
 
 
 class SSEEvent(BaseModel):

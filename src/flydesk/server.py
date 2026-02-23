@@ -44,6 +44,8 @@ from flydesk.api.feedback import router as feedback_router
 from flydesk.api.files import get_content_extractor, get_file_repo, get_file_storage
 from flydesk.api.files import router as files_router
 from flydesk.api.health import router as health_router
+from flydesk.api.jobs import get_job_repo, get_job_runner
+from flydesk.api.jobs import router as jobs_router
 from flydesk.api.knowledge import (
     get_indexing_producer,
     get_knowledge_doc_store,
@@ -292,6 +294,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.indexing_consumer = indexing_consumer
     app.dependency_overrides[get_indexing_producer] = lambda: indexing_producer
 
+    # Background job system -- general-purpose job runner with typed handlers.
+    from flydesk.jobs.handlers import IndexingJobHandler
+    from flydesk.jobs.repository import JobRepository
+    from flydesk.jobs.runner import JobRunner
+
+    job_repo = JobRepository(session_factory)
+    job_runner = JobRunner(job_repo)
+    job_runner.register_handler("indexing", IndexingJobHandler(indexer))
+    await job_runner.start()
+    app.state.job_runner = job_runner
+    app.state.job_repo = job_repo
+    app.dependency_overrides[get_job_repo] = lambda: job_repo
+    app.dependency_overrides[get_job_runner] = lambda: job_runner
+
     # Wire the DeskAgent and its dependencies
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.desk_agent import DeskAgent
@@ -499,6 +515,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Shutdown
+    await job_runner.stop()
     await indexing_consumer.stop()
     await indexing_producer.stop()
     if vector_store is not None:
@@ -582,5 +599,6 @@ def create_app() -> FastAPI:
     app.include_router(prompts_router)
     app.include_router(tools_admin_router)
     app.include_router(sso_mappings_router)
+    app.include_router(jobs_router)
 
     return app

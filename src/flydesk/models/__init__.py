@@ -14,6 +14,7 @@ from flydesk.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndp
 from flydesk.models.conversation import ConversationRow, MessageRow
 from flydesk.models.export import ExportRow, ExportTemplateRow
 from flydesk.models.file_upload import FileUploadRow
+from flydesk.models.job import JobRow
 from flydesk.models.knowledge import EntityRow, RelationRow
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 from flydesk.models.llm import LLMProviderRow
@@ -34,6 +35,7 @@ __all__ = [
     "ExportTemplateRow",
     "ExternalSystemRow",
     "FileUploadRow",
+    "JobRow",
     "KnowledgeDocumentRow",
     "LLMProviderRow",
     "MessageRow",
