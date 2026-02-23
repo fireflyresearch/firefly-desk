@@ -18,8 +18,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -59,80 +61,10 @@ class KGExtractionResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Prompt templates
+# Prompt templates directory
 # ---------------------------------------------------------------------------
 
-_DOCUMENT_SYSTEM_PROMPT = """\
-You are an expert knowledge graph engineer. Your task is to extract entities
-and relationships from the provided text.
-
-Rules:
-- Identify key business entities (systems, processes, roles, departments,
-  concepts, data objects, APIs, services).
-- Identify relationships between entities (e.g. "uses", "produces",
-  "depends_on", "managed_by", "part_of", "integrates_with").
-- Assign a confidence score between 0.0 and 1.0 to each entity and relation.
-- Use lowercase_snake_case for entity_type and relation_type.
-- Respond with ONLY a valid JSON object matching this schema:
-
-{
-  "entities": [
-    {"name": "...", "entity_type": "...", "properties": {}, "confidence": 0.9}
-  ],
-  "relations": [
-    {"source": "entity_name", "target": "entity_name", "relation_type": "...", "properties": {}, "confidence": 0.8}
-  ]
-}
-
-Do NOT include any text outside the JSON object.
-"""
-
-_DOCUMENT_USER_PROMPT_TEMPLATE = """\
-Extract entities and relationships from the following document.
-
-Title: {title}
-
-Content:
-{content}
-"""
-
-_CATALOG_SYSTEM_PROMPT = """\
-You are an expert knowledge graph engineer. Your task is to extract entities
-and relationships from a catalog system description and its API endpoints.
-
-Rules:
-- The system itself should be an entity of type "system".
-- Each endpoint should be an entity of type "api_endpoint".
-- Identify relationships such as "has_endpoint", "integrates_with",
-  "depends_on", "produces", "consumes".
-- Assign confidence scores between 0.0 and 1.0.
-- Use lowercase_snake_case for entity_type and relation_type.
-- Respond with ONLY a valid JSON object matching this schema:
-
-{
-  "entities": [
-    {"name": "...", "entity_type": "...", "properties": {}, "confidence": 0.9}
-  ],
-  "relations": [
-    {"source": "entity_name", "target": "entity_name", "relation_type": "...", "properties": {}, "confidence": 0.8}
-  ]
-}
-
-Do NOT include any text outside the JSON object.
-"""
-
-_CATALOG_USER_PROMPT_TEMPLATE = """\
-Extract entities and relationships from this catalog system:
-
-System Name: {name}
-Description: {description}
-Base URL: {base_url}
-Status: {status}
-Tags: {tags}
-
-Endpoints:
-{endpoints}
-"""
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +80,18 @@ class KGExtractor:
     empty lists.
     """
 
-    def __init__(self, agent_factory: DeskAgentFactory) -> None:
+    def __init__(
+        self,
+        agent_factory: DeskAgentFactory,
+        *,
+        prompts_dir: Path | None = None,
+    ) -> None:
         self._agent_factory = agent_factory
+        templates_path = prompts_dir or _PROMPTS_DIR
+        self._jinja_env = Environment(
+            loader=FileSystemLoader(str(templates_path)),
+            autoescape=False,
+        )
 
     async def extract_from_document(
         self,
@@ -163,11 +105,12 @@ class KGExtractor:
             of dicts suitable for ``KnowledgeGraph.upsert_entity()`` and
             ``KnowledgeGraph.add_relation()``.
         """
-        user_prompt = _DOCUMENT_USER_PROMPT_TEMPLATE.format(
+        system_prompt = self._render_document_system()
+        user_prompt = self._render_document_user(
             title=title,
             content=content[:8000],  # Truncate to avoid token limits
         )
-        return await self._extract(_DOCUMENT_SYSTEM_PROMPT, user_prompt, source_system=None)
+        return await self._extract(system_prompt, user_prompt, source_system=None)
 
     async def extract_from_catalog(
         self,
@@ -191,7 +134,8 @@ class KGExtractor:
             )
         endpoints_text = "\n".join(endpoint_lines) if endpoint_lines else "  (none)"
 
-        user_prompt = _CATALOG_USER_PROMPT_TEMPLATE.format(
+        system_prompt = self._render_catalog_system()
+        user_prompt = self._render_catalog_user(
             name=system_name,
             description=system_description,
             base_url=base_url,
@@ -199,7 +143,46 @@ class KGExtractor:
             tags=", ".join(tags),
             endpoints=endpoints_text,
         )
-        return await self._extract(_CATALOG_SYSTEM_PROMPT, user_prompt, source_system=system_name)
+        return await self._extract(system_prompt, user_prompt, source_system=system_name)
+
+    # ------------------------------------------------------------------
+    # Prompt rendering
+    # ------------------------------------------------------------------
+
+    def _render_document_system(self) -> str:
+        """Render the document extraction system prompt template."""
+        template = self._jinja_env.get_template("kg_extraction_document_system.j2")
+        return template.render()
+
+    def _render_document_user(self, title: str, content: str) -> str:
+        """Render the document extraction user prompt template."""
+        template = self._jinja_env.get_template("kg_extraction_document_user.j2")
+        return template.render(title=title, content=content)
+
+    def _render_catalog_system(self) -> str:
+        """Render the catalog extraction system prompt template."""
+        template = self._jinja_env.get_template("kg_extraction_catalog_system.j2")
+        return template.render()
+
+    def _render_catalog_user(
+        self,
+        name: str,
+        description: str,
+        base_url: str,
+        status: str,
+        tags: str,
+        endpoints: str,
+    ) -> str:
+        """Render the catalog extraction user prompt template."""
+        template = self._jinja_env.get_template("kg_extraction_catalog_user.j2")
+        return template.render(
+            name=name,
+            description=description,
+            base_url=base_url,
+            status=status,
+            tags=tags,
+            endpoints=endpoints,
+        )
 
     # ------------------------------------------------------------------
     # Internal
