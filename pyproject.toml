@@ -30,6 +30,8 @@ flydesk = "flydesk.cli:main"
 flydesk-seed = "flydesk.seeds.cli:main"
 
 [project.optional-dependencies]
+chromadb = ["chromadb>=0.5"]
+pinecone = ["pinecone>=5.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
