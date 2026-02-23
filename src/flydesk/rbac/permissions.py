@@ -34,6 +34,8 @@ class Permission(StrEnum):
     CREDENTIALS_WRITE = "credentials:write"
     JOBS_READ = "jobs:read"
     JOBS_CANCEL = "jobs:cancel"
+    PROCESSES_READ = "processes:read"
+    PROCESSES_WRITE = "processes:write"
     ADMIN_USERS = "admin:users"
     ADMIN_SETTINGS = "admin:settings"
     ADMIN_ROLES = "admin:roles"
@@ -66,6 +68,8 @@ BUILTIN_ROLES: list[Role] = [
             "audit:read",
             "jobs:read",
             "jobs:cancel",
+            "processes:read",
+            "processes:write",
         ],
         is_builtin=True,
     ),
@@ -79,6 +83,7 @@ BUILTIN_ROLES: list[Role] = [
             "catalog:read",
             "chat:send",
             "jobs:read",
+            "processes:read",
         ],
         is_builtin=True,
     ),

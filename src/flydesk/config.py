@@ -90,6 +90,9 @@ class DeskConfig(BaseSettings):
     audit_retention_days: int = 365
     rate_limit_per_user: int = 60
 
+    # -- Analysis --
+    auto_analyze: bool = False
+
     # -- Docs --
     docs_path: str = "docs"
     docs_auto_index: bool = True
