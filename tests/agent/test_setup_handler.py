@@ -47,6 +47,7 @@ async def _collect(handler, message: str):
     return events
 
 
+@pytest.mark.skip(reason="SetupConversationHandler replaced by form-based wizard")
 class TestSetupConversationHandler:
     """Tests for the setup conversation state machine."""
 
