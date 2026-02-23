@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -20,6 +20,7 @@ from flydesk.agent.genai_bridge import (
     _set_provider_env,
     provider_to_model_string,
 )
+from flydesk.config import DeskConfig
 from flydesk.llm.models import LLMProvider, ProviderType
 
 
@@ -176,6 +177,17 @@ class TestDeskAgentFactory:
     ) -> DeskAgentFactory:
         return DeskAgentFactory(llm_repo, memory_manager=memory_manager)
 
+    @pytest.fixture
+    def _make_config(self):
+        """Return a helper that builds a DeskConfig with middleware flags."""
+        def _factory(**overrides):
+            env = {"FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db"}
+            for key, val in overrides.items():
+                env[f"FLYDESK_{key.upper()}"] = str(val)
+            with patch.dict(os.environ, env):
+                return DeskConfig()
+        return _factory
+
     async def test_returns_none_when_no_provider(self, factory, llm_repo):
         llm_repo.get_default_provider.return_value = None
         result = await factory.create_agent("You are a helpful assistant.")
@@ -220,6 +232,7 @@ class TestDeskAgentFactory:
             auto_register=False,
             default_middleware=False,
             memory=None,
+            middleware=None,
         )
         assert result is mock_agent_cls.return_value
 
@@ -301,3 +314,129 @@ class TestDeskAgentFactory:
         """DeskAgentFactory should default memory_manager to None."""
         factory = DeskAgentFactory(llm_repo)
         assert factory._memory_manager is None
+
+    def test_factory_stores_config(self, llm_repo, _make_config):
+        """DeskAgentFactory should store the config."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        assert factory._config is cfg
+
+    def test_factory_defaults_config_to_none(self, llm_repo):
+        """DeskAgentFactory should default config to None."""
+        factory = DeskAgentFactory(llm_repo)
+        assert factory._config is None
+
+
+# ---------------------------------------------------------------------------
+# Middleware selection tests
+# ---------------------------------------------------------------------------
+
+class TestBuildMiddleware:
+    """Tests for DeskAgentFactory._build_middleware()."""
+
+    @pytest.fixture
+    def llm_repo(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def _make_config(self):
+        def _factory(**overrides):
+            env = {"FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db"}
+            for key, val in overrides.items():
+                env[f"FLYDESK_{key.upper()}"] = str(val)
+            with patch.dict(os.environ, env):
+                return DeskConfig()
+        return _factory
+
+    def test_no_config_returns_empty(self, llm_repo):
+        """No config means no middleware."""
+        factory = DeskAgentFactory(llm_repo, config=None)
+        assert factory._build_middleware() == []
+
+    def test_all_disabled_returns_empty(self, llm_repo, _make_config):
+        """All middleware disabled returns empty list."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        assert factory._build_middleware() == []
+
+    def test_cost_guard_enabled(self, llm_repo, _make_config):
+        """When cost_guard_enabled is True, CostGuardMiddleware is included."""
+        from fireflyframework_genai.agents.builtin_middleware import CostGuardMiddleware
+
+        cfg = _make_config(cost_guard_enabled="true", cost_guard_max_per_message="2.5", cost_guard_max_per_day="100")
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        mw = factory._build_middleware()
+        assert len(mw) >= 1
+        cost_guard = [m for m in mw if isinstance(m, CostGuardMiddleware)]
+        assert len(cost_guard) == 1
+        assert cost_guard[0]._budget == 100.0
+        assert cost_guard[0]._per_call_limit == 2.5
+
+    def test_prompt_cache_enabled(self, llm_repo, _make_config):
+        """When prompt_cache_enabled is True, PromptCacheMiddleware is included."""
+        from fireflyframework_genai.agents.prompt_cache import PromptCacheMiddleware
+
+        cfg = _make_config(prompt_cache_enabled="true", prompt_cache_ttl="600")
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        mw = factory._build_middleware()
+        assert len(mw) >= 1
+        cache = [m for m in mw if isinstance(m, PromptCacheMiddleware)]
+        assert len(cache) == 1
+        assert cache[0]._cache_ttl_seconds == 600
+
+    def test_circuit_breaker_enabled(self, llm_repo, _make_config):
+        """When circuit_breaker_enabled is True, CircuitBreakerMiddleware is included."""
+        from fireflyframework_genai.resilience.circuit_breaker import CircuitBreakerMiddleware
+
+        cfg = _make_config(
+            circuit_breaker_enabled="true",
+            circuit_breaker_failure_threshold="10",
+            circuit_breaker_recovery_timeout="120",
+        )
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        mw = factory._build_middleware()
+        assert len(mw) >= 1
+        cb = [m for m in mw if isinstance(m, CircuitBreakerMiddleware)]
+        assert len(cb) == 1
+
+    def test_all_middleware_enabled(self, llm_repo, _make_config):
+        """When all middleware flags are enabled, all three are included."""
+        cfg = _make_config(
+            cost_guard_enabled="true",
+            prompt_cache_enabled="true",
+            circuit_breaker_enabled="true",
+        )
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        mw = factory._build_middleware()
+        assert len(mw) == 3
+
+    @patch("flydesk.agent.genai_bridge.FireflyAgent")
+    async def test_create_agent_passes_middleware(
+        self, mock_agent_cls, llm_repo, _make_config, monkeypatch,
+    ):
+        """create_agent() should pass the built middleware list to FireflyAgent."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg = _make_config(cost_guard_enabled="true")
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        llm_repo.get_default_provider.return_value = provider
+
+        await factory.create_agent("system prompt")
+        call_kwargs = mock_agent_cls.call_args
+        assert call_kwargs.kwargs["middleware"] is not None
+        assert len(call_kwargs.kwargs["middleware"]) == 1
+
+    @patch("flydesk.agent.genai_bridge.FireflyAgent")
+    async def test_create_agent_no_middleware_when_disabled(
+        self, mock_agent_cls, llm_repo, _make_config, monkeypatch,
+    ):
+        """create_agent() should pass middleware=None when all disabled."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        llm_repo.get_default_provider.return_value = provider
+
+        await factory.create_agent("system prompt")
+        call_kwargs = mock_agent_cls.call_args
+        assert call_kwargs.kwargs["middleware"] is None

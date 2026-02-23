@@ -343,7 +343,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     from flydesk.agent.genai_bridge import DeskAgentFactory
 
-    agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager)
+    agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
 
     desk_agent = DeskAgent(
         context_enricher=context_enricher,

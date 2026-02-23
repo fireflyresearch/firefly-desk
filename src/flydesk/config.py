@@ -90,6 +90,16 @@ class DeskConfig(BaseSettings):
     file_storage_path: str = "./uploads"
     file_max_size_mb: int = 50
 
+    # -- Middleware --
+    cost_guard_enabled: bool = False
+    cost_guard_max_per_message: float = 1.0  # USD per call
+    cost_guard_max_per_day: float = 50.0  # USD cumulative daily budget
+    prompt_cache_enabled: bool = False
+    prompt_cache_ttl: int = 300  # seconds
+    circuit_breaker_enabled: bool = False
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_recovery_timeout: int = 60  # seconds
+
     # -- Branding --
     app_title: str = "Firefly Desk"
     app_logo_url: str | None = None

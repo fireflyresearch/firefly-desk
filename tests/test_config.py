@@ -86,3 +86,46 @@ class TestDeskConfig:
             assert cfg.memory_backend == "postgres"
             assert cfg.memory_max_tokens == 64_000
             assert cfg.memory_summarize_threshold == 20
+
+    # -- Middleware config fields --
+
+    def test_middleware_defaults(self):
+        """Middleware config fields have sensible defaults (all disabled)."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
+        }):
+            cfg = DeskConfig()
+            # CostGuard
+            assert cfg.cost_guard_enabled is False
+            assert cfg.cost_guard_max_per_message == 1.0
+            assert cfg.cost_guard_max_per_day == 50.0
+            # PromptCache
+            assert cfg.prompt_cache_enabled is False
+            assert cfg.prompt_cache_ttl == 300
+            # CircuitBreaker
+            assert cfg.circuit_breaker_enabled is False
+            assert cfg.circuit_breaker_failure_threshold == 5
+            assert cfg.circuit_breaker_recovery_timeout == 60
+
+    def test_middleware_from_env(self):
+        """Middleware config fields can be set via environment variables."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
+            "FLYDESK_COST_GUARD_ENABLED": "true",
+            "FLYDESK_COST_GUARD_MAX_PER_MESSAGE": "2.5",
+            "FLYDESK_COST_GUARD_MAX_PER_DAY": "100.0",
+            "FLYDESK_PROMPT_CACHE_ENABLED": "true",
+            "FLYDESK_PROMPT_CACHE_TTL": "600",
+            "FLYDESK_CIRCUIT_BREAKER_ENABLED": "true",
+            "FLYDESK_CIRCUIT_BREAKER_FAILURE_THRESHOLD": "10",
+            "FLYDESK_CIRCUIT_BREAKER_RECOVERY_TIMEOUT": "120",
+        }):
+            cfg = DeskConfig()
+            assert cfg.cost_guard_enabled is True
+            assert cfg.cost_guard_max_per_message == 2.5
+            assert cfg.cost_guard_max_per_day == 100.0
+            assert cfg.prompt_cache_enabled is True
+            assert cfg.prompt_cache_ttl == 600
+            assert cfg.circuit_breaker_enabled is True
+            assert cfg.circuit_breaker_failure_threshold == 10
+            assert cfg.circuit_breaker_recovery_timeout == 120
