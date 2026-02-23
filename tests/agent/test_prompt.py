@@ -54,8 +54,10 @@ class TestSystemPromptBuilder:
         )
         prompt = self.builder.build(ctx)
 
-        assert "Desk Bot." in prompt or "Desk Bot. You are" in prompt
-        assert " for " not in prompt.split("# Current User")[0].split("You are Desk Bot")[1]
+        assert "Desk Bot" in prompt
+        # When no company_name, " for " should not appear after the agent name
+        identity_section = prompt.split("# Current User")[0]
+        assert " for " not in identity_section.split("You are Desk Bot")[1][:20]
 
     def test_user_context_includes_roles(self):
         """Roles are listed in the user context section."""
@@ -174,15 +176,12 @@ class TestSystemPromptBuilder:
         assert len(sections) >= 5
 
     def test_ember_identity_includes_personality(self):
-        """Ember identity includes personality traits and communication style."""
+        """Ember identity uses custom template with default personality."""
         ctx = PromptContext(agent_name="Ember")
         prompt = self.builder.build(ctx)
 
-        assert "steady, persistent glow of a firefly" in prompt
-        assert "## Personality" in prompt
-        assert "warm but professional" in prompt
-        assert "## Communication Style" in prompt
-        assert "short, clear sentences" in prompt
+        assert "Ember" in prompt
+        assert "warm, professional, knowledgeable" in prompt
         assert "## Knowledge and Honesty" in prompt
 
     def test_ember_identity_with_company_suffix(self):
@@ -190,17 +189,16 @@ class TestSystemPromptBuilder:
         ctx = PromptContext(agent_name="Ember", company_name="Acme Corp")
         prompt = self.builder.build(ctx)
 
-        assert "You are Ember for Acme Corp" in prompt
-        assert "steady, persistent glow of a firefly" in prompt
+        assert "Ember" in prompt
+        assert "Acme Corp" in prompt
 
-    def test_non_ember_name_uses_generic_identity(self):
-        """A custom agent name falls back to the generic identity section."""
+    def test_non_ember_name_uses_custom_template(self):
+        """A custom agent name uses the custom identity template."""
         ctx = PromptContext(agent_name="Custom Bot")
         prompt = self.builder.build(ctx)
 
-        assert "You are Custom Bot." in prompt or "You are Custom Bot. You are" in prompt
-        assert "steady, persistent glow of a firefly" not in prompt
-        assert "## Personality" not in prompt
+        assert "Custom Bot" in prompt
+        assert "warm, professional, knowledgeable" in prompt
 
 
 class TestPromptContextPersonalization:

@@ -46,36 +46,16 @@ class SystemPromptBuilder:
 
     def build(self, context: PromptContext) -> str:
         """Assemble the full system prompt."""
-        # Identity -- use the parameterized custom template when personality
-        # or other customization fields are provided.  Fall back to the
-        # legacy templates only when no customization data is present.
-        has_customization = bool(
-            context.personality
-            or context.tone
-            or context.behavior_rules
-            or context.custom_instructions
+        # Identity -- always use the parameterized custom template.
+        identity = self._registry.get("identity_custom").render(
+            agent_name=context.agent_name,
+            company_name=context.company_name,
+            personality=context.personality or "warm, professional, knowledgeable",
+            tone=context.tone or "friendly yet precise",
+            behavior_rules=context.behavior_rules,
+            custom_instructions=context.custom_instructions,
+            language=context.language,
         )
-
-        if has_customization:
-            identity = self._registry.get("identity_custom").render(
-                agent_name=context.agent_name,
-                company_name=context.company_name,
-                personality=context.personality,
-                tone=context.tone,
-                behavior_rules=context.behavior_rules,
-                custom_instructions=context.custom_instructions,
-                language=context.language,
-            )
-        elif context.agent_name == "Ember":
-            identity = self._registry.get("identity_ember").render(
-                agent_name=context.agent_name,
-                company_name=context.company_name,
-            )
-        else:
-            identity = self._registry.get("identity").render(
-                agent_name=context.agent_name,
-                company_name=context.company_name,
-            )
 
         user_ctx = self._user_context_section(context)
         tools = self._registry.get("available_tools").render(
