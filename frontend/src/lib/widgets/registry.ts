@@ -19,6 +19,10 @@ import ExportCard from '$lib/components/widgets/ExportCard.svelte';
 import SafetyPlanCard from '$lib/components/widgets/SafetyPlanCard.svelte';
 import ImageCard from '$lib/components/widgets/ImageCard.svelte';
 import ChartWidget from '$lib/components/widgets/ChartWidget.svelte';
+import MermaidDiagram from '$lib/components/widgets/MermaidDiagram.svelte';
+import CitationCard from '$lib/components/widgets/CitationCard.svelte';
+import ProgressBar from '$lib/components/widgets/ProgressBar.svelte';
+import AccordionWidget from '$lib/components/widgets/AccordionWidget.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -36,7 +40,11 @@ export const widgetRegistry: Record<string, Component> = {
 	'export': ExportCard,
 	'safety-plan': SafetyPlanCard,
 	'image': ImageCard,
-	'chart': ChartWidget
+	'chart': ChartWidget,
+	'mermaid-diagram': MermaidDiagram,
+	'citation-card': CitationCard,
+	'progress-bar': ProgressBar,
+	'accordion': AccordionWidget
 };
 
 // ---------------------------------------------------------------------------
