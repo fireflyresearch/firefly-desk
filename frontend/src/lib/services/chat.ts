@@ -12,11 +12,14 @@ import { get } from 'svelte/store';
 import { apiFetch } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
-import type { WidgetDirective, MessageFile } from '../stores/chat.js';
+import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep } from '../stores/chat.js';
 import {
 	addMessage,
 	updateStreamingMessage,
 	appendWidget,
+	appendReasoningStep,
+	setReasoningPlan,
+	clearReasoningState,
 	finishStreaming,
 	isStreaming,
 	messages,
@@ -28,6 +31,16 @@ import { startTool, endTool, clearToolState, completedTools } from '../stores/to
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Options for sending a message with reasoning mode enabled.
+ */
+export interface SendMessageOptions {
+	/** Enable reasoning mode (e.g. ReAct, PlanAndExecute). */
+	reasoning?: boolean;
+	/** Explicit reasoning pattern name (implies reasoning=true). */
+	pattern?: string;
+}
 
 /**
  * Send a user message and stream the assistant response.
@@ -43,12 +56,14 @@ import { startTool, endTool, clearToolState, completedTools } from '../stores/to
  * @param message        - The user's message text.
  * @param fileIds        - Optional file IDs to attach to the message.
  * @param files          - Optional file metadata for display in message bubbles.
+ * @param options        - Optional reasoning configuration.
  */
 export async function sendMessage(
 	conversationId: string,
 	message: string,
 	fileIds?: string[],
-	files?: MessageFile[]
+	files?: MessageFile[],
+	options?: SendMessageOptions
 ): Promise<void> {
 	const userMessageId = crypto.randomUUID();
 	const assistantMessageId = crypto.randomUUID();
@@ -81,12 +96,16 @@ export async function sendMessage(
 	});
 
 	try {
-		// 4. POST to backend (include file_ids when present)
+		// 4. POST to backend (include file_ids and optional reasoning flags)
+		const body: Record<string, unknown> = { message, file_ids: fileIds ?? [] };
+		if (options?.reasoning) body.reasoning = true;
+		if (options?.pattern) body.pattern = options.pattern;
+
 		const response = await apiFetch(
 			`/chat/conversations/${encodeURIComponent(conversationId)}/send`,
 			{
 				method: 'POST',
-				body: JSON.stringify({ message, file_ids: fileIds ?? [] })
+				body: JSON.stringify(body)
 			}
 		);
 
@@ -180,6 +199,24 @@ function handleSSEEvent(msg: SSEMessage): void {
 			break;
 		}
 
+		case 'reasoning_step': {
+			const step: ReasoningStep = {
+				step_number: msg.data.step_number as number,
+				step_type: msg.data.step_type as string,
+				description: msg.data.description as string,
+				status: msg.data.status as string
+			};
+			appendReasoningStep(step);
+			break;
+		}
+
+		case 'plan': {
+			const steps =
+				(msg.data.steps as Array<{ description: string; status: string }>) ?? [];
+			setReasoningPlan(steps);
+			break;
+		}
+
 		case 'error': {
 			const errorMsg = msg.data.message;
 			if (typeof errorMsg === 'string') {
@@ -193,6 +230,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 			const tools = get(completedTools);
 			finishStreaming(tools.length > 0 ? tools : undefined);
 			clearToolState();
+			clearReasoningState();
 			break;
 		}
 

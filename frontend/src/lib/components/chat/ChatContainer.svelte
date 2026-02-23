@@ -11,6 +11,7 @@
 <script lang="ts">
 	import MessageBubble from './MessageBubble.svelte';
 	import StreamingMessage from './StreamingMessage.svelte';
+	import ReasoningIndicator from './ReasoningIndicator.svelte';
 	import WidgetSlot from './WidgetSlot.svelte';
 	import InputBar from './InputBar.svelte';
 	import ChatEmptyState from './ChatEmptyState.svelte';
@@ -18,7 +19,8 @@
 	import {
 		messages,
 		activeConversationId,
-		isStreaming
+		isStreaming,
+		reasoningSteps
 	} from '$lib/stores/chat.js';
 	import { sendMessage } from '$lib/services/chat.js';
 	import type { UploadedFile } from '$lib/services/files.js';
@@ -121,6 +123,13 @@
 			<div class="mx-auto flex max-w-3xl flex-col gap-1 py-4">
 				{#each $messages as message (message.id)}
 					{#if message.isStreaming}
+						{#if $reasoningSteps.length > 0}
+							<div class="px-4 py-1">
+								<div class="ml-10">
+									<ReasoningIndicator steps={$reasoningSteps} />
+								</div>
+							</div>
+						{/if}
 						<StreamingMessage content={message.content} />
 					{:else}
 						<MessageBubble {message} />

@@ -30,6 +30,8 @@ class ChatMessage(BaseModel):
     message: str
     conversation_id: str | None = None
     file_ids: list[str] = Field(default_factory=list)
+    reasoning: bool = False
+    pattern: str | None = None
 
 
 class SuggestionItem(BaseModel):
@@ -419,10 +421,21 @@ async def send_message(
         async def agent_stream():
             collected: list[str] = []
             collected_widgets: list[dict] = []
-            async for event in desk_agent.stream(
-                body.message, user_session, conversation_id,
-                file_ids=body.file_ids or None,
-            ):
+
+            # Choose reasoning or standard stream based on request flags
+            if body.reasoning or body.pattern:
+                event_source = desk_agent.run_with_reasoning(
+                    body.message, user_session, conversation_id,
+                    pattern=body.pattern or "auto",
+                    file_ids=body.file_ids or None,
+                )
+            else:
+                event_source = desk_agent.stream(
+                    body.message, user_session, conversation_id,
+                    file_ids=body.file_ids or None,
+                )
+
+            async for event in event_source:
                 # Collect token content for persistence
                 if event.event == SSEEventType.TOKEN and isinstance(event.data, dict):
                     token = event.data.get("content", "")
