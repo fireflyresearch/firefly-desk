@@ -47,7 +47,7 @@
 				const stats = await apiJson<{
 					system_count?: number;
 					knowledge_doc_count?: number;
-				}>('/dashboard/stats');
+				}>('/admin/dashboard/stats');
 				systemCount = stats.system_count ?? 0;
 				docCount = stats.knowledge_doc_count ?? 0;
 			} catch {
@@ -219,7 +219,7 @@
 </script>
 
 <div
-	class="relative flex h-full flex-col items-center justify-center px-4"
+	class="relative flex min-h-full flex-col items-center justify-center px-4"
 	style="background: radial-gradient(circle at 50% 30%, var(--color-ember-glow) 0%, transparent 60%)"
 >
 	<!-- Hero section -->

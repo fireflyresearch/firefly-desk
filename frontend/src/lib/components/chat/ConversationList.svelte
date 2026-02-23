@@ -9,7 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Plus, MessageSquare, Trash2, Check, X, Search, Sparkles } from 'lucide-svelte';
+	import { Plus, MessageSquare, Trash2, Check, X, Search, Sparkles, Pencil } from 'lucide-svelte';
 	import {
 		conversations,
 		activeConversationId,
@@ -156,15 +156,15 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<!-- Header area: New Conversation button + search -->
-	<div class="space-y-2 border-b border-border/50 px-3 py-3">
+	<!-- Header area -->
+	<div class="space-y-2.5 px-3 pb-3 pt-3">
 		<!-- New Conversation button -->
 		<button
 			type="button"
 			onclick={handleNew}
-			class="group/new flex w-full items-center gap-2 rounded-lg border border-border/50 px-3 py-2.5 text-sm font-medium text-text-secondary transition-all hover:border-ember/40 hover:bg-ember/5 hover:text-text-primary"
+			class="group/new flex w-full items-center justify-center gap-2 rounded-lg bg-ember/10 px-3 py-2.5 text-sm font-medium text-ember transition-all hover:bg-ember/20 active:scale-[0.98]"
 		>
-			<Plus size={16} class="transition-transform group-hover/new:rotate-90" />
+			<Plus size={16} class="transition-transform duration-200 group-hover/new:rotate-90" />
 			New Conversation
 		</button>
 
@@ -172,39 +172,47 @@
 		<div class="relative">
 			<Search
 				size={14}
-				class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary"
+				class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary/60"
 			/>
 			<input
 				type="text"
 				bind:value={searchQuery}
-				placeholder="Search conversations..."
-				class="w-full rounded-lg border border-border/50 bg-surface/50 py-1.5 pl-8 pr-3 text-sm text-text-primary placeholder:text-text-secondary/50 outline-none transition-colors focus:border-accent/50 focus:bg-surface"
+				placeholder="Search..."
+				class="w-full rounded-lg border border-border/40 bg-surface/60 py-1.5 pl-8 pr-3 text-sm text-text-primary placeholder:text-text-secondary/40 outline-none transition-colors focus:border-accent/40 focus:bg-surface"
 			/>
 		</div>
 	</div>
 
+	<!-- Divider -->
+	<div class="mx-3 h-px bg-border/30"></div>
+
 	<!-- Conversation items grouped by date -->
-	<div class="flex-1 overflow-y-auto">
+	<div class="flex-1 overflow-y-auto pt-1">
 		{#if filteredConversations.length === 0 && $conversations.length === 0}
 			<!-- Empty state -->
-			<div class="flex flex-col items-center gap-2 px-3 py-10 text-center">
-				<Sparkles size={20} class="text-ember/60" />
-				<span class="text-sm text-text-secondary">
-					Start a conversation with Ember
-				</span>
+			<div class="flex flex-col items-center gap-3 px-4 py-12 text-center">
+				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-ember/10">
+					<Sparkles size={18} class="text-ember" />
+				</div>
+				<div>
+					<p class="text-sm font-medium text-text-primary">No conversations yet</p>
+					<p class="mt-1 text-xs text-text-secondary">
+						Start a conversation with Ember
+					</p>
+				</div>
 			</div>
 		{:else if filteredConversations.length === 0}
 			<!-- No search results -->
-			<div class="px-3 py-6 text-center text-xs text-text-secondary">
-				No conversations match your search
+			<div class="px-4 py-8 text-center text-xs text-text-secondary">
+				No conversations match "{searchQuery}"
 			</div>
 		{:else}
 			{#each GROUP_ORDER as groupName}
 				{#if groupedConversations[groupName]?.length}
 					<!-- Group header -->
-					<div class="px-3 py-1.5 first:pt-2">
+					<div class="px-4 pb-1 pt-3">
 						<span
-							class="text-[11px] font-semibold uppercase tracking-wider text-text-secondary/70"
+							class="text-[10px] font-semibold uppercase tracking-widest text-text-secondary/50"
 						>
 							{groupName}
 						</span>
@@ -216,22 +224,22 @@
 						{@const isEditing = editingId === conversation.id}
 						{@const isDeleting = deletingId === conversation.id}
 						<div
-							class="group relative flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors
+							class="group relative mx-2 mb-0.5 rounded-lg transition-colors
 								{isActive
-								? 'border-l-2 border-l-ember bg-ember/5'
-								: 'border-l-2 border-l-transparent hover:bg-surface-hover/50'}"
+								? 'bg-ember/8'
+								: 'hover:bg-surface-hover/60'}"
 						>
 							<!-- Click area for selection -->
 							<button
 								type="button"
 								onclick={() => handleSelect(conversation.id)}
-								class="flex min-w-0 flex-1 items-start gap-2.5"
+								class="flex w-full items-start gap-2.5 px-3 py-2.5 text-left"
 								disabled={isEditing || isDeleting}
 							>
 								<span
 									class="mt-0.5 shrink-0 {isActive
 										? 'text-ember'
-										: 'text-text-secondary'}"
+										: 'text-text-secondary/60'}"
 								>
 									<MessageSquare size={14} />
 								</span>
@@ -245,14 +253,14 @@
 											onkeydown={(e) =>
 												handleRenameKeydown(e, conversation.id)}
 											autofocus
-											class="w-full rounded border border-border bg-surface px-1 py-0.5 text-sm text-text-primary outline-none focus:border-accent"
+											class="w-full rounded border border-accent/50 bg-surface px-1.5 py-0.5 text-sm text-text-primary outline-none focus:border-accent"
 											onclick={(e) => e.stopPropagation()}
 										/>
 									{:else}
 										<div
-											class="truncate text-sm font-medium {isActive
-												? 'text-ember'
-												: 'text-text-primary'}"
+											class="truncate text-[13px] leading-snug {isActive
+												? 'font-semibold text-ember'
+												: 'font-medium text-text-primary'}"
 											ondblclick={() =>
 												startRename(
 													conversation.id,
@@ -271,22 +279,22 @@
 											{conversation.title}
 										</div>
 									{/if}
-									<div class="mt-0.5 text-xs text-text-secondary">
+									<div class="mt-0.5 text-[11px] text-text-secondary/60">
 										{formatRelativeTime(conversation.updatedAt)}
 									</div>
 								</div>
 							</button>
 
-							<!-- Action buttons -->
+							<!-- Action buttons (hover overlay) -->
 							{#if isEditing}
-								<div class="flex items-center gap-1">
+								<div class="absolute right-2 top-2 flex items-center gap-0.5">
 									<button
 										type="button"
 										onclick={() => confirmRename(conversation.id)}
 										class="flex h-6 w-6 items-center justify-center rounded text-green-500 hover:bg-green-500/10"
 										aria-label="Confirm rename"
 									>
-										<Check size={14} />
+										<Check size={13} />
 									</button>
 									<button
 										type="button"
@@ -294,38 +302,48 @@
 										class="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover"
 										aria-label="Cancel rename"
 									>
-										<X size={14} />
+										<X size={13} />
 									</button>
 								</div>
 							{:else if isDeleting}
-								<div class="flex items-center gap-1">
-									<span class="text-xs text-text-secondary">Delete?</span>
+								<div class="absolute right-2 top-2 flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-1 shadow-sm border border-border/50">
+									<span class="text-[11px] text-danger">Delete?</span>
 									<button
 										type="button"
 										onclick={() => confirmDelete(conversation.id)}
-										class="flex h-6 w-6 items-center justify-center rounded text-red-500 hover:bg-red-500/10"
+										class="flex h-5 w-5 items-center justify-center rounded text-danger hover:bg-danger/10"
 										aria-label="Confirm delete"
 									>
-										<Check size={14} />
+										<Check size={12} />
 									</button>
 									<button
 										type="button"
 										onclick={cancelDelete}
-										class="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover"
+										class="flex h-5 w-5 items-center justify-center rounded text-text-secondary hover:bg-surface-hover"
 										aria-label="Cancel delete"
 									>
-										<X size={14} />
+										<X size={12} />
 									</button>
 								</div>
 							{:else}
-								<button
-									type="button"
-									onclick={() => startDelete(conversation.id)}
-									class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-secondary opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
-									aria-label="Delete conversation"
-								>
-									<Trash2 size={14} />
-								</button>
+								<div class="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+									<button
+										type="button"
+										onclick={() => startRename(conversation.id, conversation.title)}
+										class="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary/70 hover:bg-surface-hover hover:text-text-primary"
+										aria-label="Rename conversation"
+									>
+										<Pencil size={12} />
+									</button>
+									<button
+										type="button"
+										onclick={() => startDelete(conversation.id)}
+										class="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary/70 hover:bg-danger/10 hover:text-danger"
+										aria-label="Delete conversation"
+									>
+										<Trash2 size={12} />
+									</button>
+								</div>
 							{/if}
 						</div>
 					{/each}
