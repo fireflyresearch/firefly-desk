@@ -288,6 +288,7 @@
 								<input
 									type="url"
 									bind:value={form.avatar_url}
+									oninput={() => (avatarError = false)}
 									placeholder="https://example.com/avatar.png"
 									class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
 								/>
