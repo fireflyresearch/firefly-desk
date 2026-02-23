@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import secrets
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -61,7 +62,7 @@ class DeskConfig(BaseSettings):
     max_tools_per_turn: int = 10
 
     # -- Memory --
-    memory_backend: str = "in_memory"  # "in_memory" | "postgres"
+    memory_backend: Literal["in_memory", "postgres"] = "in_memory"
     memory_max_tokens: int = 128_000
     memory_summarize_threshold: int = 10
 
