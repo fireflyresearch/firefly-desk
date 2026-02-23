@@ -34,6 +34,7 @@
 
 	const navItems = [
 		{ href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+		{ href: '/admin/agent', label: 'Agent', icon: Bot },
 		{ href: '/admin/catalog', label: 'Catalog', icon: Database },
 		{ href: '/admin/credentials', label: 'Credentials', icon: Key },
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },

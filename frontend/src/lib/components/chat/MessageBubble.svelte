@@ -20,6 +20,7 @@
 	import EmberAvatar from './EmberAvatar.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
 	import MessageActions from './MessageActions.svelte';
+	import { agentSettings } from '$lib/stores/agent.js';
 
 	interface MessageBubbleProps {
 		message: Message;
@@ -168,9 +169,17 @@
 	<!-- Assistant message: full-width left-aligned, no bubble background -->
 	<div class="group flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200, delay: staggerDelay }}>
 		<div class="flex gap-3">
-			<!-- Ember avatar -->
-			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center">
-				<EmberAvatar size={20} />
+			<!-- Agent avatar (custom or default Ember) -->
+			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full">
+				{#if $agentSettings.avatar_url}
+					<img
+						src={$agentSettings.avatar_url}
+						alt={$agentSettings.display_name || 'Assistant'}
+						class="h-7 w-7 rounded-full object-cover"
+					/>
+				{:else}
+					<EmberAvatar size={20} />
+				{/if}
 			</div>
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
