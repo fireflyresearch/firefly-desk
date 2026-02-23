@@ -168,6 +168,53 @@ class TestPersistMessagesFileIds:
 
 
 # ---------------------------------------------------------------------------
+# _persist_messages widget wiring tests
+# ---------------------------------------------------------------------------
+
+
+class TestPersistMessagesWidgets:
+    """Tests that _persist_messages forwards widgets to assistant metadata."""
+
+    async def test_persist_messages_stores_widgets_in_assistant_metadata(self):
+        """widgets should be stored in assistant Message.metadata['widgets']."""
+        mock_repo = AsyncMock()
+        mock_repo.get_conversation = AsyncMock(
+            return_value=Conversation(id="conv-1", user_id="user-1")
+        )
+        mock_repo.add_message = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.app.state.conversation_repo = mock_repo
+        mock_request.state.user_session = MagicMock(user_id="user-1")
+
+        widgets = [{"widget_id": "w-1", "type": "chart", "props": {}, "display": "inline"}]
+        await _persist_messages(
+            mock_request, "conv-1", "Hello", "Reply", widgets=widgets,
+        )
+
+        assert mock_repo.add_message.await_count == 2
+        assistant_msg: Message = mock_repo.add_message.call_args_list[1][0][0]
+        assert assistant_msg.metadata["widgets"] == widgets
+
+    async def test_persist_messages_no_widgets_metadata_is_empty(self):
+        """When widgets is None, assistant metadata should be empty."""
+        mock_repo = AsyncMock()
+        mock_repo.get_conversation = AsyncMock(
+            return_value=Conversation(id="conv-1", user_id="user-1")
+        )
+        mock_repo.add_message = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.app.state.conversation_repo = mock_repo
+        mock_request.state.user_session = MagicMock(user_id="user-1")
+
+        await _persist_messages(mock_request, "conv-1", "Hello", "Reply")
+
+        assistant_msg: Message = mock_repo.add_message.call_args_list[1][0][0]
+        assert assistant_msg.metadata == {}
+
+
+# ---------------------------------------------------------------------------
 # DeskAgent._build_file_context unit tests
 # ---------------------------------------------------------------------------
 
