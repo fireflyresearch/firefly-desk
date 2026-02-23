@@ -2,7 +2,7 @@
   CredentialVault.svelte - Credential management interface.
 
   Lists credentials in a table with rotate and revoke actions.
-  Never displays encrypted values.
+  Never displays encrypted values. Links credentials to catalog systems.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -26,9 +26,15 @@
 	interface Credential {
 		id: string;
 		name: string;
-		system: string;
-		type: string;
+		system_id: string;
+		credential_type: string;
 		expires_at: string | null;
+		last_rotated: string | null;
+	}
+
+	interface CatalogSystem {
+		id: string;
+		name: string;
 	}
 
 	// -----------------------------------------------------------------------
@@ -36,12 +42,19 @@
 	// -----------------------------------------------------------------------
 
 	let credentials = $state<Credential[]>([]);
+	let systems = $state<CatalogSystem[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 
 	// Form state
 	let showForm = $state(false);
-	let formData = $state({ name: '', system: '', type: 'api_key', secret: '', expires_at: '' });
+	let formData = $state({
+		name: '',
+		system_id: '',
+		credential_type: 'api_key',
+		encrypted_value: '',
+		expires_at: ''
+	});
 	let saving = $state(false);
 
 	// -----------------------------------------------------------------------
@@ -60,8 +73,17 @@
 		}
 	}
 
+	async function loadSystems() {
+		try {
+			systems = await apiJson<CatalogSystem[]>('/catalog/systems');
+		} catch {
+			// Non-fatal: form will fall back to text input
+		}
+	}
+
 	$effect(() => {
 		loadCredentials();
+		loadSystems();
 	});
 
 	// -----------------------------------------------------------------------
@@ -69,7 +91,13 @@
 	// -----------------------------------------------------------------------
 
 	function openAddForm() {
-		formData = { name: '', system: '', type: 'api_key', secret: '', expires_at: '' };
+		formData = {
+			name: '',
+			system_id: '',
+			credential_type: 'api_key',
+			encrypted_value: '',
+			expires_at: ''
+		};
 		showForm = true;
 	}
 
@@ -80,15 +108,13 @@
 	async function submitForm() {
 		saving = true;
 		error = '';
-		const payload: Record<string, string> = {
+		const payload: Record<string, string | null> = {
 			name: formData.name,
-			system: formData.system,
-			type: formData.type,
-			secret: formData.secret
+			system_id: formData.system_id,
+			credential_type: formData.credential_type,
+			encrypted_value: formData.encrypted_value,
+			expires_at: formData.expires_at || null
 		};
-		if (formData.expires_at) {
-			payload.expires_at = formData.expires_at;
-		}
 
 		try {
 			await apiJson('/credentials', {
@@ -112,7 +138,7 @@
 		try {
 			await apiJson(`/credentials/${id}`, {
 				method: 'PUT',
-				body: JSON.stringify({ secret: newSecret })
+				body: JSON.stringify({ encrypted_value: newSecret })
 			});
 			await loadCredentials();
 		} catch (e) {
@@ -122,6 +148,8 @@
 
 	async function revokeCredential(id: string) {
 		error = '';
+		if (!confirm('Are you sure you want to revoke this credential? This cannot be undone.')) return;
+
 		try {
 			await apiJson(`/credentials/${id}`, { method: 'DELETE' });
 			await loadCredentials();
@@ -134,7 +162,18 @@
 	// Helpers
 	// -----------------------------------------------------------------------
 
+	function systemName(systemId: string): string {
+		const system = systems.find((s) => s.id === systemId);
+		return system?.name ?? systemId;
+	}
+
 	function formatExpiry(dateStr: string | null): string {
+		if (!dateStr) return 'Never';
+		const d = new Date(dateStr);
+		return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+	}
+
+	function formatRotated(dateStr: string | null): string {
 		if (!dateStr) return 'Never';
 		const d = new Date(dateStr);
 		return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -155,6 +194,8 @@
 				return 'Basic Auth';
 			case 'bearer':
 				return 'Bearer Token';
+			case 'mutual_tls':
+				return 'Mutual TLS';
 			default:
 				return type;
 		}
@@ -166,7 +207,9 @@
 	<div class="flex items-center justify-between">
 		<div>
 			<h1 class="text-lg font-semibold text-text-primary">Credential Vault</h1>
-			<p class="text-sm text-text-secondary">Manage authentication credentials for external systems</p>
+			<p class="text-sm text-text-secondary">
+				Manage authentication credentials for external systems
+			</p>
 		</div>
 		<button
 			type="button"
@@ -212,31 +255,46 @@
 						type="text"
 						bind:value={formData.name}
 						required
+						placeholder="e.g. Production API Key"
 						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 					/>
 				</label>
 
 				<label class="flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">System</span>
-					<input
-						type="text"
-						bind:value={formData.system}
-						required
-						placeholder="e.g. salesforce"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
+					{#if systems.length > 0}
+						<select
+							bind:value={formData.system_id}
+							required
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						>
+							<option value="" disabled>Select a system...</option>
+							{#each systems as system}
+								<option value={system.id}>{system.name}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							bind:value={formData.system_id}
+							required
+							placeholder="System ID"
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					{/if}
 				</label>
 
 				<label class="flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">Type</span>
 					<select
-						bind:value={formData.type}
+						bind:value={formData.credential_type}
 						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 					>
 						<option value="api_key">API Key</option>
 						<option value="oauth2">OAuth 2.0</option>
 						<option value="basic">Basic Auth</option>
 						<option value="bearer">Bearer Token</option>
+						<option value="mutual_tls">Mutual TLS</option>
 					</select>
 				</label>
 
@@ -253,7 +311,7 @@
 					<span class="text-xs font-medium text-text-secondary">Secret Value</span>
 					<input
 						type="password"
-						bind:value={formData.secret}
+						bind:value={formData.encrypted_value}
 						required
 						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 					/>
@@ -299,6 +357,7 @@
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">System</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Type</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Expires</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Last Rotated</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Value</th>
 							<th class="w-24 px-4 py-2 text-xs font-medium text-text-secondary">Actions</th>
 						</tr>
@@ -311,10 +370,12 @@
 									: ''}"
 							>
 								<td class="px-4 py-2 font-medium text-text-primary">{cred.name}</td>
-								<td class="px-4 py-2 text-text-secondary">{cred.system}</td>
+								<td class="px-4 py-2 text-text-secondary">{systemName(cred.system_id)}</td>
 								<td class="px-4 py-2">
-									<span class="rounded bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary">
-										{typeLabel(cred.type)}
+									<span
+										class="rounded bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary"
+									>
+										{typeLabel(cred.credential_type)}
 									</span>
 								</td>
 								<td class="px-4 py-2">
@@ -325,6 +386,9 @@
 									>
 										{formatExpiry(cred.expires_at)}
 									</span>
+								</td>
+								<td class="px-4 py-2 text-xs text-text-secondary">
+									{formatRotated(cred.last_rotated)}
 								</td>
 								<td class="px-4 py-2">
 									<span class="inline-flex items-center gap-1 text-xs text-text-secondary">
@@ -355,7 +419,7 @@
 							</tr>
 						{:else}
 							<tr>
-								<td colspan="6" class="px-4 py-8 text-center text-sm text-text-secondary">
+								<td colspan="7" class="px-4 py-8 text-center text-sm text-text-secondary">
 									No credentials stored. Add one to get started.
 								</td>
 							</tr>
