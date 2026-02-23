@@ -1,10 +1,10 @@
 <!--
   LLMProviderStep.svelte -- Configure an LLM provider during setup.
 
-  Presents provider selection cards. On selection, shows API key input and
-  optional base URL (for Azure / Ollama). A "Test Connection" button creates
-  the provider via the admin API and runs a connectivity test. The user can
-  also choose to skip this step.
+  Presents provider cards, model selector, API key input, and a "Test
+  Connection" button that validates credentials via POST /api/setup/test-llm
+  (no auth required). The selected provider + model info is passed to the
+  wizard for later submission via POST /api/setup/configure.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -19,7 +19,7 @@
 		Eye,
 		EyeOff
 	} from 'lucide-svelte';
-	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import { apiJson } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -34,31 +34,92 @@
 	let { status, onNext, onBack }: LLMProviderStepProps = $props();
 
 	// -----------------------------------------------------------------------
-	// Provider definitions
+	// Provider definitions with available models
 	// -----------------------------------------------------------------------
+
+	interface ModelDef {
+		id: string;
+		name: string;
+	}
 
 	interface ProviderDef {
 		id: string;
 		name: string;
+		description: string;
 		needsBaseUrl: boolean;
+		needsApiKey: boolean;
 		baseUrlPlaceholder?: string;
+		models: ModelDef[];
+		allowCustomModel: boolean;
 	}
 
 	const providers: ProviderDef[] = [
-		{ id: 'openai', name: 'OpenAI', needsBaseUrl: false },
-		{ id: 'anthropic', name: 'Anthropic', needsBaseUrl: false },
-		{ id: 'google', name: 'Google', needsBaseUrl: false },
+		{
+			id: 'openai',
+			name: 'OpenAI',
+			description: 'GPT-4o, o1, and more',
+			needsBaseUrl: false,
+			needsApiKey: true,
+			models: [
+				{ id: 'gpt-4o', name: 'GPT-4o' },
+				{ id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+				{ id: 'gpt-4.1', name: 'GPT-4.1' },
+				{ id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini' },
+				{ id: 'o3', name: 'o3' },
+				{ id: 'o4-mini', name: 'o4 Mini' }
+			],
+			allowCustomModel: true
+		},
+		{
+			id: 'anthropic',
+			name: 'Anthropic',
+			description: 'Claude Opus, Sonnet, Haiku',
+			needsBaseUrl: false,
+			needsApiKey: true,
+			models: [
+				{ id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+				{ id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+				{ id: 'claude-haiku-4-5-20251001', name: 'Claude 4.5 Haiku' }
+			],
+			allowCustomModel: true
+		},
+		{
+			id: 'google',
+			name: 'Google',
+			description: 'Gemini 2.5 Pro, Flash',
+			needsBaseUrl: false,
+			needsApiKey: true,
+			models: [
+				{ id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+				{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+				{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }
+			],
+			allowCustomModel: true
+		},
 		{
 			id: 'azure_openai',
 			name: 'Azure OpenAI',
+			description: 'Your deployed models',
 			needsBaseUrl: true,
-			baseUrlPlaceholder: 'https://your-resource.openai.azure.com'
+			needsApiKey: true,
+			baseUrlPlaceholder: 'https://your-resource.openai.azure.com',
+			models: [],
+			allowCustomModel: true
 		},
 		{
 			id: 'ollama',
 			name: 'Ollama',
+			description: 'Local models',
 			needsBaseUrl: true,
-			baseUrlPlaceholder: 'http://localhost:11434'
+			needsApiKey: false,
+			baseUrlPlaceholder: 'http://localhost:11434',
+			models: [
+				{ id: 'llama3.1', name: 'Llama 3.1' },
+				{ id: 'mistral', name: 'Mistral' },
+				{ id: 'codellama', name: 'Code Llama' },
+				{ id: 'mixtral', name: 'Mixtral' }
+			],
+			allowCustomModel: true
 		}
 	];
 
@@ -67,6 +128,8 @@
 	// -----------------------------------------------------------------------
 
 	let selectedProvider = $state<string | null>(null);
+	let selectedModel = $state<string>('');
+	let customModel = $state('');
 	let apiKey = $state('');
 	let baseUrl = $state('');
 	let showKey = $state(false);
@@ -74,9 +137,14 @@
 	let testResult = $state<'success' | 'failure' | null>(null);
 	let testMessage = $state('');
 	let skipped = $state(false);
-	let createdProviderId = $state<string | null>(null);
 
 	let currentProviderDef = $derived(providers.find((p) => p.id === selectedProvider) ?? null);
+	let activeModel = $derived(selectedModel === '__custom__' ? customModel : selectedModel);
+	let canTest = $derived(
+		selectedProvider !== null &&
+			activeModel.length > 0 &&
+			(!currentProviderDef?.needsApiKey || apiKey.length > 0)
+	);
 	let canContinue = $derived(testResult === 'success' || skipped);
 
 	// -----------------------------------------------------------------------
@@ -85,50 +153,48 @@
 
 	function selectProvider(id: string) {
 		selectedProvider = id;
+		const def = providers.find((p) => p.id === id);
+		selectedModel = def?.models[0]?.id ?? '';
+		customModel = '';
 		apiKey = '';
 		baseUrl = '';
 		showKey = false;
 		testResult = null;
 		testMessage = '';
 		skipped = false;
-		createdProviderId = null;
 	}
 
 	async function testConnection() {
-		if (!selectedProvider) return;
+		if (!selectedProvider || !activeModel) return;
 		testing = true;
 		testResult = null;
 		testMessage = '';
 
 		try {
-			// Step 1: Create the provider
-			const body: Record<string, string> = {
+			const body: Record<string, string | null> = {
 				provider_type: selectedProvider,
-				name: currentProviderDef?.name ?? selectedProvider,
-				api_key: apiKey
+				api_key: apiKey || null
 			};
 			if (currentProviderDef?.needsBaseUrl && baseUrl) {
 				body.base_url = baseUrl;
 			}
 
-			const created = await apiJson<{ id: string }>('/admin/llm-providers', {
+			const result = await apiJson<{
+				reachable: boolean;
+				latency_ms?: number;
+				error?: string;
+			}>('/setup/test-llm', {
 				method: 'POST',
 				body: JSON.stringify(body)
 			});
-			createdProviderId = created.id;
 
-			// Step 2: Test the provider
-			const result = await apiJson<{ success: boolean; message?: string }>(
-				`/admin/llm-providers/${created.id}/test`,
-				{ method: 'POST' }
-			);
-
-			if (result.success) {
+			if (result.reachable) {
 				testResult = 'success';
-				testMessage = result.message ?? 'Connection successful.';
+				const latency = result.latency_ms ? ` (${Math.round(result.latency_ms)}ms)` : '';
+				testMessage = `Connection successful${latency}`;
 			} else {
 				testResult = 'failure';
-				testMessage = result.message ?? 'Connection test failed.';
+				testMessage = result.error ?? 'Connection test failed.';
 			}
 		} catch (e) {
 			testResult = 'failure';
@@ -149,8 +215,13 @@
 				? null
 				: {
 						provider_type: selectedProvider,
-						provider_id: createdProviderId,
-						name: currentProviderDef?.name
+						name: currentProviderDef?.name ?? selectedProvider,
+						api_key: apiKey || null,
+						base_url: (currentProviderDef?.needsBaseUrl && baseUrl) || null,
+						model_id: activeModel,
+						model_name:
+							currentProviderDef?.models.find((m) => m.id === activeModel)?.name ??
+							activeModel
 					}
 		});
 	}
@@ -168,12 +239,17 @@
 			<button
 				type="button"
 				onclick={() => selectProvider(provider.id)}
-				class="rounded-lg border px-3 py-3 text-left text-sm font-medium transition-all
+				class="rounded-lg border px-3 py-3 text-left transition-all
 					{selectedProvider === provider.id
-					? 'border-ember bg-ember/5 text-ember shadow-sm'
-					: 'border-border text-text-primary hover:border-text-secondary/40 hover:bg-surface-hover'}"
+					? 'border-ember bg-ember/5 shadow-sm'
+					: 'border-border hover:border-text-secondary/40 hover:bg-surface-hover'}"
 			>
-				{provider.name}
+				<span
+					class="block text-sm font-medium {selectedProvider === provider.id
+						? 'text-ember'
+						: 'text-text-primary'}">{provider.name}</span
+				>
+				<span class="mt-0.5 block text-[11px] text-text-secondary">{provider.description}</span>
 			</button>
 		{/each}
 	</div>
@@ -181,42 +257,80 @@
 	<!-- Configuration form (shown when a provider is selected) -->
 	{#if selectedProvider && currentProviderDef}
 		<div class="mt-6 space-y-4">
-			<!-- API Key -->
+			<!-- Model selection -->
 			<div>
-				<label for="api-key" class="mb-1.5 block text-xs font-medium text-text-secondary">
-					API Key
+				<label for="model-select" class="mb-1.5 block text-xs font-medium text-text-secondary">
+					Model
 				</label>
-				<div class="relative">
-					<input
-						id="api-key"
-						type={showKey ? 'text' : 'password'}
-						bind:value={apiKey}
-						placeholder="sk-..."
-						autocomplete="off"
-						class="w-full rounded-lg border border-border bg-surface px-3 py-2 pr-10 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
-					/>
-					<button
-						type="button"
-						onclick={() => (showKey = !showKey)}
-						class="absolute top-1/2 right-2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
-						aria-label={showKey ? 'Hide API key' : 'Show API key'}
+				{#if currentProviderDef.models.length > 0}
+					<select
+						id="model-select"
+						bind:value={selectedModel}
+						class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-ember focus:outline-none"
 					>
-						{#if showKey}
-							<EyeOff size={16} />
-						{:else}
-							<Eye size={16} />
+						{#each currentProviderDef.models as model}
+							<option value={model.id}>{model.name}</option>
+						{/each}
+						{#if currentProviderDef.allowCustomModel}
+							<option value="__custom__">Custom model...</option>
 						{/if}
-					</button>
-				</div>
+					</select>
+				{:else}
+					<!-- No preset models (e.g., Azure) -- always show custom input -->
+					<input
+						id="model-select"
+						type="text"
+						bind:value={customModel}
+						placeholder="Enter your deployed model name"
+						class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
+					/>
+				{/if}
+
+				{#if selectedModel === '__custom__'}
+					<input
+						type="text"
+						bind:value={customModel}
+						placeholder="e.g., gpt-4o-2024-05-13"
+						class="mt-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
+					/>
+				{/if}
 			</div>
+
+			<!-- API Key -->
+			{#if currentProviderDef.needsApiKey}
+				<div>
+					<label for="api-key" class="mb-1.5 block text-xs font-medium text-text-secondary">
+						API Key
+					</label>
+					<div class="relative">
+						<input
+							id="api-key"
+							type={showKey ? 'text' : 'password'}
+							bind:value={apiKey}
+							placeholder="sk-..."
+							autocomplete="off"
+							class="w-full rounded-lg border border-border bg-surface px-3 py-2 pr-10 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
+						/>
+						<button
+							type="button"
+							onclick={() => (showKey = !showKey)}
+							class="absolute top-1/2 right-2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
+							aria-label={showKey ? 'Hide API key' : 'Show API key'}
+						>
+							{#if showKey}
+								<EyeOff size={16} />
+							{:else}
+								<Eye size={16} />
+							{/if}
+						</button>
+					</div>
+				</div>
+			{/if}
 
 			<!-- Base URL (Azure / Ollama) -->
 			{#if currentProviderDef.needsBaseUrl}
 				<div>
-					<label
-						for="base-url"
-						class="mb-1.5 block text-xs font-medium text-text-secondary"
-					>
+					<label for="base-url" class="mb-1.5 block text-xs font-medium text-text-secondary">
 						Base URL
 					</label>
 					<input
@@ -233,7 +347,7 @@
 			<button
 				type="button"
 				onclick={testConnection}
-				disabled={testing || !apiKey}
+				disabled={testing || !canTest}
 				class="btn-hover inline-flex items-center gap-2 rounded-lg bg-ember px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				{#if testing}

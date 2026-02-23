@@ -1,16 +1,17 @@
 <!--
   ReadyStep.svelte -- Final confirmation step of the setup wizard.
 
-  Displays a summary of everything that was configured (LLM provider,
-  dev user, sample data) and a "Launch Firefly Desk" button that calls
-  POST /api/setup/complete then redirects to "/".
+  Displays a summary of everything configured (LLM provider + model,
+  sample data) and a "Launch Firefly Desk" button that calls
+  POST /api/setup/configure to persist everything then redirects to "/".
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Flame, ArrowLeft, Loader2 } from 'lucide-svelte';
-	import { apiFetch } from '$lib/services/api.js';
+	import { Flame, ArrowLeft, Loader2, CheckCircle } from 'lucide-svelte';
+	import { apiJson } from '$lib/services/api.js';
+	import EmberAvatar from '$lib/components/chat/EmberAvatar.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -37,31 +38,43 @@
 	interface SummaryRow {
 		label: string;
 		value: string;
+		ok: boolean;
 	}
 
 	let summaryRows: SummaryRow[] = $derived.by(() => {
 		const rows: SummaryRow[] = [];
 
-		// LLM provider
 		const llm = wizardData.llm_provider as Record<string, unknown> | null | undefined;
-		rows.push({
-			label: 'LLM Provider',
-			value: llm ? (llm.name as string) ?? 'Configured' : 'Skipped'
-		});
+		if (llm) {
+			rows.push({
+				label: 'LLM Provider',
+				value: (llm.name as string) ?? 'Configured',
+				ok: true
+			});
+			if (llm.model_name || llm.model_id) {
+				rows.push({
+					label: 'Model',
+					value: (llm.model_name as string) ?? (llm.model_id as string) ?? '',
+					ok: true
+				});
+			}
+		} else {
+			rows.push({ label: 'LLM Provider', value: 'Skipped', ok: false });
+		}
 
-		// Dev user
 		const devUser = wizardData.dev_user as Record<string, unknown> | undefined;
 		if (devUser) {
 			rows.push({
 				label: 'Dev User',
-				value: `${devUser.display_name ?? 'Dev Admin'} (${devUser.role ?? 'admin'})`
+				value: `${devUser.display_name ?? 'Dev Admin'} (${devUser.role ?? 'admin'})`,
+				ok: true
 			});
 		}
 
-		// Sample data
 		rows.push({
 			label: 'Sample Data',
-			value: wizardData.sample_data ? 'Banking Demo' : 'None'
+			value: wizardData.sample_data ? 'Banking Demo' : 'None',
+			ok: !!wizardData.sample_data
 		});
 
 		return rows;
@@ -75,7 +88,29 @@
 		launching = true;
 		error = '';
 		try {
-			await apiFetch('/setup/complete', { method: 'POST' });
+			const llm = wizardData.llm_provider as Record<string, unknown> | null | undefined;
+
+			// Use /api/setup/configure to persist LLM provider + seed data + mark complete
+			const configureBody: Record<string, unknown> = {
+				seed_data: wizardData.sample_data === true
+			};
+
+			if (llm) {
+				configureBody.llm_provider = {
+					name: llm.name,
+					provider_type: llm.provider_type,
+					api_key: llm.api_key ?? null,
+					base_url: llm.base_url ?? null,
+					model_id: llm.model_id ?? null,
+					model_name: llm.model_name ?? null
+				};
+			}
+
+			await apiJson('/setup/configure', {
+				method: 'POST',
+				body: JSON.stringify(configureBody)
+			});
+
 			window.location.href = '/';
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to complete setup.';
@@ -86,10 +121,8 @@
 
 <div class="flex h-full flex-col items-center justify-center text-center">
 	<!-- Success icon -->
-	<div
-		class="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-success"
-	>
-		<Flame size={32} />
+	<div class="mb-6">
+		<EmberAvatar size={56} />
 	</div>
 
 	<h2 class="text-2xl font-bold text-text-primary">Ready to Launch</h2>
@@ -107,7 +140,12 @@
 					{i < summaryRows.length - 1 ? 'border-b border-border' : ''}"
 			>
 				<span class="text-text-secondary">{row.label}</span>
-				<span class="font-medium text-text-primary">{row.value}</span>
+				<span class="flex items-center gap-1.5 font-medium text-text-primary">
+					{#if row.ok}
+						<CheckCircle size={14} class="text-success" />
+					{/if}
+					{row.value}
+				</span>
 			</div>
 		{/each}
 	</div>
@@ -136,7 +174,7 @@
 		{/if}
 	</button>
 
-	<!-- Back link (below launch) -->
+	<!-- Back link -->
 	<div class="mt-6">
 		<button
 			type="button"

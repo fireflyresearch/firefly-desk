@@ -62,6 +62,8 @@ class LLMProviderConfig(BaseModel):
     provider_type: str
     api_key: str | None = None
     base_url: str | None = None
+    model_id: str | None = None
+    model_name: str | None = None
 
 
 class ConfigureRequest(BaseModel):
@@ -79,11 +81,63 @@ class ConfigureResult(BaseModel):
     details: dict | None = None
 
 
+class LLMTestRequest(BaseModel):
+    """Request body for testing an LLM provider's connectivity."""
+
+    provider_type: str
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+class LLMTestResult(BaseModel):
+    """Result of an LLM connectivity test."""
+
+    reachable: bool
+    latency_ms: float | None = None
+    error: str | None = None
+
+
 class WizardState(BaseModel):
     """Current wizard state for resumption."""
 
     step: str
     completed: bool
+
+
+@router.post("/test-llm")
+async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
+    """Test LLM provider connectivity without auth or persistence.
+
+    This is used by the setup wizard to verify provider credentials
+    before the user has any permissions or stored configuration.
+    """
+    from flydesk.llm.health import LLMHealthChecker
+    from flydesk.llm.models import LLMProvider, ProviderType
+
+    try:
+        provider_type = ProviderType(body.provider_type)
+    except ValueError:
+        return LLMTestResult(
+            reachable=False,
+            error=f"Unknown provider type: {body.provider_type}",
+        )
+
+    # Create a transient provider (not persisted) just for the health check.
+    transient = LLMProvider(
+        id="__setup_test__",
+        name="Setup Test",
+        provider_type=provider_type,
+        api_key=body.api_key,
+        base_url=body.base_url,
+    )
+
+    checker = LLMHealthChecker()
+    status = await checker.check(transient)
+    return LLMTestResult(
+        reachable=status.reachable,
+        latency_ms=status.latency_ms,
+        error=status.error,
+    )
 
 
 @router.get("/status")
@@ -225,12 +279,26 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
             encryption_key = config.credential_encryption_key if config else ""
             repo = LLMProviderRepository(session_factory, encryption_key)
 
+            models_list = []
+            default_model = body.llm_provider.model_id
+            if body.llm_provider.model_id:
+                from flydesk.llm.models import LLMModel
+
+                models_list = [
+                    LLMModel(
+                        id=body.llm_provider.model_id,
+                        name=body.llm_provider.model_name or body.llm_provider.model_id,
+                    )
+                ]
+
             provider = LLMProvider(
                 id=str(uuid.uuid4()),
                 name=body.llm_provider.name,
                 provider_type=ProviderType(body.llm_provider.provider_type),
                 api_key=body.llm_provider.api_key,
                 base_url=body.llm_provider.base_url,
+                models=models_list,
+                default_model=default_model,
                 is_default=True,
                 is_active=True,
             )

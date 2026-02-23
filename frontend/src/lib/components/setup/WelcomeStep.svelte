@@ -23,14 +23,14 @@
 	let { status, onNext }: WelcomeStepProps = $props();
 
 	// -----------------------------------------------------------------------
-	// Derived values
+	// Derived values from the SetupStatus API response
 	// -----------------------------------------------------------------------
 
 	let appTitle = $derived((status?.app_title as string) ?? 'Firefly Desk');
-	let mode = $derived((status?.mode as string) ?? 'unknown');
-	let dbType = $derived((status?.database_type as string) ?? 'unknown');
+	let devMode = $derived(status?.dev_mode === true);
+	let dbConfigured = $derived(status?.database_configured === true);
 	let agentName = $derived((status?.agent_name as string) ?? 'Ember');
-	let agentVersion = $derived((status?.agent_version as string) ?? '');
+	let appVersion = $derived((status?.app_version as string) ?? '');
 
 	interface InfoCard {
 		icon: typeof Monitor;
@@ -43,17 +43,17 @@
 		{
 			icon: Monitor,
 			label: 'Mode',
-			value: mode === 'dev' ? 'Development' : mode === 'prod' ? 'Production' : mode
+			value: devMode ? 'Development' : 'Production'
 		},
 		{
 			icon: Database,
 			label: 'Database',
-			value: dbType === 'postgresql' ? 'PostgreSQL' : dbType === 'sqlite' ? 'SQLite' : dbType
+			value: dbConfigured ? 'PostgreSQL' : 'SQLite'
 		},
 		{
 			icon: Flame,
 			label: 'Agent',
-			value: agentVersion ? `${agentName} v${agentVersion}` : agentName,
+			value: appVersion ? `${agentName} v${appVersion}` : agentName,
 			accent: true
 		}
 	]);
@@ -62,7 +62,7 @@
 <div class="flex h-full flex-col items-center justify-center text-center">
 	<!-- Ember greeting -->
 	<div class="mb-6">
-		<EmberAvatar size={56} />
+		<EmberAvatar size={64} />
 	</div>
 
 	<h1 class="text-2xl font-bold text-text-primary">Welcome to {appTitle}</h1>

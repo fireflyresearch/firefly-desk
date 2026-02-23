@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
+
+import httpx
 
 from flydesk.agent.confirmation import ConfirmationService
 from flydesk.agent.context import ContextEnricher
@@ -29,7 +32,10 @@ from flydesk.widgets.parser import WidgetParser
 if TYPE_CHECKING:
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.files.repository import FileUploadRepository
+    from flydesk.llm.repository import LLMProviderRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
+
+_logger = logging.getLogger(__name__)
 
 # Token chunk size for simulated streaming (number of characters per token event).
 _STREAM_CHUNK_SIZE = 20
@@ -60,6 +66,7 @@ class DeskAgent:
         file_repo: FileUploadRepository | None = None,
         confirmation_service: ConfirmationService | None = None,
         conversation_repo: ConversationRepository | None = None,
+        llm_repo: LLMProviderRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -72,6 +79,7 @@ class DeskAgent:
         self._file_repo = file_repo
         self._confirmation_service = confirmation_service
         self._conversation_repo = conversation_repo
+        self._llm_repo = llm_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,8 +135,8 @@ class DeskAgent:
         )
         _system_prompt = self._prompt_builder.build(prompt_context)
 
-        # 3. LLM execution (placeholder -- will integrate FireflyAgent later)
-        raw_text = self._placeholder_llm(message, _system_prompt)
+        # 3. LLM execution
+        raw_text = await self._call_llm(message, _system_prompt)
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -430,16 +438,142 @@ class DeskAgent:
                 parts.append(f"- [{upload.filename}]: {text}")
         return "\n".join(parts)
 
-    @staticmethod
-    def _placeholder_llm(message: str, system_prompt: str) -> str:
-        """Placeholder LLM that echoes the user message.
+    async def _call_llm(self, message: str, system_prompt: str) -> str:
+        """Call the configured LLM provider, falling back to a placeholder echo."""
+        if self._llm_repo is None:
+            return self._echo_fallback(message)
 
-        This will be replaced with a real ``FireflyAgent`` call once the
-        GenAI framework integration is wired up.
-        """
+        from flydesk.llm.models import ProviderType
+
+        try:
+            provider = await self._llm_repo.get_default_provider()
+        except Exception:
+            _logger.debug("Failed to fetch LLM provider.", exc_info=True)
+            return self._echo_fallback(message)
+
+        if provider is None or not provider.api_key:
+            return self._echo_fallback(message)
+
+        model = provider.default_model or "default"
+        base_url = provider.base_url
+        api_key = provider.api_key
+
+        try:
+            if provider.provider_type == ProviderType.OPENAI:
+                return await self._call_openai(
+                    base_url or "https://api.openai.com/v1",
+                    api_key, model, system_prompt, message,
+                )
+            elif provider.provider_type == ProviderType.ANTHROPIC:
+                return await self._call_anthropic(
+                    base_url or "https://api.anthropic.com/v1",
+                    api_key, model, system_prompt, message,
+                )
+            elif provider.provider_type == ProviderType.GOOGLE:
+                return await self._call_google(
+                    base_url or "https://generativelanguage.googleapis.com/v1beta",
+                    api_key, model, system_prompt, message,
+                )
+            elif provider.provider_type in (ProviderType.AZURE_OPENAI, ProviderType.OLLAMA):
+                return await self._call_openai(
+                    base_url or "http://localhost:11434/v1",
+                    api_key, model, system_prompt, message,
+                )
+            else:
+                return self._echo_fallback(message)
+        except Exception as exc:
+            _logger.error("LLM call failed: %s", exc, exc_info=True)
+            return (
+                "I'm sorry, I encountered an error connecting to the language model. "
+                "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
+                f"Error: {exc}"
+            )
+
+    @staticmethod
+    async def _call_openai(
+        base_url: str, api_key: str, model: str,
+        system_prompt: str, message: str,
+    ) -> str:
+        """Call an OpenAI-compatible chat completions endpoint."""
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": message},
+                    ],
+                    "max_tokens": 4096,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+
+    @staticmethod
+    async def _call_anthropic(
+        base_url: str, api_key: str, model: str,
+        system_prompt: str, message: str,
+    ) -> str:
+        """Call the Anthropic Messages API."""
+        url = f"{base_url.rstrip('/')}/messages"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 4096,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": message}],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Anthropic returns content as a list of blocks
+            blocks = data.get("content", [])
+            return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+
+    @staticmethod
+    async def _call_google(
+        base_url: str, api_key: str, model: str,
+        system_prompt: str, message: str,
+    ) -> str:
+        """Call the Google Generative Language API."""
+        url = f"{base_url.rstrip('/')}/models/{model}:generateContent?key={api_key}"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": [
+                        {"role": "user", "parts": [{"text": message}]},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                return "".join(p.get("text", "") for p in parts)
+            return ""
+
+    @staticmethod
+    def _echo_fallback(message: str) -> str:
+        """Fallback response when no LLM provider is configured."""
         return (
-            f"I received your message: {message}\n\n"
-            f"(System prompt length: {len(system_prompt)} chars)"
+            "No language model provider is configured yet. "
+            "Please set up an LLM provider in Admin > LLM Providers or "
+            "run the setup wizard at /setup.\n\n"
+            f"Your message: {message}"
         )
 
     @staticmethod

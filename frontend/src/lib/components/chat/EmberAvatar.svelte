@@ -1,8 +1,8 @@
 <!--
-  EmberAvatar.svelte - Warm ember/firefly glow avatar for the Ember assistant.
+  EmberAvatar.svelte - Ember assistant avatar using the Firefly robot icon.
 
-  Renders a small SVG firefly icon with a warm amber-orange glow effect.
-  Used in MessageBubble for assistant messages and ChatEmptyState greeting.
+  Renders the warm gradient robot mascot at configurable sizes.
+  Used in MessageBubble for assistant messages, ChatEmptyState, and setup wizard.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -14,58 +14,39 @@
 	}
 
 	let { size = 24 }: EmberAvatarProps = $props();
+
+	// Unique ID per instance to avoid SVG gradient conflicts when multiple
+	// avatars render on the same page.
+	const uid = `ember-${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
 <svg
 	width={size}
 	height={size}
-	viewBox="0 0 24 24"
+	viewBox="0 0 200 200"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	aria-label="Ember"
 	role="img"
 >
+	<circle cx="100" cy="100" r="100" fill="url(#{uid})" />
+	<path
+		fill-rule="evenodd"
+		clip-rule="evenodd"
+		d="M100 27C96.9983 27.0001 94.0805 27.9929 91.6991 29.8243C89.3177 31.6558 87.6058 34.2235 86.8289 37.1294C86.052 40.0353 86.2535 43.1169 87.4021 45.8963C88.5507 48.6758 90.5823 50.9977 93.1818 52.502V61.1667H72.7273C50.9091 61.1667 45.4545 79.3912 45.4545 88.5V136.333C45.4545 140.891 48.1818 150 59.0909 150H65.9091V122.667C65.9091 120.854 66.6274 119.116 67.9061 117.835C69.1847 116.553 70.919 115.833 72.7273 115.833H127.273C129.081 115.833 130.815 116.553 132.094 117.835C133.373 119.116 134.091 120.854 134.091 122.667V150H140.909C151.818 150 154.545 140.891 154.545 136.333V88.5C154.545 66.6333 136.361 61.1667 127.273 61.1667H106.818V52.502C109.418 50.9977 111.449 48.6758 112.598 45.8963C113.747 43.1169 113.948 40.0353 113.171 37.1294C112.394 34.2235 110.682 31.6558 108.301 29.8243C105.92 27.9929 103.002 27.0001 100 27ZM120.455 150V129.5H106.818V150H120.455ZM93.1818 150V129.5H79.5455V150H93.1818ZM161.364 129.5V95.3333C165.911 95.3333 175 98.0667 175 109V115.833C175 120.391 172.273 129.5 161.364 129.5ZM38.6364 95.3333V129.5C27.7273 129.5 25 120.391 25 115.833V109C25 98.0667 34.0886 95.3333 38.6364 95.3333ZM79.5455 88.5C77.7372 88.5 76.0029 89.2199 74.7243 90.5014C73.4456 91.7829 72.7273 93.521 72.7273 95.3333C72.7273 97.1456 73.4456 98.8837 74.7243 100.165C76.0029 101.447 77.7372 102.167 79.5455 102.167H79.5523C81.3606 102.167 83.0948 101.447 84.3735 100.165C85.6521 98.8837 86.3705 97.1456 86.3705 95.3333C86.3705 93.521 85.6521 91.7829 84.3735 90.5014C83.0948 89.2199 81.3606 88.5 79.5523 88.5H79.5455ZM113.636 95.3333C113.636 93.521 114.355 91.7829 115.633 90.5014C116.912 89.2199 118.646 88.5 120.455 88.5H120.461C122.27 88.5 124.004 89.2199 125.283 90.5014C126.561 91.7829 127.28 93.521 127.28 95.3333C127.28 97.1456 126.561 98.8837 125.283 100.165C124.004 101.447 122.27 102.167 120.461 102.167H120.455C118.646 102.167 116.912 101.447 115.633 100.165C114.355 98.8837 113.636 97.1456 113.636 95.3333Z"
+		fill="white"
+	/>
 	<defs>
-		<!-- Outer ambient glow -->
-		<radialGradient id="ember-glow-outer" cx="50%" cy="50%" r="50%">
-			<stop offset="0%" stop-color="#f59e0b" stop-opacity="0.35" />
-			<stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
-		</radialGradient>
-		<!-- Inner core glow -->
-		<radialGradient id="ember-glow-inner" cx="50%" cy="45%" r="40%">
-			<stop offset="0%" stop-color="#fbbf24" stop-opacity="0.9" />
-			<stop offset="60%" stop-color="#f59e0b" stop-opacity="0.6" />
-			<stop offset="100%" stop-color="#d97706" stop-opacity="0" />
-		</radialGradient>
+		<linearGradient
+			id={uid}
+			x1="200"
+			y1="100"
+			x2="0"
+			y2="100"
+			gradientUnits="userSpaceOnUse"
+		>
+			<stop stop-color="#F68000" />
+			<stop offset="1" stop-color="#FFF9C1" />
+		</linearGradient>
 	</defs>
-
-	<!-- Ambient glow circle -->
-	<circle cx="12" cy="12" r="11" fill="url(#ember-glow-outer)" />
-
-	<!-- Body: stylized firefly shape -->
-	<ellipse cx="12" cy="13" rx="3.2" ry="4.5" fill="#d97706" opacity="0.85" />
-
-	<!-- Inner ember core -->
-	<ellipse cx="12" cy="11.5" rx="2" ry="2.8" fill="url(#ember-glow-inner)" />
-
-	<!-- Bright center spark -->
-	<circle cx="12" cy="10.5" r="1.1" fill="#fde68a" opacity="0.95" />
-
-	<!-- Wings -->
-	<path
-		d="M8.8 10.5 C7 8.5, 5.5 9.5, 5.5 11 C5.5 12.5, 7.5 13, 8.8 12"
-		fill="#fbbf24"
-		opacity="0.4"
-	/>
-	<path
-		d="M15.2 10.5 C17 8.5, 18.5 9.5, 18.5 11 C18.5 12.5, 16.5 13, 15.2 12"
-		fill="#fbbf24"
-		opacity="0.4"
-	/>
-
-	<!-- Antennae -->
-	<line x1="10.5" y1="8.5" x2="9" y2="5.5" stroke="#d97706" stroke-width="0.6" stroke-linecap="round" />
-	<line x1="13.5" y1="8.5" x2="15" y2="5.5" stroke="#d97706" stroke-width="0.6" stroke-linecap="round" />
-	<circle cx="9" cy="5.5" r="0.6" fill="#fbbf24" />
-	<circle cx="15" cy="5.5" r="0.6" fill="#fbbf24" />
 </svg>
