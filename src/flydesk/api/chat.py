@@ -365,42 +365,23 @@ async def send_message(
     desk_agent = getattr(request.app.state, "desk_agent", None)
     user_session = getattr(request.state, "user_session", None)
 
-    # Check for setup conversation handler
-    setup_handlers = getattr(request.app.state, "setup_handlers", {})
-    is_setup_init = body.message == "__setup_init__"
-    has_active_setup = conversation_id in setup_handlers
+    # Setup init messages are no longer handled via chat.
+    if body.message == "__setup_init__":
+        async def setup_redirect_stream():
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={"content": "Setup is handled via the setup wizard. Please visit /setup to configure Firefly Desk."},
+            ).to_sse()
+            yield SSEEvent(
+                event=SSEEventType.DONE,
+                data={"conversation_id": conversation_id},
+            ).to_sse()
 
-    if is_setup_init or has_active_setup:
-        from flydesk.agent.setup_handler import SetupConversationHandler
-
-        handler: SetupConversationHandler | None = None
-        if is_setup_init and conversation_id not in setup_handlers:
-            try:
-                handler = SetupConversationHandler(request.app)
-                setup_handlers[conversation_id] = handler
-                if not hasattr(request.app.state, "setup_handlers"):
-                    request.app.state.setup_handlers = {}
-                request.app.state.setup_handlers[conversation_id] = handler
-            except Exception:
-                logger.error("Failed to create SetupConversationHandler", exc_info=True)
-                # Fall through to regular agent handling
-        else:
-            handler = setup_handlers[conversation_id]
-
-        if handler is not None:
-            async def setup_stream():
-                async for event in handler.handle(body.message):
-                    yield event.to_sse()
-
-            return StreamingResponse(
-                setup_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
-            )
+        return StreamingResponse(
+            setup_redirect_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
 
     # Ownership guard: reject if conversation belongs to another user.
     # Skipped for setup-init messages (handled above) so that new setup

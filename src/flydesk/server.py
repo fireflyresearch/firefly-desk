@@ -288,7 +288,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.config = config
     app.state.session_factory = session_factory
     app.state.conversation_repo = conversation_repo
-    app.state.setup_handlers = {}
     app.state.started_at = datetime.now(timezone.utc)
 
     # Auto-seed platform documentation into the knowledge base (idempotent)
