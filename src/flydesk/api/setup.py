@@ -737,7 +737,21 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to save agent settings: {exc}",
             )
 
-    # 5. Mark setup as complete
+    # 5. Trigger KG recomputation if embedding is configured and data was seeded
+    if body.embedding and body.seed_data:
+        job_runner = getattr(request.app.state, "job_runner", None)
+        if job_runner:
+            try:
+                await job_runner.submit("kg_recompute", {})
+                details["kg_recompute"] = "triggered"
+                logger.info("KG recomputation triggered after setup")
+            except Exception:
+                logger.warning(
+                    "Failed to trigger KG recomputation (non-fatal).",
+                    exc_info=True,
+                )
+
+    # 6. Mark setup as complete
     try:
         from flydesk.settings.repository import SettingsRepository
 
