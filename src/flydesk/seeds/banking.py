@@ -28,6 +28,7 @@ from flydesk.knowledge.models import KnowledgeDocument
 if TYPE_CHECKING:
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.knowledge.indexer import KnowledgeIndexer
+    from flydesk.skills.repository import SkillRepository
 
 logger = logging.getLogger(__name__)
 
@@ -1464,11 +1465,13 @@ KNOWLEDGE_DOCUMENTS: list[KnowledgeDocument] = [
 async def seed_banking_catalog(
     catalog_repo: CatalogRepository,
     knowledge_indexer: KnowledgeIndexer | None = None,
+    skill_repo: SkillRepository | None = None,
 ) -> None:
     """Seed the banking platform example domain.
 
-    Creates five banking systems, sixteen service endpoints, and optionally
-    indexes five knowledge-base documents.
+    Creates five banking systems, sixteen service endpoints, optionally
+    indexes five knowledge-base documents, and optionally seeds five
+    pre-configured skills.
 
     Parameters
     ----------
@@ -1477,6 +1480,9 @@ async def seed_banking_catalog(
     knowledge_indexer:
         If provided, knowledge documents are indexed (chunked and embedded).
         When ``None`` the documents are skipped silently.
+    skill_repo:
+        If provided, banking skills are created.
+        When ``None`` the skills are skipped silently.
     """
     # 1. Systems
     for system in SYSTEMS:
@@ -1494,23 +1500,35 @@ async def seed_banking_catalog(
             await knowledge_indexer.index_document(document)
             logger.info("Indexed knowledge document: %s", document.title)
 
+    # 4. Skills (optional)
+    skills_seeded = 0
+    if skill_repo is not None:
+        from flydesk.seeds.skills import SKILLS
+
+        for skill in SKILLS:
+            await skill_repo.create_skill(skill)
+            logger.info("Seeded skill: %s", skill.name)
+        skills_seeded = len(SKILLS)
+
     logger.info(
-        "Banking seed complete: %d systems, %d endpoints, %d documents",
+        "Banking seed complete: %d systems, %d endpoints, %d documents, %d skills",
         len(SYSTEMS),
         len(ENDPOINTS),
         len(KNOWLEDGE_DOCUMENTS) if knowledge_indexer is not None else 0,
+        skills_seeded,
     )
 
 
 async def unseed_banking_catalog(
     catalog_repo: CatalogRepository,
     knowledge_indexer: KnowledgeIndexer | None = None,
+    skill_repo: SkillRepository | None = None,
 ) -> None:
     """Remove all banking example seed data.
 
-    Deletes every system, endpoint, and knowledge document that was created
-    by :func:`seed_banking_catalog`.  Safe to call even if the data was
-    partially seeded -- missing items are silently skipped.
+    Deletes every system, endpoint, knowledge document, and skill that was
+    created by :func:`seed_banking_catalog`.  Safe to call even if the data
+    was partially seeded -- missing items are silently skipped.
 
     Parameters
     ----------
@@ -1519,6 +1537,9 @@ async def unseed_banking_catalog(
     knowledge_indexer:
         If provided, knowledge documents are deleted (including chunks).
         When ``None`` the documents are skipped silently.
+    skill_repo:
+        If provided, banking skills are deleted.
+        When ``None`` the skills are skipped silently.
     """
     # 1. Endpoints first (foreign key to systems)
     for endpoint in reversed(ENDPOINTS):
@@ -1544,5 +1565,16 @@ async def unseed_banking_catalog(
                 logger.info("Removed knowledge document: %s", document.title)
             except Exception:  # noqa: BLE001
                 logger.debug("Document already absent: %s", document.id)
+
+    # 4. Skills (optional)
+    if skill_repo is not None:
+        from flydesk.seeds.skills import SKILLS
+
+        for skill in SKILLS:
+            try:
+                await skill_repo.delete_skill(skill.id)
+                logger.info("Removed skill: %s", skill.name)
+            except Exception:  # noqa: BLE001
+                logger.debug("Skill already absent: %s", skill.id)
 
     logger.info("Banking seed data removed.")
