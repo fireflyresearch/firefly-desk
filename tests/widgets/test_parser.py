@@ -285,3 +285,19 @@ class TestWidgetParser:
         assert result.widgets[0].type == "action-buttons"
         assert len(result.widgets[0].props["actions"]) == 1
         assert result.widgets[0].props["actions"][0]["message"] == "Retry the last operation"
+
+    # -----------------------------------------------------------------
+    # Flow diagram
+    # -----------------------------------------------------------------
+
+    def test_parse_flow_diagram(self):
+        text = (
+            ':::widget{type="flow-diagram" inline=true}\n'
+            '{"nodes": [{"id": "1", "label": "Start"}], "edges": [], "title": "Test"}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert len(result.widgets) == 1
+        assert result.widgets[0].type == "flow-diagram"
+        assert result.widgets[0].props["title"] == "Test"
+        assert len(result.widgets[0].props["nodes"]) == 1

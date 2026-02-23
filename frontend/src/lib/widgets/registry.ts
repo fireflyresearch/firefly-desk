@@ -26,6 +26,7 @@ import AccordionWidget from '$lib/components/widgets/AccordionWidget.svelte';
 import MetricCard from '$lib/components/widgets/MetricCard.svelte';
 import CodeBlock from '$lib/components/widgets/CodeBlock.svelte';
 import ActionButtons from '$lib/components/widgets/ActionButtons.svelte';
+import FlowDiagram from '$lib/components/widgets/FlowDiagram.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -51,7 +52,8 @@ export const widgetRegistry: Record<string, Component<any>> = {
 	'accordion': AccordionWidget,
 	'metric-card': MetricCard,
 	'code-block': CodeBlock,
-	'action-buttons': ActionButtons
+	'action-buttons': ActionButtons,
+	'flow-diagram': FlowDiagram
 };
 
 // ---------------------------------------------------------------------------

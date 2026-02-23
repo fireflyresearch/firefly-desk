@@ -9,7 +9,7 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
@@ -125,3 +125,18 @@ Props:
   - `label` (required): Button text.
   - `message` (required): Message to send when clicked.
   - `variant` (optional): "default", "primary", or "outline". Defaults to "default".
+
+## flow-diagram
+
+Display an interactive flow diagram. Use for process flows, entity relationships, decision trees.
+
+:::widget{type="flow-diagram" inline=true}
+{"nodes": [{"id": "1", "label": "Start", "type": "entity"}, {"id": "2", "label": "Process", "type": "process-step"}, {"id": "3", "label": "End", "type": "entity"}], "edges": [{"source": "1", "target": "2", "label": "triggers"}, {"source": "2", "target": "3"}], "title": "Sample Flow"}
+:::
+
+Props:
+- `nodes` (required): Array of `{id, label, type?, x?, y?}`. Type options: "entity", "process-step", "system", "document", "decision".
+- `edges` (required): Array of `{source, target, label?}`. Source/target are node IDs.
+- `title` (optional): Heading displayed above the diagram.
+- `interactive` (optional): Allow drag/zoom. Default false for inline, true for panel.
+- `height` (optional): Diagram height (CSS value). Default "300px".
