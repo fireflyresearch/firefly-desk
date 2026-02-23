@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,6 +21,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from flydesk.models.base import Base
 
 _JSON = JSONB().with_variant(Text, "sqlite")
+
+# pgvector Vector type for PostgreSQL; falls back to Text (JSON) for SQLite.
+# The actual dimension is set at table creation time via config.embedding_dimensions.
+# Using 1536 as default (OpenAI text-embedding-3-small).
+_VECTOR = Vector(1536).with_variant(Text, "sqlite")
 
 
 def _utcnow() -> datetime:
@@ -47,6 +53,6 @@ class DocumentChunkRow(Base):
     document_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-serialized vector for SQLite; pgvector in production
+    embedding = mapped_column(_VECTOR, nullable=True)  # pgvector Vector in PostgreSQL; JSON Text in SQLite
     metadata_: Mapped[dict] = mapped_column("metadata", _JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

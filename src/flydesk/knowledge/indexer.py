@@ -20,6 +20,17 @@ from flydesk.knowledge.models import DocumentChunk, KnowledgeDocument
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 
+def _serialize_embedding(embedding: list[float], dialect_name: str) -> Any:
+    """Serialize an embedding vector for storage.
+
+    PostgreSQL with pgvector accepts the list directly.
+    SQLite stores the vector as a JSON string.
+    """
+    if dialect_name == "sqlite":
+        return json.dumps(embedding)
+    return embedding
+
+
 class EmbeddingProvider(Protocol):
     """Protocol for embedding generation."""
 
@@ -72,13 +83,14 @@ class KnowledgeIndexer:
 
         # 4. Store chunks with embeddings
         async with self._session_factory() as session:
+            dialect = session.bind.dialect.name if session.bind else "sqlite"
             for chunk, embedding in zip(chunks, embeddings):
                 row = DocumentChunkRow(
                     id=chunk.chunk_id,
                     document_id=chunk.document_id,
                     content=chunk.content,
                     chunk_index=chunk.chunk_index,
-                    embedding=json.dumps(embedding),
+                    embedding=_serialize_embedding(embedding, dialect),
                     metadata_=_to_json(chunk.metadata),
                 )
                 session.add(row)

@@ -89,18 +89,19 @@ class TestKnowledgeRetriever:
     async def test_retrieve_returns_relevant_chunks(
         self, indexer, retriever, embedding_provider
     ):
-        """Top-k results are returned."""
+        """Top-k results are returned, filtered to non-zero similarity."""
         await _index_docs(
             indexer,
             embedding_provider,
             [
                 ("d1", "Doc A", "alpha content", [1.0, 0.0, 0.0, 0.0]),
-                ("d2", "Doc B", "beta content", [0.0, 1.0, 0.0, 0.0]),
-                ("d3", "Doc C", "gamma content", [0.0, 0.0, 1.0, 0.0]),
+                ("d2", "Doc B", "beta content", [0.5, 0.5, 0.0, 0.0]),
+                ("d3", "Doc C", "gamma content", [0.1, 0.1, 0.8, 0.0]),
             ],
         )
 
         # Query vector is closest to d1 (dot product = 1.0 with [1,0,0,0])
+        # d2 and d3 also have partial overlap so they score > 0
         embedding_provider.register("find alpha", [1.0, 0.0, 0.0, 0.0])
         results = await retriever.retrieve("find alpha", top_k=2)
 

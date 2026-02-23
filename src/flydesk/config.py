@@ -63,6 +63,8 @@ class DeskConfig(BaseSettings):
     # -- Knowledge --
     embedding_model: str = "openai:text-embedding-3-small"
     embedding_dimensions: int = 1536
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
     rag_top_k: int = 3
     kg_max_entities_in_context: int = 5
 
