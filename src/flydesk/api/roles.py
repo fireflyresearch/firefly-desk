@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from flydesk.rbac.guards import AdminRoles
-from flydesk.rbac.models import Role
+from flydesk.rbac.models import AccessScopes, Role
 from flydesk.rbac.permissions import Permission
 from flydesk.rbac.repository import RoleRepository
 
@@ -48,6 +48,14 @@ RoleRepo = Annotated[RoleRepository, Depends(get_role_repo)]
 # ---------------------------------------------------------------------------
 
 
+class AccessScopesRequest(BaseModel):
+    """Inline body for resource-level access scopes."""
+
+    systems: list[str] = Field(default_factory=list)
+    knowledge_tags: list[str] = Field(default_factory=list)
+    skill_tags: list[str] = Field(default_factory=list)
+
+
 class CreateRoleRequest(BaseModel):
     """Body for POST /api/admin/roles."""
 
@@ -55,6 +63,7 @@ class CreateRoleRequest(BaseModel):
     display_name: str
     description: str = ""
     permissions: list[str] = Field(default_factory=list)
+    access_scopes: AccessScopesRequest | None = None
 
 
 class UpdateRoleRequest(BaseModel):
@@ -63,6 +72,7 @@ class UpdateRoleRequest(BaseModel):
     display_name: str | None = None
     description: str | None = None
     permissions: list[str] | None = None
+    access_scopes: AccessScopesRequest | None = None
 
 
 class PermissionInfo(BaseModel):
@@ -97,12 +107,14 @@ async def create_role(body: CreateRoleRequest, repo: RoleRepo) -> dict:
             detail=f"Role with name '{body.name}' already exists",
         )
 
+    scopes = AccessScopes(**body.access_scopes.model_dump()) if body.access_scopes else AccessScopes()
     role = Role(
         id=f"role-{uuid.uuid4().hex[:12]}",
         name=body.name,
         display_name=body.display_name,
         description=body.description,
         permissions=body.permissions,
+        access_scopes=scopes,
         is_builtin=False,
     )
     created = await repo.create_role(role)
@@ -129,6 +141,8 @@ async def update_role(role_id: str, body: UpdateRoleRequest, repo: RoleRepo) -> 
         kwargs["description"] = body.description
     if body.permissions is not None:
         kwargs["permissions"] = body.permissions
+    if body.access_scopes is not None:
+        kwargs["access_scopes"] = body.access_scopes.model_dump()
 
     if not kwargs:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -179,6 +193,7 @@ def _role_to_dict(role: Role) -> dict:
         "display_name": role.display_name,
         "description": role.description,
         "permissions": role.permissions,
+        "access_scopes": role.access_scopes.model_dump(),
         "is_builtin": role.is_builtin,
         "created_at": role.created_at.isoformat() if role.created_at else None,
         "updated_at": role.updated_at.isoformat() if role.updated_at else None,

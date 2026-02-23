@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from flydesk.rbac.models import AccessScopes
+
 
 class UserSession(BaseModel):
     """Hydrated from the OIDC token on every request."""
@@ -20,6 +22,7 @@ class UserSession(BaseModel):
     display_name: str
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+    access_scopes: AccessScopes = Field(default_factory=AccessScopes)
     tenant_id: str | None = None
     picture_url: str | None = None
     department: str | None = None

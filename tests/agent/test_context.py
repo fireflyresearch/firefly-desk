@@ -151,7 +151,7 @@ class TestContextEnricher:
     ):
         await enricher.enrich("refund policy details")
         retriever.retrieve.assert_awaited_once_with(
-            "refund policy details", top_k=3
+            "refund policy details", top_k=3, tag_filter=None,
         )
 
     async def test_enrich_with_custom_entity_limit(
@@ -176,7 +176,7 @@ class TestContextEnricher:
             retrieval_top_k=7,
         )
         await enricher.enrich("deep search")
-        retriever.retrieve.assert_awaited_once_with("deep search", top_k=7)
+        retriever.retrieve.assert_awaited_once_with("deep search", top_k=7, tag_filter=None)
 
     async def test_enrich_with_conversation_history(
         self, knowledge_graph, retriever
