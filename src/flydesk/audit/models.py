@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -31,6 +32,8 @@ class AuditEventType(StrEnum):
 class AuditEvent(BaseModel):
     """An immutable audit trail entry."""
 
+    id: str | None = None
+    timestamp: datetime | None = None
     event_type: AuditEventType
     user_id: str
     conversation_id: str | None = None

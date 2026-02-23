@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -68,6 +70,8 @@ class TestAuditEventModel:
             user_id="user-1",
             action="test",
         )
+        assert event.id is None
+        assert event.timestamp is None
         assert event.conversation_id is None
         assert event.system_id is None
         assert event.endpoint_id is None
@@ -107,6 +111,27 @@ class TestAuditLogger:
         assert events[0].user_id == "user-1"
         assert events[0].action == "called get_customer"
         assert events[0].detail == {"tool": "get_customer"}
+
+    async def test_queried_events_include_id_and_timestamp(self, logger):
+        """Verify that queried events include id and timestamp fields.
+
+        This is critical for the frontend AuditViewer which expects
+        these fields to display event IDs and formatted timestamps.
+        """
+        event = _make_event(action="test action")
+        event_id = await logger.log(event)
+
+        events = await logger.query()
+        assert len(events) == 1
+        result = events[0]
+        assert result.id == event_id
+        assert result.timestamp is not None
+        assert isinstance(result.timestamp, datetime)
+        # Timestamp should be recent (within last 60 seconds)
+        now = datetime.now(timezone.utc)
+        ts = result.timestamp.replace(tzinfo=timezone.utc) if result.timestamp.tzinfo is None else result.timestamp
+        delta = abs((now - ts).total_seconds())
+        assert delta < 60
 
     async def test_pii_sanitization_email(self, logger):
         event = _make_event(
