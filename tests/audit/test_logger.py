@@ -91,6 +91,7 @@ class TestAuditEventModel:
             "auth_logout",
             "catalog_change",
             "knowledge_update",
+            "message_feedback",
         }
         actual = {e.value for e in AuditEventType}
         assert actual == expected

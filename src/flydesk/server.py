@@ -39,6 +39,8 @@ from flydesk.api.dashboard import get_session_factory as dashboard_get_session
 from flydesk.api.dashboard import router as dashboard_router
 from flydesk.api.exports import get_export_repo, get_export_service, get_export_storage
 from flydesk.api.exports import router as exports_router
+from flydesk.api.feedback import get_audit_logger as feedback_get_audit
+from flydesk.api.feedback import router as feedback_router
 from flydesk.api.files import get_content_extractor, get_file_repo, get_file_storage
 from flydesk.api.files import router as files_router
 from flydesk.api.health import router as health_router
@@ -114,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
+    app.dependency_overrides[feedback_get_audit] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
 
     # LLM provider repository
@@ -449,6 +452,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(audit_router)
     app.include_router(exports_router)
+    app.include_router(feedback_router)
     app.include_router(files_router)
     app.include_router(llm_providers_router)
     app.include_router(oidc_providers_router)

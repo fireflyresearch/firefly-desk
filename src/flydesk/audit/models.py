@@ -27,6 +27,7 @@ class AuditEventType(StrEnum):
     AUTH_LOGOUT = "auth_logout"
     CATALOG_CHANGE = "catalog_change"
     KNOWLEDGE_UPDATE = "knowledge_update"
+    MESSAGE_FEEDBACK = "message_feedback"
 
 
 class AuditEvent(BaseModel):

@@ -9,7 +9,7 @@
  */
 
 import { get } from 'svelte/store';
-import { apiFetch } from './api.js';
+import { apiFetch, apiJson } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
 import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, TokenUsage } from '../stores/chat.js';
@@ -128,6 +128,90 @@ export async function sendMessage(
 		await loadConversations();
 	} catch (error) {
 		console.error('[ChatService] Failed to send message:', error);
+		finishStreaming();
+	}
+}
+
+/**
+ * Submit feedback (thumbs up/down) for an assistant message.
+ *
+ * @param messageId - The ID of the message to provide feedback on.
+ * @param rating    - Either "up" or "down".
+ * @param comment   - Optional text comment accompanying the feedback.
+ */
+export async function submitFeedback(
+	messageId: string,
+	rating: 'up' | 'down',
+	comment?: string
+): Promise<void> {
+	await apiJson('/chat/messages/' + encodeURIComponent(messageId) + '/feedback', {
+		method: 'POST',
+		body: JSON.stringify({ rating, ...(comment ? { comment } : {}) })
+	});
+}
+
+/**
+ * Regenerate the last assistant message in a conversation.
+ *
+ * Finds the last user message in the store and re-sends it, removing the
+ * existing assistant response so it can be replaced by a fresh one.
+ *
+ * @param conversationId - The conversation to regenerate in.
+ */
+export async function regenerateLastMessage(conversationId: string): Promise<void> {
+	const currentMessages = get(messages);
+
+	// Find the last user message to re-send
+	const lastUserMessage = [...currentMessages].reverse().find((m) => m.role === 'user');
+	if (!lastUserMessage) return;
+
+	// Remove the last assistant message from the store
+	messages.update((msgs) => {
+		const lastAssistantIdx = msgs.findLastIndex((m) => m.role === 'assistant');
+		if (lastAssistantIdx === -1) return msgs;
+		return msgs.filter((_, i) => i !== lastAssistantIdx);
+	});
+
+	// Re-send the last user message (without re-adding it to the store)
+	isStreaming.set(true);
+
+	const assistantMessageId = crypto.randomUUID();
+	addMessage({
+		id: assistantMessageId,
+		role: 'assistant',
+		content: '',
+		widgets: [],
+		timestamp: new Date(),
+		isStreaming: true
+	});
+
+	try {
+		const body: Record<string, unknown> = {
+			message: lastUserMessage.content,
+			file_ids: lastUserMessage.fileIds ?? []
+		};
+
+		const response = await apiFetch(
+			`/chat/conversations/${encodeURIComponent(conversationId)}/send`,
+			{
+				method: 'POST',
+				body: JSON.stringify(body)
+			}
+		);
+
+		await parseSSEStream(
+			response,
+			(msg: SSEMessage) => handleSSEEvent(msg),
+			(error: Error) => {
+				console.error('[ChatService] SSE error during regeneration:', error);
+				finishStreaming();
+			},
+			() => {
+				finishStreaming();
+			}
+		);
+	} catch (error) {
+		console.error('[ChatService] Failed to regenerate message:', error);
 		finishStreaming();
 	}
 }
