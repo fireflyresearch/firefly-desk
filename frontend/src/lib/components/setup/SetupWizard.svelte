@@ -61,7 +61,7 @@
 		{ id: 'ready', label: 'Ready' }
 	];
 
-	let isDevMode = $derived(status?.mode === 'dev');
+	let isDevMode = $derived(status?.dev_mode === true);
 
 	// Track whether LLM was skipped to conditionally skip embedding step
 	let llmSkipped = $state(false);
