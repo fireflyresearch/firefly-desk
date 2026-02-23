@@ -37,7 +37,10 @@ _FALLBACK_DOCUMENTS: list[KnowledgeDocument] = [
             " systems. Rather than requiring operators to navigate through multiple"
             " admin panels, memorize API endpoints, or context-switch between"
             " dashboards, Firefly Desk consolidates all of these interactions into a"
-            " single, natural-language interface."
+            " single, natural-language interface. The platform includes process"
+            " discovery to automatically map business workflows from registered"
+            " systems and knowledge, and the agent's identity and behavior can be"
+            " fully customized through the admin console."
         ),
         source="platform-docs://overview",
         tags=["platform", "documentation", "overview"],
@@ -50,6 +53,9 @@ _FALLBACK_DOCUMENTS: list[KnowledgeDocument] = [
             "The Knowledge Base gives Ember access to operational documentation,"
             " runbooks, policies, and domain-specific information that is not"
             " available through the Service Catalog's structured API metadata."
+            " Knowledge graph entities and relationships are automatically extracted"
+            " from documents and catalog systems using LLM-based analysis, and can"
+            " be recomputed when auto-analyze is enabled."
         ),
         source="platform-docs://knowledge-base",
         tags=["platform", "documentation", "knowledge-base", "rag"],

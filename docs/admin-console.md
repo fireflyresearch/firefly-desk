@@ -58,16 +58,53 @@ Provides three methods for adding new documents:
 
 **Also accessible from:** `/admin/knowledge` (Graph Explorer tab)
 
-The Knowledge Graph Explorer provides a visual, interactive exploration of the knowledge graph using a force-directed layout powered by D3. This view helps administrators understand the relationships between concepts, systems, and processes in their knowledge base.
+The Knowledge Graph Explorer provides a visual, interactive exploration of the knowledge graph using SvelteFlow, a React Flow-based library for Svelte. This view helps administrators understand the relationships between concepts, systems, and processes in their knowledge base.
 
 Features of the graph explorer:
 
-- **Force-directed visualization:** Entities are rendered as nodes and relationships as edges in an interactive graph layout. Nodes can be dragged to rearrange the layout.
-- **Entity details:** Clicking on a node reveals its properties, type, and connected relationships.
-- **Relationship navigation:** Edges show the relationship type and direction between entities, making it clear how concepts connect.
+- **Interactive graph visualization:** Entities are rendered as styled nodes and relationships as directed edges in an interactive canvas. Nodes can be dragged to rearrange the layout, and the canvas supports pan and zoom.
+- **Entity details:** Clicking on a node reveals its properties, type, and connected relationships in a detail panel.
+- **Relationship navigation:** Edges show the relationship type and direction between entities, with labels displayed on hover or selection.
+- **Automatic layout:** Nodes are automatically positioned using a hierarchical layout algorithm, with manual repositioning supported through drag-and-drop.
 - **Discovery:** The visual layout often reveals unexpected connections or structural patterns in your operational knowledge that are not apparent when browsing documents individually.
 
 The graph explorer is particularly valuable for understanding system dependencies, process flows, and concept hierarchies within your organization's operational domain.
+
+## Agent Customization
+
+**Route:** `/admin/agent`
+
+The Agent Customization panel allows administrators to personalize the conversational agent's identity, communication style, and behavioral rules without modifying code or restarting the application. Changes take effect immediately for subsequent conversation turns.
+
+The panel is organized into the following sections:
+
+- **Identity:** Configure the agent's name, display name, and avatar image. The avatar preview updates in real-time. The display name appears in the chat header, message bubbles, and greeting messages throughout the UI.
+- **Personality & Tone:** Define how the agent communicates using comma-separated personality traits and a tone description. Several presets are available (Warm & Professional, Technical & Concise, Friendly & Patient, Formal & Thorough) as starting points.
+- **Greeting:** Set the initial message displayed when a user starts a new conversation. The `{name}` placeholder is automatically replaced with the agent's display name.
+- **Behavior Rules:** Add specific prescriptive rules that the agent must follow in every conversation, such as "Always cite sources" or "Ask for confirmation before destructive operations."
+- **Custom Instructions:** Free-form text area for additional instructions appended to the agent's system prompt. Use this for domain-specific guidance that does not fit into structured fields.
+- **Language:** Set the preferred response language.
+
+For complete documentation including API reference and personality presets, see [Agent Customization](agent-customization.md).
+
+## Process Explorer
+
+**Route:** `/admin/processes`
+
+The Process Explorer provides a visual interface for viewing, editing, and verifying business processes discovered by the LLM-based process discovery engine. The interface combines a list view with an interactive SvelteFlow canvas that renders processes as flow diagrams.
+
+Key features:
+
+- **Process list:** All discovered, verified, modified, and archived processes are listed with their name, category, confidence score, status, and step count. Filter by category, status, or tags.
+- **Flow canvas:** Selecting a process renders its steps and dependencies as an interactive flow diagram. Steps are displayed as typed nodes (action, decision, wait) with color coding, and dependencies are shown as directed edges with optional condition labels.
+- **Step editing:** Click any step node to view and edit its name, description, type, system/endpoint mappings, inputs, and outputs.
+- **Dependency editing:** Modify the edges between steps to correct the discovered workflow structure.
+- **Verification:** Mark a discovered process as verified once a human has reviewed it, changing its status from "discovered" to "verified."
+- **Discovery trigger:** Manually trigger a new discovery run from the interface, which submits a background job that analyzes all available context.
+
+The process explorer uses the same SvelteFlow base components (`FlowCanvas`, `FlowNode`, `FlowEdge`) as the Knowledge Graph Explorer, providing a consistent visual language across the admin console.
+
+For complete documentation including the domain model and API reference, see [Process Discovery](processes.md).
 
 ## Role Manager
 

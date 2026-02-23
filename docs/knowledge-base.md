@@ -134,14 +134,39 @@ Relationships connect entities with named, directional edges. For example, "Paym
 
 ### Graph Exploration
 
-The Admin Console includes a Knowledge Graph Explorer that visualizes entities and their relationships as an interactive force-directed graph powered by D3. Administrators can:
+The Admin Console includes a Knowledge Graph Explorer that visualizes entities and their relationships as an interactive graph powered by SvelteFlow. Administrators can:
 
-- Browse all entities and their connections visually
-- Click on entities to view their properties and related documents
+- Browse all entities and their connections visually in a pannable, zoomable canvas
+- Drag nodes to rearrange the layout and explore the graph structure
+- Click on entities to view their properties, type, and related documents
 - Understand how concepts in the knowledge base relate to each other
 - Identify gaps in the knowledge graph where relationships are missing
 
 The graph explorer is available at `/admin/knowledge` under the Graph Explorer tab.
+
+### KG Auto-Extraction
+
+When knowledge documents are indexed or catalog systems are registered, Firefly Desk can automatically extract entities and relationships using an LLM. The `KGExtractor` component analyzes unstructured text to identify:
+
+- **Entities:** Named concepts, systems, processes, people, or any other significant item mentioned in the content, along with their type and properties.
+- **Relationships:** Directed connections between entities (e.g., "Payment Service depends_on Account Service", "ACH Processor handles Wire Transfers").
+
+Extraction uses Jinja2 prompt templates that instruct the LLM to return structured JSON. The LLM identifies entities by name and type, then identifies relationships between those entities with named relation types.
+
+The extraction process works on two types of content:
+
+1. **Knowledge documents:** When a document is indexed, the first 8,000 characters are sent to the LLM for entity/relation extraction. Results are merged into the existing knowledge graph.
+2. **Catalog systems:** When a catalog system is registered or updated, the system definition (name, description, endpoints) is analyzed to extract entities representing the system, its endpoints, and their relationships.
+
+### KG Recomputation
+
+KG recomputation is a background job that re-extracts entities and relationships from all knowledge documents and catalog systems. This is useful after bulk imports or when the extraction prompts have been improved.
+
+Recomputation runs as a background job through the job system. It can be triggered in three ways:
+
+1. **Manually:** Through the admin console or by submitting a `kg_recompute` job via the jobs API.
+2. **Automatically:** When `FLYDESK_AUTO_ANALYZE` is enabled, data changes (new documents indexed, catalog systems updated) automatically trigger recomputation after a 5-second debounce window.
+3. **During setup:** The setup wizard can trigger initial KG extraction when seeding demo data.
 
 ### API Endpoints
 
