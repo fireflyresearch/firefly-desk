@@ -12,7 +12,7 @@ import { get } from 'svelte/store';
 import { apiFetch } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
-import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep } from '../stores/chat.js';
+import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, TokenUsage } from '../stores/chat.js';
 import {
 	addMessage,
 	updateStreamingMessage,
@@ -20,6 +20,7 @@ import {
 	appendReasoningStep,
 	setReasoningPlan,
 	clearReasoningState,
+	setUsage,
 	finishStreaming,
 	isStreaming,
 	messages,
@@ -214,6 +215,18 @@ function handleSSEEvent(msg: SSEMessage): void {
 			const steps =
 				(msg.data.steps as Array<{ description: string; status: string }>) ?? [];
 			setReasoningPlan(steps);
+			break;
+		}
+
+		case 'usage': {
+			const usage: TokenUsage = {
+				input_tokens: (msg.data.input_tokens as number) ?? 0,
+				output_tokens: (msg.data.output_tokens as number) ?? 0,
+				total_tokens: (msg.data.total_tokens as number) ?? 0,
+				cost_usd: (msg.data.cost_usd as number) ?? 0,
+				model: (msg.data.model as string) ?? ''
+			};
+			setUsage(usage);
 			break;
 		}
 

@@ -205,7 +205,10 @@ class DeskAgent:
 
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
-        async for token in self._stream_llm(message, system_prompt, conversation_id, tools=adapted):
+        usage_data: dict[str, Any] = {}
+        async for token in self._stream_llm(
+            message, system_prompt, conversation_id, tools=adapted, usage_out=usage_data,
+        ):
             full_text += token
             yield SSEEvent(
                 event=SSEEventType.TOKEN,
@@ -257,6 +260,13 @@ class DeskAgent:
             },
         )
 
+        # Emit USAGE event before DONE (if usage data was captured)
+        if usage_data:
+            yield SSEEvent(
+                event=SSEEventType.USAGE,
+                data=usage_data,
+            )
+
         # Final done event
         yield SSEEvent(
             event=SSEEventType.DONE,
@@ -301,6 +311,7 @@ class DeskAgent:
         pattern_instance = self._select_reasoning_pattern(pattern, tools)
 
         # Execute reasoning
+        usage_data: dict[str, Any] = {}
         try:
             result = await agent.run_with_reasoning(pattern_instance, message, conversation_id=conversation_id)
 
@@ -363,10 +374,20 @@ class DeskAgent:
             )
             await self._audit_logger.log(audit_event)
 
+            # Extract usage from reasoning result
+            usage_data = self._extract_result_usage(result, agent)
+
         except Exception as exc:
             _logger.error("Reasoning failed: %s", exc, exc_info=True)
             error_msg = f"Reasoning failed: {exc}"
             yield SSEEvent(event=SSEEventType.TOKEN, data={"content": error_msg})
+
+        # Emit USAGE event before DONE (if usage data was captured)
+        if usage_data:
+            yield SSEEvent(
+                event=SSEEventType.USAGE,
+                data=usage_data,
+            )
 
         # Done
         yield SSEEvent(
@@ -687,6 +708,7 @@ class DeskAgent:
         system_prompt: str,
         conversation_id: str | None = None,
         tools: list[object] | None = None,
+        usage_out: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream tokens from the LLM via FireflyAgent.run_stream().
 
@@ -698,6 +720,10 @@ class DeskAgent:
             system_prompt: The assembled system prompt.
             conversation_id: Conversation ID for MemoryManager auto-injection.
             tools: Adapted genai tools for the FireflyAgent.
+            usage_out: Optional mutable dict that will be populated with token
+                usage data after the stream completes.  Keys:
+                ``input_tokens``, ``output_tokens``, ``total_tokens``,
+                ``cost_usd``, ``model``.
 
         Yields:
             Individual token strings as they arrive from the model.
@@ -721,6 +747,9 @@ class DeskAgent:
             ) as stream:
                 async for token in stream.stream_tokens():
                     yield token
+                # After streaming completes, extract usage from the underlying stream
+                if usage_out is not None:
+                    self._extract_stream_usage(stream, agent, usage_out)
         except Exception as exc:
             _logger.error("LLM streaming failed: %s", exc, exc_info=True)
             error_text = (
@@ -781,6 +810,98 @@ class DeskAgent:
             text[i : i + _STREAM_CHUNK_SIZE]
             for i in range(0, len(text), _STREAM_CHUNK_SIZE)
         ]
+
+    @staticmethod
+    def _extract_stream_usage(
+        stream: object,
+        agent: object,
+        usage_out: dict[str, Any],
+    ) -> None:
+        """Extract token usage from a completed stream and populate *usage_out*.
+
+        Reads ``usage()`` from the underlying pydantic-ai stream handle and
+        combines it with the agent's model identifier to estimate cost.
+        """
+        try:
+            usage_fn = getattr(stream, "usage", None)
+            usage = usage_fn() if callable(usage_fn) else None
+            if usage is None:
+                return
+
+            input_tokens = getattr(usage, "input_tokens", 0) or 0
+            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
+
+            model_name = getattr(agent, "_model_identifier", "unknown")
+
+            cost_usd = 0.0
+            try:
+                from fireflyframework_genai.config import get_config
+                from fireflyframework_genai.observability.cost import get_cost_calculator
+
+                cfg = get_config()
+                calculator = get_cost_calculator(cfg.cost_calculator)
+                cost_usd = calculator.estimate(model_name, input_tokens, output_tokens)
+            except Exception:
+                _logger.debug("Cost estimation not available.", exc_info=True)
+
+            usage_out.update({
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "cost_usd": round(cost_usd, 6),
+                "model": model_name,
+            })
+        except Exception:
+            _logger.debug("Failed to extract stream usage.", exc_info=True)
+
+    @staticmethod
+    def _extract_result_usage(
+        result: object,
+        agent: object,
+    ) -> dict[str, Any]:
+        """Extract token usage from a FireflyAgent result (run or reasoning).
+
+        Returns a dict suitable for the USAGE SSE event payload, or an empty
+        dict when usage data is not available.
+        """
+        try:
+            # For reasoning results, usage is tracked on the underlying agent runs
+            # and accumulated in the global UsageTracker.  However, we can also
+            # check if the result itself has a usage() method (standard agent.run
+            # results do).
+            usage_fn = getattr(result, "usage", None)
+            usage = usage_fn() if callable(usage_fn) else None
+            if usage is None:
+                return {}
+
+            input_tokens = getattr(usage, "input_tokens", 0) or 0
+            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
+
+            model_name = getattr(agent, "_model_identifier", "unknown")
+
+            cost_usd = 0.0
+            try:
+                from fireflyframework_genai.config import get_config
+                from fireflyframework_genai.observability.cost import get_cost_calculator
+
+                cfg = get_config()
+                calculator = get_cost_calculator(cfg.cost_calculator)
+                cost_usd = calculator.estimate(model_name, input_tokens, output_tokens)
+            except Exception:
+                _logger.debug("Cost estimation not available.", exc_info=True)
+
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "cost_usd": round(cost_usd, 6),
+                "model": model_name,
+            }
+        except Exception:
+            _logger.debug("Failed to extract result usage.", exc_info=True)
+            return {}
 
     @staticmethod
     def _build_tool_summaries(tools: list[ToolDefinition]) -> list[dict[str, str]]:

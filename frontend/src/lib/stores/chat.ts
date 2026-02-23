@@ -31,6 +31,14 @@ export interface MessageFile {
 	file_size: number;
 }
 
+export interface TokenUsage {
+	input_tokens: number;
+	output_tokens: number;
+	total_tokens: number;
+	cost_usd: number;
+	model: string;
+}
+
 export interface Message {
 	id: string;
 	role: 'user' | 'assistant';
@@ -41,6 +49,7 @@ export interface Message {
 	toolExecutions?: ToolExecution[];
 	fileIds?: string[];
 	files?: MessageFile[];
+	usage?: TokenUsage;
 }
 
 export interface ReasoningStep {
@@ -126,6 +135,20 @@ export function clearReasoningState(): void {
 	reasoningPlan.set([]);
 }
 
+/**
+ * Set token usage on the last assistant message that is currently streaming.
+ * If no streaming message exists this is a no-op.
+ */
+export function setUsage(usage: TokenUsage): void {
+	messages.update((msgs) => {
+		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
+		if (idx === -1) return msgs;
+		const updated = [...msgs];
+		updated[idx] = { ...updated[idx], usage };
+		return updated;
+	});
+}
+
 /** Mark the currently-streaming assistant message as complete. */
 export function finishStreaming(toolExecutions?: ToolExecution[]): void {
 	messages.update((msgs) =>
@@ -181,7 +204,8 @@ export async function selectConversation(id: string): Promise<void> {
 				role: m.role,
 				content: m.content,
 				widgets: (m.metadata?.widgets as WidgetDirective[]) ?? [],
-				timestamp: new Date(m.created_at ?? new Date().toISOString())
+				timestamp: new Date(m.created_at ?? new Date().toISOString()),
+				...(m.metadata?.usage ? { usage: m.metadata.usage as TokenUsage } : {})
 			}))
 		);
 	} catch (error) {

@@ -26,6 +26,7 @@ class SSEEventType(StrEnum):
     CONFIRMATION = "confirmation"
     REASONING_STEP = "reasoning_step"
     PLAN = "plan"
+    USAGE = "usage"
     ERROR = "error"
     DONE = "done"
 
