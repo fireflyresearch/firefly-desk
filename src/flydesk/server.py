@@ -277,6 +277,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     confirmation_service = ConfirmationService()
     app.state.confirmation_service = confirmation_service
 
+    from flydesk.tools.builtin import BuiltinToolExecutor
+
+    builtin_executor = BuiltinToolExecutor(
+        catalog_repo=catalog_repo,
+        audit_logger=audit_logger,
+        knowledge_retriever=retriever,
+    )
+
     desk_agent = DeskAgent(
         context_enricher=context_enricher,
         prompt_builder=prompt_builder,
@@ -285,6 +293,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audit_logger=audit_logger,
         agent_name=config.agent_name,
         tool_executor=tool_executor,
+        builtin_executor=builtin_executor,
         file_repo=file_repo,
         confirmation_service=confirmation_service,
         conversation_repo=conversation_repo,
