@@ -79,10 +79,33 @@ class AgentSettingsConfig(BaseModel):
     greeting: str = "Hello! I'm {name}, your intelligent assistant."
 
 
+class EmbeddingSetupConfig(BaseModel):
+    """Embedding provider configuration from the setup wizard."""
+
+    provider: str  # "openai", "voyage", "google", "ollama"
+    model: str
+    api_key: str | None = None
+    base_url: str | None = None
+    dimensions: int = 1536
+
+
+class VectorStoreSetupConfig(BaseModel):
+    """Vector store configuration from the setup wizard."""
+
+    type: str  # "sqlite", "pgvector", "chromadb", "pinecone"
+    chroma_path: str | None = None
+    chroma_url: str | None = None
+    pinecone_api_key: str | None = None
+    pinecone_index_name: str | None = None
+    pinecone_environment: str | None = None
+
+
 class ConfigureRequest(BaseModel):
     """Request body for the setup wizard configure endpoint."""
 
     llm_provider: LLMProviderConfig | None = None
+    embedding: EmbeddingSetupConfig | None = None
+    vector_store: VectorStoreSetupConfig | None = None
     seed_data: bool | None = None
     agent_settings: AgentSettingsConfig | None = None
 
@@ -510,7 +533,87 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to configure LLM provider: {exc}",
             )
 
-    # 2. Seed banking data if requested
+    # 2. Configure embedding provider and vector store if specified
+    if body.embedding or body.vector_store:
+        try:
+            from flydesk.settings.repository import SettingsRepository
+
+            settings_repo = SettingsRepository(session_factory)
+
+            if body.embedding:
+                emb = body.embedding
+                model_str = f"{emb.provider}:{emb.model}"
+                await settings_repo.set_app_setting(
+                    "embedding_model", model_str, category="embedding"
+                )
+                if emb.api_key:
+                    await settings_repo.set_app_setting(
+                        "embedding_api_key", emb.api_key, category="embedding"
+                    )
+                if emb.base_url:
+                    await settings_repo.set_app_setting(
+                        "embedding_base_url", emb.base_url, category="embedding"
+                    )
+                await settings_repo.set_app_setting(
+                    "embedding_dimensions",
+                    str(emb.dimensions),
+                    category="embedding",
+                )
+                details["embedding"] = "configured"
+                logger.info(
+                    "Embedding provider configured via setup: %s", model_str
+                )
+
+            if body.vector_store:
+                vs = body.vector_store
+                await settings_repo.set_app_setting(
+                    "type", vs.type, category="vector_store"
+                )
+                if vs.chroma_path:
+                    await settings_repo.set_app_setting(
+                        "chroma_path", vs.chroma_path, category="vector_store"
+                    )
+                if vs.chroma_url:
+                    await settings_repo.set_app_setting(
+                        "chroma_url", vs.chroma_url, category="vector_store"
+                    )
+                if vs.pinecone_api_key:
+                    await settings_repo.set_app_setting(
+                        "pinecone_api_key",
+                        vs.pinecone_api_key,
+                        category="vector_store",
+                    )
+                if vs.pinecone_index_name:
+                    await settings_repo.set_app_setting(
+                        "pinecone_index_name",
+                        vs.pinecone_index_name,
+                        category="vector_store",
+                    )
+                if vs.pinecone_environment:
+                    await settings_repo.set_app_setting(
+                        "pinecone_environment",
+                        vs.pinecone_environment,
+                        category="vector_store",
+                    )
+                details["vector_store"] = "configured"
+                logger.info(
+                    "Vector store configured via setup: %s", vs.type
+                )
+
+            # Reinitialize the live embedding provider if embedding was set
+            if body.embedding:
+                from flydesk.api.settings import _reinitialize_embedding_provider
+
+                await _reinitialize_embedding_provider(request.app, settings_repo)
+
+        except Exception as exc:
+            logger.error("Failed to configure embedding/vector store: %s", exc)
+            return ConfigureResult(
+                success=False,
+                message=f"Failed to configure embedding/vector store: {exc}",
+            )
+
+    # 3. Seed banking data if requested
     if body.seed_data:
         try:
             from flydesk.catalog.repository import CatalogRepository
@@ -550,7 +653,7 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 success=False, message=f"Failed to seed data: {exc}"
             )
 
-    # 3. Save agent settings if provided
+    # 4. Save agent settings if provided
     if body.agent_settings:
         try:
             from flydesk.settings.models import AgentSettings
@@ -574,7 +677,7 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to save agent settings: {exc}",
             )
 
-    # 4. Mark setup as complete
+    # 5. Mark setup as complete
     try:
         from flydesk.settings.repository import SettingsRepository
 
