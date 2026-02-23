@@ -437,8 +437,10 @@ async def run_seed(body: SeedRequest, request: Request) -> SeedResult:
 
     if body.domain == "banking":
         from flydesk.catalog.repository import CatalogRepository
+        from flydesk.skills.repository import SkillRepository
 
         repo = CatalogRepository(session_factory)
+        skill_repo = SkillRepository(session_factory)
 
         # Get the knowledge indexer so banking docs get chunked and indexed
         from flydesk.api.knowledge import get_knowledge_indexer
@@ -451,12 +453,12 @@ async def run_seed(body: SeedRequest, request: Request) -> SeedResult:
         if body.remove:
             from flydesk.seeds.banking import unseed_banking_catalog
 
-            await unseed_banking_catalog(repo, knowledge_indexer=indexer)
+            await unseed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
             return SeedResult(success=True, message="Banking seed data removed.")
         else:
             from flydesk.seeds.banking import seed_banking_catalog
 
-            await seed_banking_catalog(repo, knowledge_indexer=indexer)
+            await seed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
             return SeedResult(success=True, message="Banking seed data loaded successfully.")
 
     elif body.domain == "platform-docs":
@@ -618,8 +620,10 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
         try:
             from flydesk.catalog.repository import CatalogRepository
             from flydesk.seeds.banking import seed_banking_catalog
+            from flydesk.skills.repository import SkillRepository
 
             catalog_repo = CatalogRepository(session_factory)
+            skill_repo = SkillRepository(session_factory)
 
             # Get the knowledge indexer so banking docs get chunked and indexed
             from flydesk.api.knowledge import get_knowledge_indexer
@@ -629,7 +633,9 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
             )
             indexer = indexer_fn()
 
-            await seed_banking_catalog(catalog_repo, knowledge_indexer=indexer)
+            await seed_banking_catalog(
+                catalog_repo, knowledge_indexer=indexer, skill_repo=skill_repo
+            )
             details["seed_data"] = "loaded"
 
             # Also seed platform docs (idempotent)
@@ -714,8 +720,10 @@ async def clear_seed_data(request: Request) -> SeedResult:
     try:
         from flydesk.catalog.repository import CatalogRepository
         from flydesk.seeds.banking import unseed_banking_catalog
+        from flydesk.skills.repository import SkillRepository
 
         repo = CatalogRepository(session_factory)
+        skill_repo = SkillRepository(session_factory)
 
         # Get the knowledge indexer for doc cleanup
         from flydesk.api.knowledge import get_knowledge_indexer
@@ -725,7 +733,7 @@ async def clear_seed_data(request: Request) -> SeedResult:
         )
         indexer = indexer_fn()
 
-        await unseed_banking_catalog(repo, knowledge_indexer=indexer)
+        await unseed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
 
         # Also clear platform docs
         try:
