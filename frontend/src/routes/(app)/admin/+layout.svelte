@@ -11,6 +11,7 @@
 	import { page } from '$app/stores';
 	import {
 		ArrowLeft,
+		ArrowLeftRight,
 		MessageSquare,
 		LayoutDashboard,
 		Database,
@@ -44,7 +45,8 @@
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
-		{ href: '/admin/sso', label: 'SSO', icon: Shield }
+		{ href: '/admin/sso', label: 'SSO', icon: Shield },
+		{ href: '/admin/sso-mappings', label: 'SSO Mappings', icon: ArrowLeftRight }
 	];
 
 	let currentPath = $derived($page.url.pathname);

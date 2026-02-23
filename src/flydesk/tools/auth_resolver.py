@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -25,6 +25,8 @@ from flydesk.catalog.enums import AuthType
 
 if TYPE_CHECKING:
     from flydesk.api.credentials import CredentialStore
+    from flydesk.auth.models import UserSession
+    from flydesk.auth.sso_mapping import SSOAttributeMapping
     from flydesk.catalog.models import ExternalSystem
     from flydesk.security.kms import KMSProvider
 
@@ -98,8 +100,18 @@ class AuthResolver:
             logger.debug("KMS decryption failed; using value as-is.")
             return ciphertext
 
-    async def resolve_headers(self, system: ExternalSystem) -> dict[str, str]:
-        """Return a dict of HTTP headers that authenticate against *system*."""
+    async def resolve_headers(
+        self,
+        system: ExternalSystem,
+        user_session: UserSession | None = None,
+        sso_mappings: list[SSOAttributeMapping] | None = None,
+    ) -> dict[str, str]:
+        """Return a dict of HTTP headers that authenticate against *system*.
+
+        When *user_session* and *sso_mappings* are provided, SSO claim values
+        are resolved and merged into the returned headers so that downstream
+        APIs can identify the originating user.
+        """
         auth_config = system.auth_config
         auth_type = auth_config.auth_type
 
@@ -116,34 +128,41 @@ class AuthResolver:
         token = self._decrypt(credential.encrypted_value)
 
         if auth_type == AuthType.BEARER:
-            return {"Authorization": f"Bearer {token}"}
-
-        if auth_type == AuthType.API_KEY:
+            headers = {"Authorization": f"Bearer {token}"}
+        elif auth_type == AuthType.API_KEY:
             header_name = "X-Api-Key"
             if auth_config.auth_headers:
                 header_name = next(iter(auth_config.auth_headers))
-            return {header_name: token}
-
-        if auth_type == AuthType.BASIC:
-            return {"Authorization": f"Basic {token}"}
-
-        if auth_type == AuthType.OAUTH2:
-            return await self._resolve_oauth2(system, credential)
-
-        if auth_type == AuthType.MUTUAL_TLS:
+            headers = {header_name: token}
+        elif auth_type == AuthType.BASIC:
+            headers = {"Authorization": f"Basic {token}"}
+        elif auth_type == AuthType.OAUTH2:
+            headers = await self._resolve_oauth2(system, credential)
+        elif auth_type == AuthType.MUTUAL_TLS:
             # mTLS certificate handling is done at the HTTP client level.
             # Return any additional auth headers the system requires.
-            headers: dict[str, str] = {}
+            headers = {}
             if auth_config.auth_headers:
                 headers.update(auth_config.auth_headers)
-            return headers
+        else:
+            logger.warning(
+                "Unknown auth type %s for system %s; returning empty headers",
+                auth_type,
+                system.id,
+            )
+            headers = {}
 
-        logger.warning(
-            "Unknown auth type %s for system %s; returning empty headers",
-            auth_type,
-            system.id,
-        )
-        return {}
+        # Apply SSO claim mappings
+        if user_session and sso_mappings:
+            from flydesk.auth.sso_mapping import SSOAttributeMappingResolver
+
+            resolver = SSOAttributeMappingResolver()
+            sso_headers = resolver.resolve_headers(
+                sso_mappings, user_session.raw_claims, system.id,
+            )
+            headers.update(sso_headers)
+
+        return headers
 
     async def _resolve_oauth2(
         self, system: ExternalSystem, credential: object
