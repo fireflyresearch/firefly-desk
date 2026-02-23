@@ -26,8 +26,8 @@ dependencies = [
 ]
 
 [project.scripts]
+flydesk = "flydesk.cli:main"
 flydesk-seed = "flydesk.seeds.cli:main"
-flydesk-serve = "flydesk.cli:serve"
 
 [project.optional-dependencies]
 dev = [
