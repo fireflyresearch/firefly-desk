@@ -19,7 +19,8 @@ import {
 	appendWidget,
 	finishStreaming,
 	isStreaming,
-	messages
+	messages,
+	loadConversations
 } from '../stores/chat.js';
 import { pushPanel } from '../stores/panel.js';
 import { startTool, endTool, clearToolState, completedTools } from '../stores/tools.js';
@@ -102,6 +103,9 @@ export async function sendMessage(
 				finishStreaming();
 			}
 		);
+
+		// 6. Refresh conversation list so new conversations appear in sidebar
+		await loadConversations();
 	} catch (error) {
 		console.error('[ChatService] Failed to send message:', error);
 		finishStreaming();

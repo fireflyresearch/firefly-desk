@@ -370,6 +370,57 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
     )
 
 
+@router.post("/clear")
+async def clear_seed_data(request: Request) -> SeedResult:
+    """Remove all seed data (banking systems, knowledge docs)."""
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        return SeedResult(success=False, message="Database not initialised")
+
+    try:
+        from flydesk.catalog.repository import CatalogRepository
+        from flydesk.seeds.banking import unseed_banking_catalog
+
+        repo = CatalogRepository(session_factory)
+        await unseed_banking_catalog(repo)
+
+        # Also clear platform docs
+        try:
+            from flydesk.api.knowledge import get_knowledge_indexer
+            from flydesk.seeds.platform_docs import unseed_platform_docs
+
+            indexer_fn = request.app.dependency_overrides.get(
+                get_knowledge_indexer, get_knowledge_indexer
+            )
+            indexer = indexer_fn()
+            await unseed_platform_docs(indexer)
+        except Exception:
+            logger.debug("Platform docs removal skipped (non-fatal).", exc_info=True)
+
+        return SeedResult(success=True, message="Demo data cleared successfully.")
+    except Exception as exc:
+        logger.error("Failed to clear seed data: %s", exc, exc_info=True)
+        return SeedResult(success=False, message=f"Failed to clear demo data: {exc}")
+
+
+@router.post("/reset")
+async def reset_setup(request: Request) -> SeedResult:
+    """Reset the setup wizard state, allowing setup to run again."""
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        return SeedResult(success=False, message="Database not initialised")
+
+    try:
+        from flydesk.settings.repository import SettingsRepository
+
+        settings_repo = SettingsRepository(session_factory)
+        await settings_repo.set_app_setting("setup_completed", "false", category="setup")
+        return SeedResult(success=True, message="Setup has been reset. Refresh the page to restart the wizard.")
+    except Exception as exc:
+        logger.error("Failed to reset setup: %s", exc, exc_info=True)
+        return SeedResult(success=False, message=f"Failed to reset setup: {exc}")
+
+
 @router.post("/complete")
 async def complete_setup(request: Request) -> dict:
     """Mark the initial setup as finished."""

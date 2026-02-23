@@ -87,7 +87,7 @@
 	></div>
 
 	<!-- Left: Sidebar toggle + Logo -->
-	<div class="flex items-center gap-2">
+	<div class="flex items-center gap-3">
 		{#if onToggleSidebar}
 			<button
 				type="button"
@@ -102,59 +102,56 @@
 				{/if}
 			</button>
 		{/if}
-		<Logo class="h-6 text-text-primary" />
+		<Logo class="h-7 text-text-primary" />
 	</div>
 
-	<!-- Center: Navigation tabs -->
-	<nav class="flex flex-1 items-center justify-center gap-1" aria-label="Main navigation">
-		<button
-			type="button"
-			onclick={() => navigateToTab('chat')}
-			class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors
-				{activeTab === 'chat'
-				? 'text-text-primary'
-				: 'text-text-secondary hover:text-text-primary'}"
-			aria-current={activeTab === 'chat' ? 'page' : undefined}
-		>
-			<MessageSquare size={16} />
-			Chat
-			{#if activeTab === 'chat'}
-				<span
-					class="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-ember"
-				></span>
-			{/if}
-		</button>
+	<!-- Spacer -->
+	<div class="flex-1"></div>
 
-		{#if $isAdmin}
+	<!-- Right: Navigation tabs + actions -->
+	<div class="flex items-center gap-1">
+		<!-- Navigation tabs -->
+		<nav class="mr-3 flex items-center gap-0.5" aria-label="Main navigation">
 			<button
 				type="button"
-				onclick={() => navigateToTab('admin')}
-				class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors
-					{activeTab === 'admin'
-					? 'text-text-primary'
-					: 'text-text-secondary hover:text-text-primary'}"
-				aria-current={activeTab === 'admin' ? 'page' : undefined}
+				onclick={() => navigateToTab('chat')}
+				class="relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all
+					{activeTab === 'chat'
+					? 'bg-ember/10 text-ember'
+					: 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
+				aria-current={activeTab === 'chat' ? 'page' : undefined}
 			>
-				<Shield size={16} />
-				Admin
-				{#if activeTab === 'admin'}
-					<span
-						class="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-ember"
-					></span>
-				{/if}
+				<MessageSquare size={15} />
+				Chat
 			</button>
-		{/if}
-	</nav>
 
-	<!-- Right: actions -->
-	<div class="flex items-center gap-2">
+			{#if $isAdmin}
+				<button
+					type="button"
+					onclick={() => navigateToTab('admin')}
+					class="relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all
+						{activeTab === 'admin'
+						? 'bg-ember/10 text-ember'
+						: 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
+					aria-current={activeTab === 'admin' ? 'page' : undefined}
+				>
+					<Shield size={15} />
+					Admin
+				</button>
+			{/if}
+		</nav>
+
+		<!-- Separator -->
+		<div class="mr-2 h-5 w-px bg-border/50"></div>
+
 		{#if $currentUser?.devMode}
 			<span
-				class="rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
+				class="mr-1 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
 			>
-				Dev Mode
+				Dev
 			</span>
 		{/if}
+
 		<button
 			type="button"
 			onclick={toggleDarkMode}
@@ -162,9 +159,9 @@
 			aria-label={$resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
 		>
 			{#if $resolvedTheme === 'dark'}
-				<Sun size={18} />
+				<Sun size={16} />
 			{:else}
-				<Moon size={18} />
+				<Moon size={16} />
 			{/if}
 		</button>
 
@@ -174,7 +171,7 @@
 			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
 			aria-label="Settings"
 		>
-			<Settings size={18} />
+			<Settings size={16} />
 		</button>
 
 		<!-- User avatar with dropdown -->
