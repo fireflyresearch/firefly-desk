@@ -32,6 +32,8 @@ class Permission(StrEnum):
     AUDIT_READ = "audit:read"
     CREDENTIALS_READ = "credentials:read"
     CREDENTIALS_WRITE = "credentials:write"
+    JOBS_READ = "jobs:read"
+    JOBS_CANCEL = "jobs:cancel"
     ADMIN_USERS = "admin:users"
     ADMIN_SETTINGS = "admin:settings"
     ADMIN_ROLES = "admin:roles"
@@ -53,7 +55,7 @@ BUILTIN_ROLES: list[Role] = [
         id="role-operator",
         name="operator",
         display_name="Operator",
-        description="Operational access to catalog, knowledge, exports, and chat.",
+        description="Operational access to catalog, knowledge, exports, jobs, and chat.",
         permissions=[
             "knowledge:read",
             "catalog:read",
@@ -62,6 +64,8 @@ BUILTIN_ROLES: list[Role] = [
             "exports:download",
             "chat:send",
             "audit:read",
+            "jobs:read",
+            "jobs:cancel",
         ],
         is_builtin=True,
     ),
@@ -69,11 +73,12 @@ BUILTIN_ROLES: list[Role] = [
         id="role-viewer",
         name="viewer",
         display_name="Viewer",
-        description="Read-only access to knowledge, catalog, and chat.",
+        description="Read-only access to knowledge, catalog, jobs, and chat.",
         permissions=[
             "knowledge:read",
             "catalog:read",
             "chat:send",
+            "jobs:read",
         ],
         is_builtin=True,
     ),
