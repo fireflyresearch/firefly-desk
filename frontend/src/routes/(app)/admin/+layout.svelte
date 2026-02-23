@@ -24,7 +24,8 @@
 		ShieldAlert,
 		ShieldCheck,
 		Sparkles,
-		FileCode
+		FileCode,
+		Wrench
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -41,6 +42,7 @@
 		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck },
 		{ href: '/admin/skills', label: 'Skills', icon: Sparkles },
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
+		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
 		{ href: '/admin/sso', label: 'SSO', icon: Shield }
 	];
