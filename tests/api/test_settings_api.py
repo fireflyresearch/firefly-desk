@@ -214,3 +214,67 @@ class TestAdminGuard:
         mock_repo.get_user_settings.return_value = UserSettings()
         response = await non_admin_client.get("/api/settings/user")
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Embedding Configuration Tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetEmbeddingConfig:
+    async def test_returns_default_config(self, admin_client, mock_repo):
+        mock_repo.get_all_app_settings.return_value = {}
+        response = await admin_client.get("/api/settings/embedding")
+        assert response.status_code == 200
+        data = response.json()
+        assert "embedding_model" in data
+        assert "embedding_dimensions" in data
+        assert data["embedding_dimensions"] >= 1
+
+    async def test_returns_db_config(self, admin_client, mock_repo):
+        mock_repo.get_all_app_settings.return_value = {
+            "embedding_model": "voyage:voyage-3",
+            "embedding_dimensions": "1024",
+            "embedding_api_key": "sk-voyage-secret-key-12345678",
+            "embedding_base_url": "https://custom.api.com",
+        }
+        response = await admin_client.get("/api/settings/embedding")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["embedding_model"] == "voyage:voyage-3"
+        assert data["embedding_dimensions"] == 1024
+        # API key should be masked
+        assert data["embedding_api_key"].startswith("***")
+        assert data["embedding_api_key"].endswith("5678")
+
+    async def test_non_admin_cannot_access(self, non_admin_client):
+        response = await non_admin_client.get("/api/settings/embedding")
+        assert response.status_code == 403
+
+
+class TestUpdateEmbeddingConfig:
+    async def test_saves_embedding_config(self, admin_client, mock_repo):
+        mock_repo.get_all_app_settings.return_value = {}
+        payload = {
+            "embedding_model": "openai:text-embedding-3-large",
+            "embedding_api_key": "sk-new-key",
+            "embedding_base_url": "",
+            "embedding_dimensions": 3072,
+        }
+        response = await admin_client.put("/api/settings/embedding", json=payload)
+        assert response.status_code == 200
+        # Should have called set_app_setting for each field
+        assert mock_repo.set_app_setting.await_count >= 3
+
+    async def test_non_admin_cannot_update(self, non_admin_client):
+        response = await non_admin_client.put(
+            "/api/settings/embedding",
+            json={"embedding_model": "openai:text-embedding-3-small"},
+        )
+        assert response.status_code == 403
+
+
+class TestEmbeddingTest:
+    async def test_non_admin_cannot_test(self, non_admin_client):
+        response = await non_admin_client.post("/api/settings/embedding/test")
+        assert response.status_code == 403

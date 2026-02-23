@@ -31,6 +31,7 @@ class SetupStep(StrEnum):
     DEV_USER_PROFILE = "dev_user_profile"
     LLM_PROVIDER = "llm_provider"
     LLM_TEST = "llm_test"
+    EMBEDDING_CONFIG = "embedding_config"
     SSO_CONFIG = "sso_config"
     SSO_TEST = "sso_test"
     DATABASE_CHECK = "database_check"
@@ -42,11 +43,13 @@ class SetupStep(StrEnum):
 # Step progression order
 # DEV_USER_PROFILE is conditionally skipped for non-dev mode.
 # SSO_CONFIG and SSO_TEST are conditionally skipped in dev mode.
+# EMBEDDING_CONFIG is skipped if LLM provider was skipped.
 _STEP_ORDER = [
     SetupStep.WELCOME,
     SetupStep.DEV_USER_PROFILE,
     SetupStep.LLM_PROVIDER,
     SetupStep.LLM_TEST,
+    SetupStep.EMBEDDING_CONFIG,
     SetupStep.SSO_CONFIG,
     SetupStep.SSO_TEST,
     SetupStep.DATABASE_CHECK,
@@ -68,6 +71,7 @@ class SetupConversationHandler:
         self._app = app
         self._current_step = SetupStep.WELCOME
         self._llm_skipped = False
+        self._embedding_skipped = False
         self._sso_skipped = False
         self._pending_provider: dict | None = None
         self._pending_sso: dict | None = None
@@ -97,6 +101,11 @@ class SetupConversationHandler:
 
         elif self._current_step == SetupStep.LLM_TEST:
             async for event in self._llm_test(message):
+                yield event
+            self._advance()
+
+        elif self._current_step == SetupStep.EMBEDDING_CONFIG:
+            async for event in self._embedding_config(message):
                 yield event
             self._advance()
 
@@ -150,6 +159,13 @@ class SetupConversationHandler:
 
         # Auto-skip LLM_TEST if user skipped LLM provider configuration
         if self._current_step == SetupStep.LLM_TEST and self._llm_skipped:
+            idx = _STEP_ORDER.index(self._current_step)
+            if idx + 1 < len(_STEP_ORDER):
+                self._current_step = _STEP_ORDER[idx + 1]
+
+        # Auto-skip EMBEDDING_CONFIG if LLM provider was skipped
+        if self._current_step == SetupStep.EMBEDDING_CONFIG and self._llm_skipped:
+            self._embedding_skipped = True
             idx = _STEP_ORDER.index(self._current_step)
             if idx + 1 < len(_STEP_ORDER):
                 self._current_step = _STEP_ORDER[idx + 1]
@@ -521,6 +537,186 @@ class SetupConversationHandler:
                     "action": "llm_test_retry",
                 },
             )
+
+    async def _embedding_config(self, message: str) -> AsyncGenerator[SSEEvent, None]:
+        """Configure the embedding provider for semantic search."""
+        payload = _parse_json(message)
+
+        if payload and payload.get("action") == "skip":
+            self._embedding_skipped = True
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={
+                    "content": (
+                        "No problem. The knowledge base will use keyword search for now. "
+                        "You can configure embeddings later from **Admin > LLM Providers**."
+                    )
+                },
+            )
+            return
+
+        if payload and payload.get("action") == "configure_embedding":
+            provider = payload.get("provider", "openai")
+            model = payload.get("model", "text-embedding-3-small")
+            dimensions = payload.get("dimensions", 1536)
+            api_key = payload.get("api_key", "")
+
+            embedding_model = f"{provider}:{model}"
+
+            # Store in app_settings
+            session_factory = getattr(self._app.state, "session_factory", None)
+            if session_factory:
+                try:
+                    from flydesk.settings.repository import SettingsRepository
+
+                    settings_repo = SettingsRepository(session_factory)
+                    await settings_repo.set_app_setting(
+                        "embedding_model", embedding_model, category="embedding"
+                    )
+                    await settings_repo.set_app_setting(
+                        "embedding_dimensions", str(dimensions), category="embedding"
+                    )
+                    if api_key:
+                        await settings_repo.set_app_setting(
+                            "embedding_api_key", api_key, category="embedding"
+                        )
+                    logger.info("Embedding config stored: %s (%dd)", embedding_model, dimensions)
+                except Exception:
+                    logger.warning(
+                        "Failed to persist embedding config (non-fatal).", exc_info=True
+                    )
+
+            # Test the embedding
+            yield SSEEvent(
+                event=SSEEventType.TOOL_START,
+                data={"tool": "embedding_test", "label": "Testing embedding provider"},
+            )
+
+            test_ok = False
+            error_msg = ""
+            try:
+                from flydesk.knowledge.embeddings import LLMEmbeddingProvider
+
+                http_client = getattr(self._app.state, "http_client", None)
+                config = getattr(self._app.state, "config", None)
+                encryption_key = config.credential_encryption_key if config else ""
+
+                from flydesk.llm.repository import LLMProviderRepository
+
+                llm_repo = LLMProviderRepository(session_factory, encryption_key)
+
+                test_provider = LLMEmbeddingProvider(
+                    http_client=http_client,
+                    embedding_model=embedding_model,
+                    dimensions=dimensions,
+                    llm_repo=llm_repo,
+                    api_key=api_key or None,
+                )
+
+                vectors = await test_provider.embed(["Test embedding"])
+                vec = vectors[0]
+                test_ok = not all(v == 0.0 for v in vec)
+                if not test_ok:
+                    error_msg = "Received zero vector — API key may be missing or invalid."
+            except Exception as exc:
+                error_msg = str(exc)
+
+            yield SSEEvent(
+                event=SSEEventType.TOOL_END,
+                data={"tool": "embedding_test"},
+            )
+
+            if test_ok:
+                yield SSEEvent(
+                    event=SSEEventType.TOKEN,
+                    data={
+                        "content": (
+                            f"Embedding test successful. Your knowledge base will use "
+                            f"**{embedding_model}** for semantic search."
+                        )
+                    },
+                )
+            else:
+                yield SSEEvent(
+                    event=SSEEventType.TOKEN,
+                    data={
+                        "content": (
+                            f"Embedding test did not succeed. {error_msg}\n\n"
+                            f"The configuration has been saved. "
+                            f"Keyword search will be used as a fallback until embeddings "
+                            f"are working. You can update the configuration from "
+                            f"**Admin > LLM Providers**."
+                        )
+                    },
+                )
+            return
+
+        # First time entering this step -- emit the prompt and widget
+        # Determine default provider based on the LLM provider that was just configured
+        default_provider = "openai"
+        if self._pending_provider:
+            pt = self._pending_provider.get("provider_type", "openai")
+            if pt in ("openai", "google", "ollama"):
+                default_provider = pt
+
+        embedding_models = {
+            "openai": [
+                {"value": "text-embedding-3-small", "label": "text-embedding-3-small (1536d)", "dimensions": 1536},
+                {"value": "text-embedding-3-large", "label": "text-embedding-3-large (3072d)", "dimensions": 3072},
+                {"value": "text-embedding-ada-002", "label": "text-embedding-ada-002 (1536d)", "dimensions": 1536},
+            ],
+            "voyage": [
+                {"value": "voyage-3.5", "label": "voyage-3.5 (1024d)", "dimensions": 1024},
+                {"value": "voyage-3", "label": "voyage-3 (1024d)", "dimensions": 1024},
+                {"value": "voyage-code-3", "label": "voyage-code-3 (1024d)", "dimensions": 1024},
+            ],
+            "google": [
+                {"value": "text-embedding-004", "label": "text-embedding-004 (768d)", "dimensions": 768},
+            ],
+            "ollama": [
+                {"value": "nomic-embed-text", "label": "nomic-embed-text (768d)", "dimensions": 768},
+                {"value": "mxbai-embed-large", "label": "mxbai-embed-large (1024d)", "dimensions": 1024},
+            ],
+        }
+
+        yield SSEEvent(
+            event=SSEEventType.TOKEN,
+            data={
+                "content": (
+                    "### Embedding Provider\n\n"
+                    "Embeddings power semantic search in the knowledge base — "
+                    "they allow the agent to find relevant documents even when "
+                    "exact keywords do not match.\n\n"
+                    "Select an embedding provider and model below. "
+                    "If you configured an LLM provider in the previous step, "
+                    "I can reuse the same API key.\n\n"
+                    "**Supported providers:** OpenAI, Voyage AI (recommended by Anthropic), "
+                    "Google, and Ollama (local)."
+                )
+            },
+        )
+
+        yield SSEEvent(
+            event=SSEEventType.WIDGET,
+            data={
+                "widget_id": str(uuid.uuid4()),
+                "type": "embedding-setup",
+                "props": {
+                    "providers": [
+                        {"value": "openai", "label": "OpenAI", "requires_key": True},
+                        {"value": "voyage", "label": "Voyage AI", "requires_key": True},
+                        {"value": "google", "label": "Google", "requires_key": True},
+                        {"value": "ollama", "label": "Ollama (Local)", "requires_key": False},
+                    ],
+                    "models": embedding_models,
+                    "default_provider": default_provider,
+                    "reuse_llm_key": not self._llm_skipped,
+                },
+                "display": "inline",
+                "blocking": True,
+                "action": "configure_embedding",
+            },
+        )
 
     async def _sso_config(self, message: str) -> AsyncGenerator[SSEEvent, None]:
         """Ask the user to configure an SSO / OIDC identity provider."""
@@ -921,6 +1117,12 @@ class SetupConversationHandler:
             else "- **LLM Provider** -- Can be configured from the admin console\n"
         )
 
+        embedding_status = (
+            "- **Embeddings** -- Configured for semantic search\n"
+            if not self._embedding_skipped
+            else "- **Embeddings** -- Using keyword search (configure from admin for semantic search)\n"
+        )
+
         sso_status = ""
         if not self._dev_mode:
             sso_status = (
@@ -937,6 +1139,7 @@ class SetupConversationHandler:
                     f"Here is a summary of your **{app_title}** instance:\n\n"
                     f"- **Database** -- Connected and tables are created\n"
                     f"{llm_status}"
+                    f"{embedding_status}"
                     f"{sso_status}"
                     f"- **Knowledge Base** -- Ready to accept documents\n"
                     f"- **Service Catalog** -- Available for registering systems\n\n"
