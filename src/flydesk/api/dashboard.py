@@ -144,23 +144,32 @@ async def get_stats(
 
     try:
         async with session_factory() as session:
-            # Conversation count
+            # Conversation count (exclude soft-deleted)
             result = await session.execute(
-                select(func.count()).select_from(ConversationRow)
+                select(func.count())
+                .select_from(ConversationRow)
+                .where(ConversationRow.status != "deleted")
             )
             conversation_count = result.scalar() or 0
 
-            # Active user count (distinct user_ids in conversations)
+            # Active user count (distinct user_ids in non-deleted conversations)
             result = await session.execute(
                 select(func.count(func.distinct(ConversationRow.user_id)))
+                .where(ConversationRow.status != "deleted")
             )
             active_user_count = result.scalar() or 0
 
-            # Message count
+            # Message count (only from non-deleted conversations)
             from flydesk.models.conversation import MessageRow
 
             result = await session.execute(
-                select(func.count()).select_from(MessageRow)
+                select(func.count())
+                .select_from(MessageRow)
+                .join(
+                    ConversationRow,
+                    MessageRow.conversation_id == ConversationRow.id,
+                )
+                .where(ConversationRow.status != "deleted")
             )
             message_count = result.scalar() or 0
 
@@ -275,6 +284,7 @@ async def get_recent_events(audit: Audit) -> list[AuditEventSummary]:
             user_id=e.user_id,
             action=e.action,
             detail=e.detail,
+            created_at=e.timestamp.isoformat() if e.timestamp else None,
         )
         for e in events
     ]
