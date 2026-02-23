@@ -48,6 +48,8 @@ class ConversationRepository:
                 model_id=conversation.model_id,
                 metadata_=_to_json(conversation.metadata),
                 status=conversation.status,
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
             )
             session.add(row)
             await session.commit()
