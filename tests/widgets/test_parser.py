@@ -193,3 +193,95 @@ class TestWidgetParser:
         result = WidgetParser.parse(text)
         assert result.widgets[0].props["defaultOpen"] == [0, 2]
         assert len(result.widgets[0].props["sections"]) == 3
+
+    # -----------------------------------------------------------------
+    # Metric card
+    # -----------------------------------------------------------------
+
+    def test_parse_metric_card(self):
+        text = (
+            ':::widget{type="metric-card" inline=true}\n'
+            '{"metrics": [{"label": "Users", "value": "1,234"}]}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert len(result.widgets) == 1
+        assert result.widgets[0].type == "metric-card"
+        assert result.widgets[0].display == WidgetDisplay.INLINE
+        assert len(result.widgets[0].props["metrics"]) == 1
+        assert result.widgets[0].props["metrics"][0]["label"] == "Users"
+        assert result.widgets[0].props["metrics"][0]["value"] == "1,234"
+
+    def test_parse_metric_card_with_trend(self):
+        text = (
+            ':::widget{type="metric-card" inline=true}\n'
+            '{"metrics": [{"label": "Revenue", "value": "$12.5k", "delta": "+15%", "trend": "up"}, '
+            '{"label": "Errors", "value": "3", "delta": "-2", "trend": "down"}]}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert result.widgets[0].type == "metric-card"
+        metrics = result.widgets[0].props["metrics"]
+        assert len(metrics) == 2
+        assert metrics[0]["delta"] == "+15%"
+        assert metrics[0]["trend"] == "up"
+        assert metrics[1]["trend"] == "down"
+
+    # -----------------------------------------------------------------
+    # Code block
+    # -----------------------------------------------------------------
+
+    def test_parse_code_block(self):
+        text = (
+            ':::widget{type="code-block" inline=true}\n'
+            '{"code": "print(42)", "language": "python", "title": "Example"}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert len(result.widgets) == 1
+        assert result.widgets[0].type == "code-block"
+        assert result.widgets[0].props["code"] == "print(42)"
+        assert result.widgets[0].props["language"] == "python"
+        assert result.widgets[0].props["title"] == "Example"
+
+    def test_parse_code_block_minimal(self):
+        text = (
+            ':::widget{type="code-block" inline=true}\n'
+            '{"code": "SELECT * FROM users;"}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert result.widgets[0].type == "code-block"
+        assert result.widgets[0].props["code"] == "SELECT * FROM users;"
+        assert "language" not in result.widgets[0].props
+
+    # -----------------------------------------------------------------
+    # Action buttons
+    # -----------------------------------------------------------------
+
+    def test_parse_action_buttons(self):
+        text = (
+            ':::widget{type="action-buttons" inline=true}\n'
+            '{"actions": [{"label": "Show details", "message": "Show me details"}, '
+            '{"label": "Export", "message": "Export as CSV", "variant": "primary"}]}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert len(result.widgets) == 1
+        assert result.widgets[0].type == "action-buttons"
+        actions = result.widgets[0].props["actions"]
+        assert len(actions) == 2
+        assert actions[0]["label"] == "Show details"
+        assert actions[0]["message"] == "Show me details"
+        assert actions[1]["variant"] == "primary"
+
+    def test_parse_action_buttons_single(self):
+        text = (
+            ':::widget{type="action-buttons" inline=true}\n'
+            '{"actions": [{"label": "Try again", "message": "Retry the last operation"}]}\n'
+            ':::'
+        )
+        result = WidgetParser.parse(text)
+        assert result.widgets[0].type == "action-buttons"
+        assert len(result.widgets[0].props["actions"]) == 1
+        assert result.widgets[0].props["actions"][0]["message"] == "Retry the last operation"

@@ -9,7 +9,7 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
@@ -75,3 +75,53 @@ Collapsible sections for organizing related content. Multiple sections can be op
 Props:
 - `sections` (required): Array of objects with `title` (string) and `content` (string).
 - `defaultOpen` (optional): Index or array of indices of sections to open by default.
+
+## metric-card
+
+Dashboard-style stat card grid. Shows key metrics with optional trend indicators.
+
+```
+:::widget{type="metric-card" inline=true}
+{"metrics": [{"label": "Users", "value": "1,234", "delta": "+12%", "trend": "up"}, {"label": "Errors", "value": "3", "delta": "-2", "trend": "down"}]}
+:::
+```
+
+Props:
+- `metrics` (required): Array of metric objects, each with:
+  - `label` (required): Short label for the metric.
+  - `value` (required): Display value (string, e.g. "1,234").
+  - `delta` (optional): Change indicator text (e.g. "+12%", "-5").
+  - `trend` (optional): "up" (green) or "down" (red) trend arrow.
+  - `icon` (optional): Icon name hint (currently renders a generic Activity icon).
+
+## code-block
+
+Enhanced code display with syntax highlighting, line numbers, and a copy button.
+
+```
+:::widget{type="code-block" inline=true}
+{"code": "def hello():\n    print('Hello, world!')", "language": "python", "title": "Example", "showLineNumbers": true}
+:::
+```
+
+Props:
+- `code` (required): The source code to display.
+- `language` (optional): Language for syntax highlighting (e.g. "python", "javascript", "sql"). Auto-detected if omitted.
+- `title` (optional): Title displayed in the header bar.
+- `showLineNumbers` (optional, default true): Whether to show line numbers.
+
+## action-buttons
+
+Follow-up action chips. Clicking a button sends its associated message to the conversation.
+
+```
+:::widget{type="action-buttons" inline=true}
+{"actions": [{"label": "Show details", "message": "Show me the full details"}, {"label": "Export CSV", "message": "Export this as CSV", "variant": "primary"}]}
+:::
+```
+
+Props:
+- `actions` (required): Array of action objects, each with:
+  - `label` (required): Button text.
+  - `message` (required): Message to send when clicked.
+  - `variant` (optional): "default", "primary", or "outline". Defaults to "default".
