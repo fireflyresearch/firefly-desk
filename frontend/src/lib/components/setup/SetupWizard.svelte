@@ -12,6 +12,7 @@
 	import { Check } from 'lucide-svelte';
 	import WelcomeStep from './WelcomeStep.svelte';
 	import LLMProviderStep from './LLMProviderStep.svelte';
+	import EmbeddingStep from './EmbeddingStep.svelte';
 	import UserProfileStep from './UserProfileStep.svelte';
 	import SampleDataStep from './SampleDataStep.svelte';
 	import ReadyStep from './ReadyStep.svelte';
@@ -39,6 +40,7 @@
 	const allSteps: StepDef[] = [
 		{ id: 'welcome', label: 'Welcome' },
 		{ id: 'llm', label: 'LLM Provider' },
+		{ id: 'embedding', label: 'Embeddings' },
 		{ id: 'profile', label: 'User Profile', devOnly: true },
 		{ id: 'data', label: 'Sample Data' },
 		{ id: 'ready', label: 'Ready' }
@@ -135,6 +137,8 @@
 					<WelcomeStep {status} onNext={handleNext} />
 				{:else if currentStep?.id === 'llm'}
 					<LLMProviderStep {status} onNext={handleNext} onBack={handleBack} />
+				{:else if currentStep?.id === 'embedding'}
+					<EmbeddingStep onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'profile'}
 					<UserProfileStep onNext={handleNext} onBack={handleBack} />
 				{:else if currentStep?.id === 'data'}
