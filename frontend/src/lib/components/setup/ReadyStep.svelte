@@ -152,6 +152,16 @@
 			});
 		}
 
+		// Admin user
+		const adminUser = wizardData.admin_user as Record<string, unknown> | undefined;
+		if (adminUser) {
+			rows.push({
+				label: 'Admin User',
+				value: (adminUser.username as string) ?? 'Created',
+				ok: true
+			});
+		}
+
 		// Sample data
 		rows.push({
 			label: 'Sample Data',
