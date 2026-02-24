@@ -14,6 +14,20 @@ To remove previously seeded data, use ``unseed_banking_catalog``
 or the CLI command ``flydesk-seed banking --remove``.
 """
 
-from flydesk.seeds.banking import seed_banking_catalog, unseed_banking_catalog
+from flydesk.seeds.banking import (
+    seed_banking_catalog,
+    seed_banking_documents,
+    seed_banking_endpoints,
+    seed_banking_skills,
+    seed_banking_systems,
+    unseed_banking_catalog,
+)
 
-__all__ = ["seed_banking_catalog", "unseed_banking_catalog"]
+__all__ = [
+    "seed_banking_catalog",
+    "seed_banking_documents",
+    "seed_banking_endpoints",
+    "seed_banking_skills",
+    "seed_banking_systems",
+    "unseed_banking_catalog",
+]

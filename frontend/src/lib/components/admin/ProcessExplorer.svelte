@@ -32,6 +32,7 @@
 		Filter
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import { parseSSEStream } from '$lib/services/sse.js';
 	import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
 	import {
 		toProcessFlowNodes,
@@ -117,7 +118,7 @@
 	let discoveryJobId = $state<string | null>(null);
 	let discoveryJobStatus = $state<string | null>(null);
 	let discoveryJobProgress = $state(0);
-	let jobPollingTimer = $state<ReturnType<typeof setInterval> | null>(null);
+	let discoveryProgressMessage = $state('');
 
 	// Auto-analyze toggle
 	let autoAnalyze = $state(false);
@@ -227,9 +228,6 @@
 	$effect(() => {
 		loadProcesses();
 		loadAnalysisSettings();
-		return () => {
-			stopJobPolling();
-		};
 	});
 
 	// -----------------------------------------------------------------------
@@ -339,53 +337,47 @@
 
 	async function triggerRediscover() {
 		error = '';
+		discoveryProgressMessage = '';
 		try {
 			const job = await apiJson<Job>('/processes/discover', { method: 'POST' });
 			discoveryJobId = job.id;
 			discoveryJobStatus = job.status;
 			discoveryJobProgress = job.progress ?? 0;
-			startJobPolling();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to start discovery';
-		}
-	}
 
-	function startJobPolling() {
-		stopJobPolling();
-		jobPollingTimer = setInterval(pollJobStatus, 2000);
-	}
-
-	function stopJobPolling() {
-		if (jobPollingTimer !== null) {
-			clearInterval(jobPollingTimer);
-			jobPollingTimer = null;
-		}
-	}
-
-	async function pollJobStatus() {
-		if (!discoveryJobId) {
-			stopJobPolling();
-			return;
-		}
-		try {
-			const job = await apiJson<Job>(`/jobs/${discoveryJobId}`);
-			discoveryJobStatus = job.status;
-			discoveryJobProgress = job.progress ?? 0;
-
-			if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-				stopJobPolling();
-				if (job.status === 'completed') {
+			const response = await apiFetch(`/jobs/${job.id}/stream`);
+			await parseSSEStream(
+				response,
+				(msg) => {
+					if (msg.event === 'job_progress') {
+						discoveryJobStatus = (msg.data.status as string) ?? discoveryJobStatus;
+						discoveryJobProgress = (msg.data.progress as number) ?? discoveryJobProgress;
+						if (msg.data.message) {
+							discoveryProgressMessage = msg.data.message as string;
+						}
+					} else if (msg.event === 'done') {
+						const result = msg.data.result as Record<string, unknown> | undefined;
+						if (result?.error) {
+							error = `Discovery failed: ${result.error as string}`;
+						}
+					}
+				},
+				(err) => {
+					error = `Stream error: ${err.message}`;
+				},
+				async () => {
+					// Stream ended -- update final state
+					if (discoveryJobStatus !== 'failed' && discoveryJobStatus !== 'cancelled') {
+						discoveryJobStatus = 'completed';
+					}
+					discoveryProgressMessage = '';
 					await loadProcesses();
 					if (selectedProcess) {
 						await loadProcessDetail(selectedProcess.id);
 					}
 				}
-				if (job.status === 'failed' && job.error) {
-					error = `Discovery failed: ${job.error}`;
-				}
-			}
-		} catch {
-			stopJobPolling();
+			);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to start discovery';
 		}
 	}
 
@@ -621,10 +613,9 @@
 			<!-- Job progress indicator -->
 			{#if isDiscovering}
 				<div class="mt-2">
-					<div class="mb-1 flex items-center justify-between text-[10px] text-text-secondary">
-						<span>Discovery in progress</span>
-						<span>{Math.round(discoveryJobProgress * 100)}%</span>
-					</div>
+					{#if discoveryProgressMessage}
+						<p class="mb-1 truncate text-[10px] text-text-secondary">{discoveryProgressMessage}</p>
+					{/if}
 					<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface">
 						<div
 							class="h-full rounded-full bg-accent transition-all duration-500"
