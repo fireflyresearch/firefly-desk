@@ -119,6 +119,31 @@ export function appendWidget(widget: WidgetDirective): void {
 	});
 }
 
+/**
+ * Upsert a widget directive into the last streaming assistant message.
+ * If a widget with the same `widget_id` already exists, its props are merged.
+ * Otherwise the widget is appended.
+ */
+export function upsertWidget(widget: WidgetDirective): void {
+	messages.update((msgs) => {
+		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
+		if (idx === -1) return msgs;
+		const updated = [...msgs];
+		const existingWidgets = [...updated[idx].widgets];
+		const widgetIdx = existingWidgets.findIndex((w) => w.widget_id === widget.widget_id);
+		if (widgetIdx >= 0) {
+			existingWidgets[widgetIdx] = {
+				...existingWidgets[widgetIdx],
+				props: { ...existingWidgets[widgetIdx].props, ...widget.props }
+			};
+		} else {
+			existingWidgets.push(widget);
+		}
+		updated[idx] = { ...updated[idx], widgets: existingWidgets };
+		return updated;
+	});
+}
+
 /** Append a reasoning step to the current reasoning steps store. */
 export function appendReasoningStep(step: ReasoningStep): void {
 	reasoningSteps.update((steps) => [...steps, step]);

@@ -16,7 +16,7 @@ import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, To
 import {
 	addMessage,
 	updateStreamingMessage,
-	appendWidget,
+	upsertWidget,
 	appendReasoningStep,
 	setReasoningPlan,
 	clearReasoningState,
@@ -237,7 +237,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 				props: (msg.data.props as Record<string, unknown>) ?? {},
 				display: (msg.data.display as 'inline' | 'panel') ?? 'inline'
 			};
-			appendWidget(widget);
+			upsertWidget(widget);
 
 			if (widget.display === 'panel') {
 				pushPanel({
@@ -280,7 +280,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 				},
 				display: 'inline'
 			};
-			appendWidget(widget);
+			upsertWidget(widget);
 			break;
 		}
 
