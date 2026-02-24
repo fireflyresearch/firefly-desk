@@ -1,8 +1,8 @@
 <!--
   CatalogManager.svelte - CRUD interface for external system catalog.
 
-  Lists systems in a table with expandable endpoint rows, and provides
-  inline forms for adding / editing systems.
+  Lists systems in a table with expandable endpoint rows. Uses the
+  SystemWizard modal for creating and editing systems.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -14,11 +14,10 @@
 		Trash2,
 		ChevronDown,
 		ChevronRight,
-		X,
-		Save,
 		Loader2
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import SystemWizard from './SystemWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -40,6 +39,26 @@
 		tags: string[];
 	}
 
+	interface SystemFull {
+		id: string;
+		name: string;
+		description: string;
+		base_url: string;
+		auth_config: {
+			auth_type: string;
+			credential_id: string;
+			token_url?: string | null;
+			scopes?: string[] | null;
+			auth_headers?: Record<string, string> | null;
+			auth_params?: Record<string, string> | null;
+		};
+		health_check_path: string | null;
+		tags: string[];
+		status: string;
+		agent_enabled: boolean;
+		metadata: Record<string, unknown>;
+	}
+
 	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
@@ -52,11 +71,10 @@
 	let expandedIds = $state<Set<string>>(new Set());
 	let endpointCache = $state<Record<string, Endpoint[]>>({});
 
-	// Form state
+	// Wizard state
 	let showForm = $state(false);
-	let editingId = $state<string | null>(null);
-	let formData = $state({ name: '', base_url: '', status: 'active', tags: '' });
 	let saving = $state(false);
+	let editingSystemFull = $state<SystemFull | null>(null);
 
 	// -----------------------------------------------------------------------
 	// Data loading
@@ -105,60 +123,29 @@
 	}
 
 	function openAddForm() {
-		editingId = null;
-		formData = { name: '', base_url: '', status: 'active', tags: '' };
+		editingSystemFull = null;
 		showForm = true;
 	}
 
-	function openEditForm(system: System) {
-		editingId = system.id;
-		formData = {
-			name: system.name,
-			base_url: system.base_url,
-			status: system.status,
-			tags: system.tags.join(', ')
-		};
-		showForm = true;
-	}
-
-	function cancelForm() {
-		showForm = false;
-		editingId = null;
-	}
-
-	async function submitForm() {
-		saving = true;
+	async function openEditForm(system: System) {
 		error = '';
-		const payload = {
-			name: formData.name,
-			base_url: formData.base_url,
-			status: formData.status,
-			tags: formData.tags
-				.split(',')
-				.map((t) => t.trim())
-				.filter(Boolean)
-		};
-
 		try {
-			if (editingId) {
-				await apiJson(`/catalog/systems/${editingId}`, {
-					method: 'PUT',
-					body: JSON.stringify(payload)
-				});
-			} else {
-				await apiJson('/catalog/systems', {
-					method: 'POST',
-					body: JSON.stringify(payload)
-				});
-			}
-			showForm = false;
-			editingId = null;
-			await loadSystems();
+			editingSystemFull = await apiJson<SystemFull>(`/catalog/systems/${system.id}`);
+			showForm = true;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save system';
-		} finally {
-			saving = false;
+			error = e instanceof Error ? e.message : 'Failed to load system details';
 		}
+	}
+
+	function closeWizard() {
+		showForm = false;
+		editingSystemFull = null;
+	}
+
+	async function onWizardSaved() {
+		showForm = false;
+		editingSystemFull = null;
+		await loadSystems();
 	}
 
 	async function deleteSystem(id: string) {
@@ -244,93 +231,13 @@
 		</div>
 	{/if}
 
-	<!-- Inline form -->
+	<!-- System Wizard modal -->
 	{#if showForm}
-		<div class="rounded-lg border border-border bg-surface p-4">
-			<div class="mb-3 flex items-center justify-between">
-				<h3 class="text-sm font-semibold text-text-primary">
-					{editingId ? 'Edit System' : 'New System'}
-				</h3>
-				<button
-					type="button"
-					onclick={cancelForm}
-					class="text-text-secondary hover:text-text-primary"
-				>
-					<X size={16} />
-				</button>
-			</div>
-
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					submitForm();
-				}}
-				class="grid grid-cols-2 gap-3"
-			>
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Name</span>
-					<input
-						type="text"
-						bind:value={formData.name}
-						required
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Base URL</span>
-					<input
-						type="url"
-						bind:value={formData.base_url}
-						required
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Status</span>
-					<select
-						bind:value={formData.status}
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					>
-						<option value="active">Active</option>
-						<option value="inactive">Inactive</option>
-					</select>
-				</label>
-
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
-					<input
-						type="text"
-						bind:value={formData.tags}
-						placeholder="e.g. crm, internal"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-
-				<div class="col-span-2 flex justify-end gap-2 pt-1">
-					<button
-						type="button"
-						onclick={cancelForm}
-						class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-					>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						disabled={saving}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-					>
-						{#if saving}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Save size={14} />
-						{/if}
-						{editingId ? 'Update' : 'Create'}
-					</button>
-				</div>
-			</form>
-		</div>
+		<SystemWizard
+			editingSystem={editingSystemFull}
+			onClose={closeWizard}
+			onSaved={onWizardSaved}
+		/>
 	{/if}
 
 	<!-- Table -->
