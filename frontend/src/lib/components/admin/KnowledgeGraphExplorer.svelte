@@ -101,7 +101,7 @@
 	};
 
 	function getTypeColor(type: string): string {
-		return typeColors[type.toLowerCase()] ?? typeColors.default;
+		return typeColors[(type ?? '').toLowerCase()] ?? typeColors.default;
 	}
 
 	// -----------------------------------------------------------------------
@@ -116,14 +116,14 @@
 			const q = searchQuery.toLowerCase();
 			result = result.filter(
 				(e) =>
-					e.name.toLowerCase().includes(q) ||
-					e.type.toLowerCase().includes(q)
+					(e.name ?? '').toLowerCase().includes(q) ||
+					(e.type ?? '').toLowerCase().includes(q)
 			);
 		}
 
 		// Apply entity type filter
 		if (hiddenTypes.size > 0) {
-			result = result.filter((e) => !hiddenTypes.has(e.type.toLowerCase()));
+			result = result.filter((e) => !hiddenTypes.has((e.type ?? '').toLowerCase()));
 		}
 
 		return result;
@@ -132,7 +132,7 @@
 	let entitiesByType = $derived.by(() => {
 		const groups: Record<string, GraphEntity[]> = {};
 		for (const entity of filteredEntities) {
-			const type = entity.type || 'unknown';
+			const type = (entity.type ?? 'unknown').toLowerCase();
 			if (!groups[type]) groups[type] = [];
 			groups[type].push(entity);
 		}
@@ -180,9 +180,11 @@
 		if (searchQuery.trim()) {
 			const q = searchQuery.toLowerCase();
 			flowNodes = flowNodes.map((node) => {
+				const label = (node.data.label ?? '') as string;
+				const subtitle = (node.data.subtitle ?? '') as string;
 				const isMatch =
-					node.data.label.toLowerCase().includes(q) ||
-					(node.data.subtitle?.toLowerCase().includes(q) ?? false);
+					label.toLowerCase().includes(q) ||
+					subtitle.toLowerCase().includes(q);
 				if (isMatch) {
 					return {
 						...node,
@@ -207,7 +209,7 @@
 			// Extract unique entity types for filter chips
 			const types = new Set<string>();
 			for (const e of entities) {
-				types.add(e.type.toLowerCase());
+				types.add((e.type ?? 'unknown').toLowerCase());
 			}
 			allEntityTypes = [...types].sort();
 		} catch (e) {
@@ -764,10 +766,10 @@
 												>
 													<span
 														class="inline-block h-2 w-2 rounded-full"
-														style="background-color: {getTypeColor(neighbor.type)}"
+														style="background-color: {getTypeColor(neighbor.type ?? '')}"
 													></span>
-													<span class="font-medium text-text-primary">{neighbor.name}</span>
-													<span class="capitalize text-text-secondary">{neighbor.type}</span>
+													<span class="font-medium text-text-primary">{neighbor.name ?? 'Unnamed'}</span>
+													<span class="capitalize text-text-secondary">{neighbor.type ?? 'unknown'}</span>
 												</button>
 											{/each}
 										</div>
