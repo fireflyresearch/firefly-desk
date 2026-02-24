@@ -365,3 +365,56 @@ class TestAdminGuard:
     async def test_non_admin_cannot_delete_endpoint(self, non_admin_client):
         response = await non_admin_client.delete("/api/catalog/endpoints/ep-1")
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# agent_enabled field roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestAgentEnabledRoundtrip:
+    """Verify the ``agent_enabled`` boolean is accepted & returned by the API."""
+
+    async def test_create_system_with_agent_enabled_true(
+        self, admin_client, mock_repo
+    ):
+        system = _sample_system()
+        payload = system.model_dump()
+        payload["agent_enabled"] = True
+
+        response = await admin_client.post("/api/catalog/systems", json=payload)
+
+        assert response.status_code == 201
+        assert response.json()["agent_enabled"] is True
+
+    async def test_create_system_defaults_agent_enabled_false(
+        self, admin_client, mock_repo
+    ):
+        system = _sample_system()
+        payload = system.model_dump()
+        # Explicitly remove agent_enabled so the model default kicks in
+        payload.pop("agent_enabled", None)
+
+        response = await admin_client.post("/api/catalog/systems", json=payload)
+
+        assert response.status_code == 201
+        assert response.json()["agent_enabled"] is False
+
+    async def test_update_system_toggles_agent_enabled(
+        self, admin_client, mock_repo
+    ):
+        # Existing system has agent_enabled=False (default)
+        existing = _sample_system()
+        mock_repo.get_system.return_value = existing
+
+        # Send update with agent_enabled flipped to True
+        payload = existing.model_dump()
+        payload["agent_enabled"] = True
+
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1", json=payload
+        )
+
+        assert response.status_code == 200
+        assert response.json()["agent_enabled"] is True
+        mock_repo.update_system.assert_awaited_once()
