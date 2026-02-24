@@ -30,6 +30,7 @@ from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
 from flydesk.api.custom_tools import router as custom_tools_router
+from flydesk.api.github import router as github_router
 from flydesk.api.openapi_import import get_catalog_repo as openapi_get_catalog
 from flydesk.api.openapi_import import router as openapi_import_router
 from flydesk.api.chat import router as chat_router
@@ -421,6 +422,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     job_runner.register_handler("kg_recompute", kg_recompute_handler)
     app.state.kg_extractor = kg_extractor
 
+    # Document analyser for GitHub import enrichment
+    from flydesk.api.github import get_document_analyzer
+    from flydesk.knowledge.analyzer import DocumentAnalyzer
+
+    document_analyzer = DocumentAnalyzer(agent_factory)
+    app.dependency_overrides[get_document_analyzer] = lambda: document_analyzer
+
     # Auto-trigger service (debounced triggers for KG recompute and process discovery)
     from flydesk.triggers.auto_trigger import AutoTriggerService
 
@@ -666,5 +674,6 @@ def create_app() -> FastAPI:
     app.include_router(processes_router)
     app.include_router(custom_tools_router)
     app.include_router(openapi_import_router)
+    app.include_router(github_router)
 
     return app
