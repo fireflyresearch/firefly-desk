@@ -1001,7 +1001,7 @@ async def _stream_seed_banking(  # noqa: C901 – orchestration complexity
     }).to_sse()
 
 
-@router.post("/seed")
+@router.post("/seed", response_model=None)
 async def run_seed(body: SeedRequest, request: Request) -> SeedResult | StreamingResponse:
     """Seed or unseed example data for a domain.
 
