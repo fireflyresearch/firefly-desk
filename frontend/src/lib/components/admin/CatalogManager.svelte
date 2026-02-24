@@ -214,6 +214,8 @@
 	// -----------------------------------------------------------------------
 
 	let confirmingDeleteId = $state<string | null>(null);
+	let confirmingDeprecateId = $state<string | null>(null);
+	let transitioning = $state(false);
 
 	function startDelete(id: string) {
 		confirmingDeleteId = id;
@@ -245,6 +247,10 @@
 		}
 	}
 
+	// Note: 'active -> degraded' is omitted intentionally. The 'degraded'
+	// status is set automatically by health-check monitoring, not by manual
+	// user action. Only recovery transitions (degraded -> active/disabled)
+	// are exposed in the UI.
 	const STATUS_TRANSITIONS: Record<string, { label: string; target: string }[]> = {
 		draft: [{ label: 'Activate', target: 'active' }],
 		active: [
@@ -263,6 +269,8 @@
 	};
 
 	async function transitionStatus(systemId: string, newStatus: string) {
+		if (transitioning) return;
+		transitioning = true;
 		error = '';
 		try {
 			await apiJson(`/catalog/systems/${systemId}/status`, {
@@ -272,6 +280,8 @@
 			await loadSystems();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Status transition failed';
+		} finally {
+			transitioning = false;
 		}
 	}
 
@@ -389,13 +399,46 @@
 										{#if STATUS_TRANSITIONS[system.status]?.length > 0}
 											<div class="flex gap-1">
 												{#each STATUS_TRANSITIONS[system.status] as action}
-													<button
-														type="button"
-														class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-														onclick={() => transitionStatus(system.id, action.target)}
-													>
-														{action.label}
-													</button>
+													{#if action.target === 'deprecated' && confirmingDeprecateId === system.id}
+														<div class="flex items-center gap-1.5">
+															<span class="text-xs text-danger">Deprecate?</span>
+															<button
+																type="button"
+																onclick={() => { confirmingDeprecateId = null; transitionStatus(system.id, 'deprecated'); }}
+																class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
+																disabled={transitioning}
+															>
+																Yes
+															</button>
+															<button
+																type="button"
+																onclick={() => { confirmingDeprecateId = null; }}
+																class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
+															>
+																No
+															</button>
+														</div>
+													{:else if action.target === 'deprecated'}
+														<button
+															type="button"
+															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+															onclick={() => { confirmingDeprecateId = system.id; }}
+															title="{action.label} {system.name}"
+															disabled={transitioning}
+														>
+															{action.label}
+														</button>
+													{:else}
+														<button
+															type="button"
+															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+															onclick={() => transitionStatus(system.id, action.target)}
+															title="{action.label} {system.name}"
+															disabled={transitioning}
+														>
+															{action.label}
+														</button>
+													{/if}
 												{/each}
 											</div>
 										{/if}
