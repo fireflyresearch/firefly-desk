@@ -34,6 +34,8 @@ PUBLIC_PATH_PREFIXES = (
     "/api/auth/login-url",
     "/api/auth/callback",
     "/api/auth/logout",
+    "/api/auth/login",
+    "/api/setup/create-admin",
 )
 
 
@@ -49,6 +51,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         token_decoder: Callable[[str], dict[str, Any]] | None = None,
         oidc_client: OIDCClient | None = None,
         provider_profile: OIDCProviderProfile | None = None,
+        local_jwt_secret: str | None = None,
     ) -> None:
         super().__init__(app)
         self._roles_claim = roles_claim
@@ -56,6 +59,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._token_decoder = token_decoder
         self._oidc_client = oidc_client
         self._provider_profile = provider_profile
+        self._local_jwt_secret = local_jwt_secret
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process each request, enforcing JWT auth on non-public paths."""
@@ -127,7 +131,29 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     async def _decode_token(self, token: str) -> dict[str, Any]:
-        """Decode the JWT token using OIDC client or the configured decoder."""
+        """Decode the JWT token, routing by algorithm.
+
+        * **HS256 + no ``kid``** -- local JWT, decoded with the configured
+          ``local_jwt_secret``.
+        * **RS256/ES256 + ``kid``** -- OIDC JWT, validated via the OIDC client
+          or the legacy ``token_decoder`` callable.
+        """
+        import jwt as pyjwt
+
+        try:
+            header = pyjwt.get_unverified_header(token)
+        except Exception:
+            raise pyjwt.exceptions.InvalidTokenError("Invalid JWT header")
+
+        # Local JWT: HS256, no kid
+        if header.get("alg") == "HS256" and not header.get("kid"):
+            if self._local_jwt_secret:
+                from flydesk.auth.jwt_local import decode_local_jwt
+
+                return decode_local_jwt(token, self._local_jwt_secret)
+            raise NotImplementedError("Local JWT secret not configured")
+
+        # OIDC JWT: has kid, RS256/ES256
         if self._oidc_client is not None:
             return await self._oidc_client.validate_token(token)
         if self._token_decoder:
