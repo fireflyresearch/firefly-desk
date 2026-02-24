@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
@@ -20,6 +21,7 @@ from flydesk.auth.models import UserSession
 if TYPE_CHECKING:
     from flydesk.auth.oidc import OIDCClient
     from flydesk.auth.providers import OIDCProviderProfile
+    from flydesk.auth.repository import OIDCProviderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         oidc_client: OIDCClient | None = None,
         provider_profile: OIDCProviderProfile | None = None,
         local_jwt_secret: str | None = None,
+        oidc_repo: OIDCProviderRepository | None = None,
     ) -> None:
         super().__init__(app)
         self._roles_claim = roles_claim
@@ -60,12 +63,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self._oidc_client = oidc_client
         self._provider_profile = provider_profile
         self._local_jwt_secret = local_jwt_secret
+        self._oidc_repo = oidc_repo
+        self._provider_cache: dict[str, tuple[OIDCClient, OIDCProviderProfile, float]] = {}
+        self._cache_ttl = 300  # 5 minutes
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process each request, enforcing JWT auth on non-public paths."""
         # Skip auth for public paths (prefix match)
         if any(request.url.path.startswith(p) for p in PUBLIC_PATH_PREFIXES):
             return await call_next(request)
+
+        # Lazily resolve oidc_repo from app.state (created in lifespan)
+        if self._oidc_repo is None:
+            self._oidc_repo = getattr(request.app.state, "oidc_repo", None)
 
         # Try Authorization header first, then cookie
         auth_header = request.headers.get("authorization", "")
@@ -83,19 +93,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         try:
-            claims = await self._decode_token(token)
+            claims, resolved_profile = await self._decode_token(token)
         except Exception:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or expired token"},
             )
 
+        # Use the dynamically resolved profile if available, else the static one
+        effective_profile = resolved_profile or self._provider_profile
+
         # Extract provider-specific claims if provider profile is available
         extra: dict[str, Any] = {}
-        if self._provider_profile is not None:
+        if effective_profile is not None:
             from flydesk.auth.providers import extract_user_claims
 
-            extra = extract_user_claims(claims, self._provider_profile)
+            extra = extract_user_claims(claims, effective_profile)
 
         # Build UserSession from claims
         session = UserSession(
@@ -130,13 +143,62 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.user_session = session
         return await call_next(request)
 
-    async def _decode_token(self, token: str) -> dict[str, Any]:
+    async def _resolve_oidc_provider(
+        self, issuer: str
+    ) -> tuple[OIDCClient, OIDCProviderProfile] | None:
+        """Resolve a DB-managed OIDC provider by issuer URL.
+
+        Returns ``(OIDCClient, OIDCProviderProfile)`` on match, or ``None``
+        if no active provider matches the issuer.  Both positive and negative
+        results are cached for ``_cache_ttl`` seconds to avoid repeated DB
+        queries.
+        """
+        from flydesk.auth.oidc import OIDCClient
+        from flydesk.auth.providers import get_provider
+
+        # Check cache first (positive or negative hit)
+        cached = self._provider_cache.get(issuer)
+        if cached is not None and (time.time() - cached[2]) < self._cache_ttl:
+            if cached[0] is None:
+                return None  # Cached negative lookup
+            return cached[0], cached[1]
+
+        # Look up from DB
+        if self._oidc_repo is None:
+            return None
+
+        providers = await self._oidc_repo.list_providers()
+        for row in providers:
+            if row.is_active and row.issuer_url.rstrip("/") == issuer.rstrip("/"):
+                secret = self._oidc_repo.decrypt_secret(row)
+                client = OIDCClient(
+                    issuer_url=row.issuer_url,
+                    client_id=row.client_id,
+                    client_secret=secret or "",
+                )
+                profile = get_provider(row.provider_type)
+                self._provider_cache[issuer] = (client, profile, time.time())
+                return client, profile
+
+        # Cache the negative lookup to avoid repeated DB queries
+        self._provider_cache[issuer] = (None, None, time.time())  # type: ignore[assignment]
+        return None
+
+    async def _decode_token(
+        self, token: str
+    ) -> tuple[dict[str, Any], OIDCProviderProfile | None]:
         """Decode the JWT token, routing by algorithm.
+
+        Returns ``(claims, provider_profile)`` where *provider_profile* is the
+        :class:`OIDCProviderProfile` resolved from a DB-managed provider, or
+        ``None`` when the static (env-var) client or local JWT was used.
 
         * **HS256 + no ``kid``** -- local JWT, decoded with the configured
           ``local_jwt_secret``.
-        * **RS256/ES256 + ``kid``** -- OIDC JWT, validated via the OIDC client
-          or the legacy ``token_decoder`` callable.
+        * **RS256/ES256 + ``kid``** -- OIDC JWT.  Dynamic provider resolution
+          is attempted first (by peeking at the ``iss`` claim); if no
+          DB-managed provider matches, the static OIDC client or legacy
+          ``token_decoder`` is used as a fallback.
         """
         import jwt as pyjwt
 
@@ -150,14 +212,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if self._local_jwt_secret:
                 from flydesk.auth.jwt_local import decode_local_jwt
 
-                return decode_local_jwt(token, self._local_jwt_secret)
+                return decode_local_jwt(token, self._local_jwt_secret), None
             raise NotImplementedError("Local JWT secret not configured")
 
         # OIDC JWT: has kid, RS256/ES256
+        # Try dynamic provider resolution first (DB-managed providers)
+        unverified_claims = pyjwt.decode(
+            token, options={"verify_signature": False}
+        )
+        issuer = unverified_claims.get("iss", "")
+        if issuer:
+            resolved = await self._resolve_oidc_provider(issuer)
+            if resolved:
+                client, profile = resolved
+                claims = await client.validate_token(token)
+                return claims, profile
+
+        # Fall back to static env-var client
         if self._oidc_client is not None:
-            return await self._oidc_client.validate_token(token)
+            return await self._oidc_client.validate_token(token), None
         if self._token_decoder:
-            return self._token_decoder(token)
+            return self._token_decoder(token), None
         raise NotImplementedError("No token decoder configured")
 
     @staticmethod
