@@ -24,6 +24,7 @@
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
+	import MarkdownContent from '$lib/components/shared/MarkdownContent.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -444,14 +445,7 @@
 					{#if doc.content}
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Content Preview</span>
-							<div class="max-h-96 overflow-y-auto">
-								<RichEditor
-									value={doc.content}
-									readonly={true}
-									mode="full"
-									minHeight="100px"
-								/>
-							</div>
+							<MarkdownContent content={doc.content} maxHeight="384px" />
 						</div>
 					{/if}
 				</div>
