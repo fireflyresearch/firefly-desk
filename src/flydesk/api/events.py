@@ -30,6 +30,7 @@ class SSEEventType(StrEnum):
     ERROR = "error"
     DONE = "done"
     JOB_PROGRESS = "job_progress"
+    SEED_PROGRESS = "seed_progress"
 
 
 class SSEEvent(BaseModel):
