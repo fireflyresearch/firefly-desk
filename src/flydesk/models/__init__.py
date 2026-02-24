@@ -11,6 +11,7 @@
 from flydesk.models.audit import AuditEventRow
 from flydesk.models.base import Base
 from flydesk.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndpointRow
+from flydesk.models.custom_tool import CustomToolRow
 from flydesk.models.conversation import ConversationRow, MessageRow
 from flydesk.models.export import ExportRow, ExportTemplateRow
 from flydesk.models.file_upload import FileUploadRow
@@ -32,6 +33,7 @@ __all__ = [
     "BusinessProcessRow",
     "ConversationRow",
     "CredentialRow",
+    "CustomToolRow",
     "DocumentChunkRow",
     "EntityRow",
     "ExportRow",
