@@ -144,6 +144,13 @@ class CatalogRepository:
                     endpoint.retry_policy.model_dump() if endpoint.retry_policy else None
                 ),
                 tags=_to_json(endpoint.tags),
+                protocol_type=endpoint.protocol_type.value,
+                graphql_query=endpoint.graphql_query,
+                graphql_operation_name=endpoint.graphql_operation_name,
+                soap_action=endpoint.soap_action,
+                soap_body_template=endpoint.soap_body_template,
+                grpc_service=endpoint.grpc_service,
+                grpc_method_name=endpoint.grpc_method_name,
             )
             session.add(row)
             await session.commit()
@@ -188,12 +195,37 @@ class CatalogRepository:
             row.description = endpoint.description
             row.method = endpoint.method.value
             row.path = endpoint.path
+            row.path_params = _to_json(
+                {k: v.model_dump() for k, v in endpoint.path_params.items()}
+                if endpoint.path_params
+                else None
+            )
+            row.query_params = _to_json(
+                {k: v.model_dump() for k, v in endpoint.query_params.items()}
+                if endpoint.query_params
+                else None
+            )
+            row.request_body = _to_json(endpoint.request_body)
+            row.response_schema = _to_json(endpoint.response_schema)
             row.when_to_use = endpoint.when_to_use
             row.examples = _to_json(endpoint.examples)
             row.risk_level = endpoint.risk_level.value
             row.required_permissions = _to_json(endpoint.required_permissions)
+            row.rate_limit = _to_json(
+                endpoint.rate_limit.model_dump() if endpoint.rate_limit else None
+            )
             row.timeout_seconds = endpoint.timeout_seconds
+            row.retry_policy = _to_json(
+                endpoint.retry_policy.model_dump() if endpoint.retry_policy else None
+            )
             row.tags = _to_json(endpoint.tags)
+            row.protocol_type = endpoint.protocol_type.value
+            row.graphql_query = endpoint.graphql_query
+            row.graphql_operation_name = endpoint.graphql_operation_name
+            row.soap_action = endpoint.soap_action
+            row.soap_body_template = endpoint.soap_body_template
+            row.grpc_service = endpoint.grpc_service
+            row.grpc_method_name = endpoint.grpc_method_name
             await session.commit()
 
     async def delete_endpoint(self, endpoint_id: str) -> None:
@@ -293,7 +325,7 @@ class CatalogRepository:
 
     async def list_knowledge_documents(self) -> list:
         """Return all knowledge documents."""
-        from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+        from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
         from flydesk.models.knowledge_base import KnowledgeDocumentRow
 
         async with self._session_factory() as session:
@@ -304,6 +336,7 @@ class CatalogRepository:
                     title=r.title,
                     content=r.content,
                     document_type=DocumentType(r.document_type) if r.document_type else DocumentType.OTHER,
+                    status=DocumentStatus(r.status) if r.status else DocumentStatus.DRAFT,
                     source=r.source,
                     tags=_from_json(r.tags) if r.tags else [],
                     metadata=_from_json(r.metadata_) if r.metadata_ else {},
@@ -313,7 +346,7 @@ class CatalogRepository:
 
     async def get_knowledge_document(self, document_id: str):
         """Retrieve a knowledge document by ID."""
-        from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+        from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
         from flydesk.models.knowledge_base import KnowledgeDocumentRow
 
         async with self._session_factory() as session:
@@ -325,18 +358,19 @@ class CatalogRepository:
                 title=row.title,
                 content=row.content,
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
+                status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
 
     async def update_knowledge_document(
-        self, document_id: str, *, title=None, document_type=None, tags=None
+        self, document_id: str, *, title=None, document_type=None, tags=None, status=None
     ):
         """Update a knowledge document's metadata fields."""
         import json as _json
 
-        from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+        from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
         from flydesk.models.knowledge_base import KnowledgeDocumentRow
 
         async with self._session_factory() as session:
@@ -349,6 +383,8 @@ class CatalogRepository:
                 row.document_type = str(document_type)
             if tags is not None:
                 row.tags = _json.dumps(tags)
+            if status is not None:
+                row.status = str(status)
             await session.commit()
             await session.refresh(row)
             return KnowledgeDocument(
@@ -356,6 +392,7 @@ class CatalogRepository:
                 title=row.title,
                 content=row.content,
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
+                status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
@@ -395,6 +432,15 @@ class CatalogRepository:
             examples=_from_json(row.examples),
             risk_level=row.risk_level,
             required_permissions=_from_json(row.required_permissions),
+            rate_limit=_from_json_or_none(row.rate_limit),
             timeout_seconds=row.timeout_seconds,
+            retry_policy=_from_json_or_none(row.retry_policy),
             tags=_from_json(row.tags),
+            protocol_type=row.protocol_type or "rest",
+            graphql_query=row.graphql_query,
+            graphql_operation_name=row.graphql_operation_name,
+            soap_action=row.soap_action,
+            soap_body_template=row.soap_body_template,
+            grpc_service=row.grpc_service,
+            grpc_method_name=row.grpc_method_name,
         )

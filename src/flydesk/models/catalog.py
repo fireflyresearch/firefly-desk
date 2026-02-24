@@ -70,6 +70,13 @@ class ServiceEndpointRow(Base):
     timeout_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
     retry_policy: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     tags: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
+    protocol_type: Mapped[str] = mapped_column(String(20), nullable=False, default="rest")
+    graphql_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    graphql_operation_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    soap_action: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    soap_body_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grpc_service: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    grpc_method_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

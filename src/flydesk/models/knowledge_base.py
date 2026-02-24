@@ -40,6 +40,7 @@ class KnowledgeDocumentRow(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     document_type: Mapped[str] = mapped_column(String(50), nullable=False, default="other")
     source: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     tags: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     metadata_: Mapped[dict] = mapped_column("metadata", _JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
