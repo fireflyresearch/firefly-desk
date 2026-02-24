@@ -1,0 +1,15 @@
+{% if processes %}
+## Relevant Procedures
+The following business processes may be relevant. Use them as guidance, not strict instructions.
+Adapt steps based on the actual situation.
+
+{% for proc in processes %}
+### {{ proc.name }}
+{{ proc.description }}
+Steps:
+{% for step in proc.steps %}
+{{ loop.index }}. {{ step.description }}{% if step.endpoint_id %} (Tool: {{ step.endpoint_id }}){% endif %}
+
+{% endfor %}
+{% endfor %}
+{% endif %}

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -276,15 +277,16 @@ class DeskAgent:
         )
         await self._audit_logger.log(audit_event)
 
-        # Emit TOOL_SUMMARY (no tool calls executed in this flow, but
-        # the event is always emitted so the frontend can rely on its presence).
+        # Emit TOOL_SUMMARY with actual tool call data from the LLM run.
+        agent_tool_calls = usage_data.pop("tool_calls", [])
+        success_count = sum(1 for tc in agent_tool_calls if tc.get("success"))
         yield SSEEvent(
             event=SSEEventType.TOOL_SUMMARY,
             data={
-                "tool_calls": [],
+                "tool_calls": agent_tool_calls,
                 "total_duration_ms": 0,
-                "success_count": 0,
-                "failure_count": 0,
+                "success_count": success_count,
+                "failure_count": len(agent_tool_calls) - success_count,
             },
         )
 
@@ -765,6 +767,7 @@ class DeskAgent:
             knowledge_context=knowledge_context,
             file_context=file_context,
             conversation_summary=conversation_summary,
+            process_context=enriched.relevant_processes,
             personality=personality,
             tone=tone,
             behavior_rules=behavior_rules,
@@ -789,7 +792,10 @@ class DeskAgent:
         """
         if not tools or self._tool_executor is None:
             return None
-        return adapt_tools(tools, self._tool_executor, session, conversation_id)
+        return adapt_tools(
+            tools, self._tool_executor, session, conversation_id,
+            builtin_executor=self._builtin_executor,
+        )
 
     async def _stream_llm(
         self,
@@ -828,17 +834,36 @@ class DeskAgent:
                 yield chunk
             return
 
+        # Log tool registration state for diagnostics
         try:
-            async with await agent.run_stream(
-                message,
-                streaming_mode="incremental",
-                conversation_id=conversation_id,
-            ) as stream:
-                async for token in stream.stream_tokens():
-                    yield token
-                # After streaming completes, extract usage from the underlying stream
-                if usage_out is not None:
-                    self._extract_stream_usage(stream, agent, usage_out)
+            inner_agent = agent.agent  # pydantic_ai.Agent
+            toolset = getattr(inner_agent, "_function_toolset", None)
+            if toolset is not None:
+                tools_attr = getattr(toolset, "tools", {})
+                if isinstance(tools_attr, dict):
+                    tool_names = list(tools_attr.keys())
+                    _logger.info(
+                        "LLM agent created with %d tools: %s (model=%s)",
+                        len(tool_names), tool_names[:5],
+                        getattr(inner_agent, "model", "?"),
+                    )
+        except Exception:
+            _logger.debug("Could not inspect agent tools.", exc_info=True)
+
+        try:
+            async with asyncio.timeout(120):
+                async with await agent.run_stream(
+                    message,
+                    streaming_mode="incremental",
+                    conversation_id=conversation_id,
+                ) as stream:
+                    async for token in stream.stream_tokens():
+                        yield token
+                    # After streaming completes, extract usage from the underlying stream
+                    if usage_out is not None:
+                        self._extract_stream_usage(stream, agent, usage_out)
+                        # Also extract tool call info from the message history
+                        self._extract_tool_calls(stream, usage_out)
         except _BUDGET_EXCEEDED_ERROR as exc:
             _logger.warning("Budget exceeded during streaming: %s", exc)
             yield (
@@ -850,6 +875,12 @@ class DeskAgent:
             yield (
                 "The language model provider is temporarily unavailable. "
                 "Please try again in a few moments."
+            )
+        except TimeoutError:
+            _logger.warning("LLM streaming timed out after 120s")
+            yield (
+                "The language model took too long to respond. "
+                "Please try again or check your LLM provider configuration."
             )
         except Exception as exc:
             _logger.error("LLM streaming failed: %s", exc, exc_info=True)
@@ -967,6 +998,48 @@ class DeskAgent:
             })
         except Exception:
             _logger.debug("Failed to extract stream usage.", exc_info=True)
+
+    @staticmethod
+    def _extract_tool_calls(stream: object, usage_out: dict[str, Any]) -> None:
+        """Extract tool call info from the completed pydantic-ai stream.
+
+        Inspects the message history on the underlying stream to find any
+        tool calls and tool returns that occurred during the agent run.
+        """
+        try:
+            inner_stream = getattr(stream, "_stream", stream)
+            all_messages = getattr(inner_stream, "all_messages", None)
+            if callable(all_messages):
+                messages = all_messages()
+            elif isinstance(all_messages, (list, tuple)):
+                messages = all_messages
+            else:
+                return
+
+            tool_calls_info: list[dict[str, Any]] = []
+            for msg in messages:
+                parts = getattr(msg, "parts", [])
+                for part in parts:
+                    part_type = type(part).__name__
+                    if "ToolCall" in part_type:
+                        tool_calls_info.append({
+                            "tool_name": getattr(part, "tool_name", "unknown"),
+                            "tool_call_id": getattr(part, "tool_call_id", ""),
+                        })
+                    elif "ToolReturn" in part_type:
+                        # Match return to call by ID
+                        call_id = getattr(part, "tool_call_id", "")
+                        for tc in tool_calls_info:
+                            if tc.get("tool_call_id") == call_id:
+                                tc["success"] = True
+
+            if tool_calls_info:
+                _logger.info("Agent made %d tool call(s): %s",
+                             len(tool_calls_info),
+                             [tc["tool_name"] for tc in tool_calls_info])
+            usage_out["tool_calls"] = tool_calls_info
+        except Exception:
+            _logger.debug("Failed to extract tool calls.", exc_info=True)
 
     @staticmethod
     def _extract_result_usage(
