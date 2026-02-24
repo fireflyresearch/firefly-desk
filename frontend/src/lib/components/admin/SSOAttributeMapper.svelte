@@ -34,6 +34,12 @@
 		transform: string | null;
 	}
 
+	interface CatalogSystem {
+		id: string;
+		name: string;
+		status: string;
+	}
+
 	// -----------------------------------------------------------------------
 	// Constants
 	// -----------------------------------------------------------------------
@@ -56,6 +62,7 @@
 	// -----------------------------------------------------------------------
 
 	let mappings = $state<SSOAttributeMapping[]>([]);
+	let availableSystems = $state<CatalogSystem[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 
@@ -70,6 +77,7 @@
 		transform: ''
 	});
 	let saving = $state(false);
+	let allSystems = $state(true);
 
 	// Delete confirmation
 	let deletingId = $state<string | null>(null);
@@ -90,8 +98,17 @@
 		}
 	}
 
+	async function loadSystems() {
+		try {
+			availableSystems = await apiJson<CatalogSystem[]>('/catalog/systems');
+		} catch {
+			/* silent — systems are optional enhancement */
+		}
+	}
+
 	$effect(() => {
 		loadMappings();
+		loadSystems();
 	});
 
 	// -----------------------------------------------------------------------
@@ -107,6 +124,7 @@
 			system_filter: '',
 			transform: ''
 		};
+		allSystems = true;
 		showForm = true;
 	}
 
@@ -119,6 +137,7 @@
 			system_filter: mapping.system_filter || '',
 			transform: mapping.transform || ''
 		};
+		allSystems = !mapping.system_filter;
 		showForm = true;
 	}
 
@@ -135,7 +154,7 @@
 			claim_path: formData.claim_path,
 			target_header: formData.target_header,
 			target_type: formData.target_type,
-			system_filter: formData.system_filter || null,
+			system_filter: allSystems ? null : formData.system_filter || null,
 			transform: formData.transform || null
 		};
 
@@ -175,6 +194,12 @@
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
+
+	function systemName(systemId: string | null): string {
+		if (!systemId) return 'All systems';
+		const sys = availableSystems.find((s) => s.id === systemId);
+		return sys?.name || systemId;
+	}
 
 	function transformLabel(transform: string | null): string {
 		if (!transform) return 'None';
@@ -266,18 +291,31 @@
 					</select>
 				</label>
 
-				<label class="flex flex-col gap-1">
+				<div class="flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">
 						System Filter
 						<span class="text-text-secondary/60">(optional)</span>
 					</span>
-					<input
-						type="text"
-						bind:value={formData.system_filter}
-						placeholder="e.g. sys-hr-api (blank = all systems)"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+					<label class="flex items-center gap-2 py-1">
+						<input
+							type="checkbox"
+							bind:checked={allSystems}
+							class="rounded border-border text-accent focus:ring-accent"
+						/>
+						<span class="text-sm text-text-primary">Apply to all systems</span>
+					</label>
+					{#if !allSystems}
+						<select
+							bind:value={formData.system_filter}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						>
+							<option value="">Select a system...</option>
+							{#each availableSystems as sys}
+								<option value={sys.id}>{sys.name}</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
 
 				<label class="col-span-2 flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">
@@ -369,7 +407,7 @@
 									</span>
 								</td>
 								<td class="px-4 py-2 font-mono text-xs text-text-secondary">
-									{mapping.system_filter || 'All systems'}
+									{systemName(mapping.system_filter)}
 								</td>
 								<td class="px-4 py-2 text-xs text-text-secondary">
 									{transformLabel(mapping.transform)}
