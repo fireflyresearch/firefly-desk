@@ -25,6 +25,7 @@
 		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import { parseSSEStream } from '$lib/services/sse.js';
 	import KnowledgeAddDocument from './KnowledgeAddDocument.svelte';
 	import KnowledgeDocumentDetail from './KnowledgeDocumentDetail.svelte';
 	import KnowledgeGraphExplorer from './KnowledgeGraphExplorer.svelte';
@@ -69,6 +70,11 @@
 	// Statistics
 	let stats = $state<GraphStats | null>(null);
 	let loadingStats = $state(true);
+
+	// KG recompute
+	let recomputingKG = $state(false);
+	let kgRecomputeMessage = $state('');
+	let kgRecomputeProgress = $state(0);
 
 	// -----------------------------------------------------------------------
 	// Derived
@@ -129,6 +135,47 @@
 			stats = null;
 		} finally {
 			loadingStats = false;
+		}
+	}
+
+	async function triggerKGRecompute() {
+		recomputingKG = true;
+		kgRecomputeProgress = 0;
+		kgRecomputeMessage = 'Submitting KG recompute job...';
+		error = '';
+		try {
+			const resp = await apiJson<{ job_id: string; status: string }>(
+				'/knowledge/graph/recompute',
+				{ method: 'POST' }
+			);
+			kgRecomputeMessage = 'Recomputing knowledge graph...';
+			const response = await apiFetch(`/jobs/${resp.job_id}/stream`);
+			await parseSSEStream(
+				response,
+				(msg) => {
+					if (msg.event === 'job_progress') {
+						kgRecomputeProgress =
+							(msg.data.progress_pct as number) ?? kgRecomputeProgress;
+						if (msg.data.progress_message)
+							kgRecomputeMessage = msg.data.progress_message as string;
+					} else if (msg.event === 'done') {
+						if (msg.data.error) error = `KG recompute failed: ${msg.data.error}`;
+					}
+				},
+				(err) => {
+					error = `Stream error: ${err.message}`;
+				},
+				async () => {
+					recomputingKG = false;
+					kgRecomputeMessage = '';
+					kgRecomputeProgress = 0;
+					await loadStats();
+				}
+			);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to trigger KG recompute';
+			recomputingKG = false;
+			kgRecomputeMessage = '';
 		}
 	}
 
@@ -444,8 +491,38 @@
 		<!-- Graph Explorer Tab                                                 -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'graph'}
-			<div class="flex-1 overflow-hidden">
-				<KnowledgeGraphExplorer />
+			<div class="flex flex-1 flex-col overflow-hidden">
+				<!-- KG recompute bar -->
+				<div class="flex items-center gap-3 border-b border-border px-4 py-2">
+					<button
+						type="button"
+						onclick={triggerKGRecompute}
+						disabled={recomputingKG}
+						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+					>
+						{#if recomputingKG}
+							<Loader2 size={14} class="animate-spin" />
+							Recomputing...
+						{:else}
+							<RefreshCw size={14} />
+							Regenerate Knowledge Graph
+						{/if}
+					</button>
+					{#if kgRecomputeMessage}
+						<span class="text-xs text-text-secondary">{kgRecomputeMessage}</span>
+					{/if}
+				</div>
+				{#if recomputingKG}
+					<div class="h-1.5 w-full overflow-hidden bg-surface">
+						<div
+							class="h-full rounded-full bg-accent transition-all duration-500"
+							style="width: {kgRecomputeProgress}%"
+						></div>
+					</div>
+				{/if}
+				<div class="flex-1 overflow-hidden">
+					<KnowledgeGraphExplorer />
+				</div>
 			</div>
 		{/if}
 	</div>
