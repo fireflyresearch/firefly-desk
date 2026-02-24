@@ -577,16 +577,32 @@ class ToolExecutor:
     # ------------------------------------------------------------------
 
     def _resolve_url(self, endpoint: Any, system: Any, call: ToolCall) -> str:
-        """Build URL with path-parameter substitution."""
+        """Build URL with path-parameter substitution and enforcement."""
         path = endpoint.path
         path_params = call.arguments.get("path", {})
         for param_name, param_value in path_params.items():
+            value = str(param_value)
+            # Reject path parameter values containing URL schemes or traversal
+            if "://" in value or ".." in value:
+                raise ValueError(
+                    f"URL does not match system base_url: "
+                    f"resolved=<blocked>, base={system.base_url!r}"
+                )
             path = re.sub(
                 r"\{" + re.escape(param_name) + r"\}",
-                str(param_value),
+                value,
                 path,
             )
-        return system.base_url.rstrip("/") + "/" + path.lstrip("/")
+        resolved = system.base_url.rstrip("/") + "/" + path.lstrip("/")
+
+        # Guard: resolved URL must stay within system base_url
+        base = system.base_url.rstrip("/") + "/"
+        if not resolved.startswith(base) or ".." in resolved:
+            raise ValueError(
+                f"URL does not match system base_url: "
+                f"resolved={resolved!r}, base={system.base_url!r}"
+            )
+        return resolved
 
     def _build_request(
         self,

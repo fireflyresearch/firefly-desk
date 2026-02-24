@@ -102,6 +102,15 @@ def _make_call(
     )
 
 
+def _make_executor() -> ToolExecutor:
+    return ToolExecutor(
+        http_client=MagicMock(),
+        catalog_repo=AsyncMock(),
+        credential_store=AsyncMock(),
+        audit_logger=AsyncMock(),
+    )
+
+
 @pytest.fixture
 def catalog_repo() -> MagicMock:
     mock = MagicMock()
@@ -1055,3 +1064,54 @@ class TestRESTProtocolUnchanged:
         assert kwargs["method"] == "GET"
         assert "/orders/123" in kwargs["url"]
         assert result.data == {"order_id": "123", "status": "shipped"}
+
+
+# ---------------------------------------------------------------------------
+# URL enforcement tests
+# ---------------------------------------------------------------------------
+
+
+class TestURLEnforcement:
+    """URL enforcement prevents path traversal / host redirection."""
+
+    def test_resolve_url_normal_path(self):
+        """Normal path parameters resolve correctly."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders/{id}")
+        call = ToolCall(
+            call_id="c1",
+            tool_name="t1",
+            endpoint_id="ep-1",
+            arguments={"path": {"id": "123"}},
+        )
+        url = executor._resolve_url(endpoint, system, call)
+        assert url == "https://api.example.com/orders/123"
+
+    def test_resolve_url_rejects_path_traversal(self):
+        """Path traversal via '..' in parameter values is rejected."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders/{id}")
+        call = ToolCall(
+            call_id="c1",
+            tool_name="t1",
+            endpoint_id="ep-1",
+            arguments={"path": {"id": "../../evil.com/steal"}},
+        )
+        with pytest.raises(ValueError, match="URL does not match system base_url"):
+            executor._resolve_url(endpoint, system, call)
+
+    def test_resolve_url_rejects_absolute_url_injection(self):
+        """Absolute URL injection via parameter values is rejected."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders/{id}")
+        call = ToolCall(
+            call_id="c1",
+            tool_name="t1",
+            endpoint_id="ep-1",
+            arguments={"path": {"id": "https://evil.com/steal"}},
+        )
+        with pytest.raises(ValueError, match="URL does not match system base_url"):
+            executor._resolve_url(endpoint, system, call)
