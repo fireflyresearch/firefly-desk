@@ -23,7 +23,6 @@
 		Download,
 		Shield,
 		ShieldAlert,
-		ShieldCheck,
 		FileCode,
 		Wrench,
 		GitBranch
@@ -41,8 +40,7 @@
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
 		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
-		{ href: '/admin/users', label: 'Users', icon: Users },
-		{ href: '/admin/roles', label: 'Roles', icon: ShieldCheck },
+		{ href: '/admin/users', label: 'Users & Roles', icon: Users },
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },

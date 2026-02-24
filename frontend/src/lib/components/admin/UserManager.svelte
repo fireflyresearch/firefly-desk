@@ -12,6 +12,16 @@
 	import { apiJson } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	interface Props {
+		embedded?: boolean;
+	}
+
+	let { embedded = false }: Props = $props();
+
+	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
 
@@ -85,22 +95,35 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
 	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">Users</h1>
-			<p class="text-sm text-text-secondary">Users identified from system activity</p>
+	{#if !embedded}
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Users</h1>
+				<p class="text-sm text-text-secondary">Users identified from system activity</p>
+			</div>
+			<button
+				type="button"
+				onclick={loadUsers}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			>
+				<RefreshCw size={14} />
+				Refresh
+			</button>
 		</div>
-		<button
-			type="button"
-			onclick={loadUsers}
-			class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-		>
-			<RefreshCw size={14} />
-			Refresh
-		</button>
-	</div>
+	{:else}
+		<div class="flex justify-end">
+			<button
+				type="button"
+				onclick={loadUsers}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			>
+				<RefreshCw size={14} />
+				Refresh
+			</button>
+		</div>
+	{/if}
 
 	<!-- Error banner -->
 	{#if error}
