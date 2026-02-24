@@ -162,6 +162,38 @@
 			});
 		}
 
+		// Deployment FQDN
+		const deployment = wizardData.deployment as Record<string, unknown> | undefined;
+		if (deployment) {
+			rows.push({
+				label: 'FQDN',
+				value: `${deployment.protocol as string}://${deployment.fqdn as string}`,
+				ok: true
+			});
+		}
+
+		// Locale
+		const locale = wizardData.locale as Record<string, unknown> | undefined;
+		if (locale) {
+			rows.push({
+				label: 'Locale',
+				value: (locale.language as string) ?? 'en-US',
+				ok: true
+			});
+		}
+
+		// SSO
+		const sso = wizardData.sso as Record<string, unknown> | null | undefined;
+		if (sso) {
+			rows.push({
+				label: 'SSO',
+				value: (sso.provider_type as string) ?? 'Configured',
+				ok: true
+			});
+		} else if ('sso' in wizardData) {
+			rows.push({ label: 'SSO', value: 'Skipped', ok: false });
+		}
+
 		// Sample data
 		rows.push({
 			label: 'Sample Data',
