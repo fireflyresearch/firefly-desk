@@ -149,3 +149,60 @@ class TestToolFactoryAccessScopes:
         )
         assert len(tools) == 1
         assert tools[0].endpoint_id == "ep-allowed"
+
+
+class TestToolFactoryWhitelist:
+    """Test whitelist-based tool filtering via agent_enabled_map parameter."""
+
+    def test_whitelist_mode_excludes_disabled_systems(self):
+        factory = ToolFactory()
+        endpoints = [
+            _make_endpoint("ep-a", ["p:read"], system_id="sys-a"),
+            _make_endpoint("ep-b", ["p:read"], system_id="sys-b"),
+        ]
+        agent_enabled_map = {"sys-a": True, "sys-b": False}
+        tools = factory.build_tool_definitions(
+            endpoints=endpoints,
+            user_permissions=["p:read"],
+            tool_access_mode="whitelist",
+            agent_enabled_map=agent_enabled_map,
+        )
+        assert len(tools) == 1
+        assert tools[0].endpoint_id == "ep-a"
+
+    def test_all_enabled_mode_includes_all(self):
+        factory = ToolFactory()
+        endpoints = [
+            _make_endpoint("ep-a", ["p:read"], system_id="sys-a"),
+            _make_endpoint("ep-b", ["p:read"], system_id="sys-b"),
+        ]
+        agent_enabled_map = {"sys-a": True, "sys-b": False}
+        tools = factory.build_tool_definitions(
+            endpoints=endpoints,
+            user_permissions=["p:read"],
+            tool_access_mode="all_enabled",
+            agent_enabled_map=agent_enabled_map,
+        )
+        assert len(tools) == 2
+
+    def test_whitelist_mode_empty_map_excludes_all(self):
+        factory = ToolFactory()
+        endpoints = [_make_endpoint("ep-a", ["p:read"], system_id="sys-a")]
+        tools = factory.build_tool_definitions(
+            endpoints=endpoints,
+            user_permissions=["p:read"],
+            tool_access_mode="whitelist",
+            agent_enabled_map={},
+        )
+        assert len(tools) == 0
+
+    def test_none_map_skips_filtering_backward_compat(self):
+        factory = ToolFactory()
+        endpoints = [_make_endpoint("ep-a", ["p:read"], system_id="sys-a")]
+        tools = factory.build_tool_definitions(
+            endpoints=endpoints,
+            user_permissions=["p:read"],
+            tool_access_mode="whitelist",
+            agent_enabled_map=None,
+        )
+        assert len(tools) == 1
