@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -124,6 +125,25 @@ class ToolConfigUpdate(BaseModel):
     required_permissions: list[str] | None = None
 
 
+class ToolAccessMode(StrEnum):
+    """Governs how the agent discovers available tools."""
+
+    WHITELIST = "whitelist"
+    ALL_ENABLED = "all_enabled"
+
+
+class ToolAccessModeRequest(BaseModel):
+    """Body for PUT /api/admin/tools/access-mode."""
+
+    mode: ToolAccessMode
+
+
+class ToolAccessModeResponse(BaseModel):
+    """Response for GET/PUT /api/admin/tools/access-mode."""
+
+    mode: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -211,6 +231,27 @@ async def list_tools(
         config = await _get_tool_config(settings_repo, ep.id)
         results.append(_endpoint_to_summary(ep, config))
     return results
+
+
+@router.get("/access-mode", dependencies=[AdminSettings])
+async def get_tool_access_mode(
+    settings_repo: SettingsRepo,
+) -> ToolAccessModeResponse:
+    """Return the current tool access mode (whitelist or all_enabled)."""
+    mode = await settings_repo.get_app_setting("tool_access_mode")
+    return ToolAccessModeResponse(mode=mode or "whitelist")
+
+
+@router.put("/access-mode", dependencies=[AdminSettings])
+async def set_tool_access_mode(
+    body: ToolAccessModeRequest,
+    settings_repo: SettingsRepo,
+) -> ToolAccessModeResponse:
+    """Set the tool access mode (whitelist or all_enabled)."""
+    await settings_repo.set_app_setting(
+        "tool_access_mode", body.mode.value, category="security"
+    )
+    return ToolAccessModeResponse(mode=body.mode.value)
 
 
 @router.get("/{endpoint_id}", dependencies=[AdminSettings])
