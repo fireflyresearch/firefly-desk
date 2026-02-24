@@ -12,6 +12,7 @@ import pytest
 
 from flydesk.catalog.enums import HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
+from flydesk.processes.models import BusinessProcess, ProcessStep
 from flydesk.tools.builtin import (
     BUILTIN_SYSTEM_ID,
     BuiltinToolExecutor,
@@ -77,11 +78,19 @@ def knowledge_retriever() -> MagicMock:
 
 
 @pytest.fixture
-def executor(catalog_repo, audit_logger, knowledge_retriever) -> BuiltinToolExecutor:
+def process_repo() -> MagicMock:
+    mock = MagicMock()
+    mock.list = AsyncMock(return_value=[])
+    return mock
+
+
+@pytest.fixture
+def executor(catalog_repo, audit_logger, knowledge_retriever, process_repo) -> BuiltinToolExecutor:
     return BuiltinToolExecutor(
         catalog_repo=catalog_repo,
         audit_logger=audit_logger,
         knowledge_retriever=knowledge_retriever,
+        process_repo=process_repo,
     )
 
 
@@ -100,6 +109,7 @@ class TestBuiltinToolRegistry:
         assert "list_system_endpoints" in names
         assert "query_audit_log" in names
         assert "get_platform_status" in names
+        assert "search_processes" in names
 
     def test_viewer_gets_platform_status_only(self):
         """User with no special permissions gets only platform status."""
@@ -127,6 +137,14 @@ class TestBuiltinToolRegistry:
         tools = BuiltinToolRegistry.get_tool_definitions(["audit:read"])
         names = {t.name for t in tools}
         assert "query_audit_log" in names
+
+    def test_processes_permission_grants_search(self):
+        """processes:read permission grants search_processes tool."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["processes:read"])
+        names = {t.name for t in tools}
+        assert "search_processes" in names
+        assert "get_platform_status" in names
+        assert "list_catalog_systems" not in names
 
     def test_all_tools_use_builtin_system_id(self):
         """All built-in tools have the __flydesk__ system ID."""
@@ -247,3 +265,122 @@ class TestPlatformStatus:
         assert result["endpoints_count"] == 1
         assert len(result["systems"]) == 1
         assert result["systems"][0]["name"] == "System sys-1"
+
+
+# ---------------------------------------------------------------------------
+# Search Processes tests
+# ---------------------------------------------------------------------------
+
+
+def _make_process(
+    process_id: str = "proc-1",
+    name: str = "Order Fulfillment",
+    description: str = "End-to-end order processing workflow",
+    steps: list[ProcessStep] | None = None,
+) -> BusinessProcess:
+    if steps is None:
+        steps = [
+            ProcessStep(id="s1", name="Validate Order", description="Check order details and inventory"),
+            ProcessStep(id="s2", name="Process Payment", description="Charge the customer credit card"),
+            ProcessStep(id="s3", name="Ship Order", description="Send the package via courier"),
+        ]
+    return BusinessProcess(
+        id=process_id,
+        name=name,
+        description=description,
+        steps=steps,
+    )
+
+
+class TestSearchProcesses:
+    async def test_requires_query(self, executor):
+        """Empty query returns error."""
+        result = await executor.execute("search_processes", {})
+        assert "error" in result
+
+    async def test_no_repo_returns_error(self, catalog_repo, audit_logger, knowledge_retriever):
+        """When process_repo is None, returns an error."""
+        executor = BuiltinToolExecutor(
+            catalog_repo=catalog_repo,
+            audit_logger=audit_logger,
+            knowledge_retriever=knowledge_retriever,
+            process_repo=None,
+        )
+        result = await executor.execute("search_processes", {"query": "order"})
+        assert "error" in result
+        assert "not configured" in result["error"]
+
+    async def test_returns_matching_processes(self, executor, process_repo):
+        """Processes matching the query are returned with scores."""
+        process_repo.list.return_value = [
+            _make_process("proc-1", "Order Fulfillment", "End-to-end order processing"),
+            _make_process(
+                "proc-2", "Customer Onboarding", "New customer setup workflow",
+                steps=[ProcessStep(id="s1", name="Welcome", description="Send welcome email")],
+            ),
+        ]
+        result = await executor.execute("search_processes", {"query": "order"})
+        assert result["total_matches"] == 1
+        assert len(result["processes"]) == 1
+        assert result["processes"][0]["name"] == "Order Fulfillment"
+
+    async def test_name_match_scores_higher_than_description(self, executor, process_repo):
+        """A name match (score +2) ranks above a description-only match (score +1)."""
+        process_repo.list.return_value = [
+            _make_process("proc-1", "Invoice Generator", "Creates invoices for orders"),
+            _make_process("proc-2", "Order Fulfillment", "End-to-end processing"),
+        ]
+        result = await executor.execute("search_processes", {"query": "order"})
+        assert result["total_matches"] == 2
+        # "Order Fulfillment" has name match (score=2), "Invoice Generator" has description match (score=1)
+        assert result["processes"][0]["name"] == "Order Fulfillment"
+        assert result["processes"][1]["name"] == "Invoice Generator"
+
+    async def test_step_description_contributes_to_score(self, executor, process_repo):
+        """Step descriptions add 0.5 to the score per matching step."""
+        process_repo.list.return_value = [
+            _make_process(
+                "proc-1",
+                "Generic Workflow",
+                "A generic workflow",
+                steps=[
+                    ProcessStep(id="s1", name="Step 1", description="Ship the package"),
+                    ProcessStep(id="s2", name="Step 2", description="Ship the backup"),
+                ],
+            ),
+        ]
+        result = await executor.execute("search_processes", {"query": "ship"})
+        assert result["total_matches"] == 1
+        # Two step matches = 0.5 + 0.5 = 1.0
+        assert result["processes"][0]["confidence"] == 1.0
+
+    async def test_limits_to_three_results(self, executor, process_repo):
+        """At most 3 processes are returned."""
+        process_repo.list.return_value = [
+            _make_process(f"proc-{i}", f"Order Process {i}", "Handles orders")
+            for i in range(10)
+        ]
+        result = await executor.execute("search_processes", {"query": "order"})
+        assert result["total_matches"] == 10
+        assert len(result["processes"]) == 3
+
+    async def test_no_matches_returns_empty(self, executor, process_repo):
+        """When no processes match, empty list is returned."""
+        process_repo.list.return_value = [
+            _make_process("proc-1", "Order Fulfillment", "End-to-end order processing"),
+        ]
+        result = await executor.execute("search_processes", {"query": "payroll"})
+        assert result["total_matches"] == 0
+        assert result["processes"] == []
+
+    async def test_returns_step_details(self, executor, process_repo):
+        """Each result includes step name, description, and endpoint_id."""
+        proc = _make_process()
+        proc.steps[0].endpoint_id = "ep-validate"
+        process_repo.list.return_value = [proc]
+        result = await executor.execute("search_processes", {"query": "order"})
+        steps = result["processes"][0]["steps"]
+        assert len(steps) == 3
+        assert steps[0]["name"] == "Validate Order"
+        assert steps[0]["endpoint_id"] == "ep-validate"
+        assert steps[1]["name"] == "Process Payment"
