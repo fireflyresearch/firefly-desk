@@ -62,6 +62,7 @@ class ExternalSystem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     status: SystemStatus = SystemStatus.ACTIVE
     metadata: dict[str, Any] = Field(default_factory=dict)
+    agent_enabled: bool = False
 
 
 class ServiceEndpoint(BaseModel):

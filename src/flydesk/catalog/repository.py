@@ -61,6 +61,7 @@ class CatalogRepository:
                 auth_config=_to_json(system.auth_config.model_dump()),
                 health_check_path=system.health_check_path,
                 tags=_to_json(system.tags),
+                agent_enabled=system.agent_enabled,
                 status=system.status.value,
                 metadata_=_to_json(system.metadata),
             )
@@ -94,6 +95,7 @@ class CatalogRepository:
             row.auth_config = _to_json(system.auth_config.model_dump())
             row.health_check_path = system.health_check_path
             row.tags = _to_json(system.tags)
+            row.agent_enabled = system.agent_enabled
             row.status = system.status.value
             row.metadata_ = _to_json(system.metadata)
             await session.commit()
@@ -373,6 +375,7 @@ class CatalogRepository:
             tags=_from_json(row.tags),
             status=SystemStatus(row.status),
             metadata=_from_json(row.metadata_),
+            agent_enabled=row.agent_enabled,
         )
 
     @staticmethod
