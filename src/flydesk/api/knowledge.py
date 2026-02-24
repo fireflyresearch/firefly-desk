@@ -53,6 +53,8 @@ class KnowledgeDocumentStore:
         title: str | None = None,
         document_type: DocumentType | None = None,
         tags: list[str] | None = None,
+        content: str | None = None,
+        status: str | None = None,
     ) -> KnowledgeDocument | None:
         raise NotImplementedError
 
@@ -82,6 +84,8 @@ class DocumentMetadataUpdate(BaseModel):
     title: str | None = None
     document_type: DocumentType | None = None
     tags: list[str] | None = None
+    content: str | None = None
+    status: str | None = None
 
 
 class ImportURLRequest(BaseModel):
@@ -105,6 +109,12 @@ class ImportResult(BaseModel):
     """Response after importing one or more documents."""
 
     documents: list[dict[str, Any]]
+
+
+class BulkDocumentRequest(BaseModel):
+    """Request body for bulk document operations."""
+
+    document_ids: list[str]
 
 
 class EntityCreate(BaseModel):
@@ -299,12 +309,14 @@ async def create_document(
 async def update_document_metadata(
     document_id: str, body: DocumentMetadataUpdate, store: DocStore
 ) -> dict[str, Any]:
-    """Update document metadata (title, type, tags)."""
+    """Update document metadata and optionally content."""
     updated = await store.update_document(
         document_id,
         title=body.title,
         document_type=body.document_type,
         tags=body.tags,
+        content=body.content,
+        status=body.status,
     )
     if updated is None:
         raise HTTPException(
@@ -327,6 +339,79 @@ async def delete_document(
         )
     await indexer.delete_document(document_id)
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Bulk Operations
+# ---------------------------------------------------------------------------
+
+
+@router.post("/documents/bulk-delete", status_code=200, dependencies=[KnowledgeDelete])
+async def bulk_delete_documents(
+    body: BulkDocumentRequest, indexer: Indexer, store: DocStore
+) -> dict[str, Any]:
+    """Delete multiple knowledge documents and their chunks."""
+    deleted = 0
+    errors: list[dict[str, str]] = []
+    for doc_id in body.document_ids:
+        try:
+            existing = await store.get_document(doc_id)
+            if existing is None:
+                errors.append({"document_id": doc_id, "error": "Not found"})
+                continue
+            await indexer.delete_document(doc_id)
+            deleted += 1
+        except Exception as exc:
+            errors.append({"document_id": doc_id, "error": str(exc)})
+    return {"deleted": deleted, "errors": errors}
+
+
+@router.post("/documents/bulk-archive", status_code=200, dependencies=[KnowledgeWrite])
+async def bulk_archive_documents(
+    body: BulkDocumentRequest, store: DocStore
+) -> dict[str, Any]:
+    """Archive multiple knowledge documents."""
+    archived = 0
+    errors: list[dict[str, str]] = []
+    for doc_id in body.document_ids:
+        try:
+            result = await store.update_document(doc_id, status="archived")
+            if result is None:
+                errors.append({"document_id": doc_id, "error": "Not found"})
+                continue
+            archived += 1
+        except Exception as exc:
+            errors.append({"document_id": doc_id, "error": str(exc)})
+    return {"archived": archived, "errors": errors}
+
+
+@router.post("/documents/bulk-reindex", status_code=202, dependencies=[KnowledgeWrite])
+async def bulk_reindex_documents(
+    body: BulkDocumentRequest, store: DocStore, producer: Producer
+) -> dict[str, Any]:
+    """Re-index multiple knowledge documents."""
+    queued = 0
+    errors: list[dict[str, str]] = []
+    for doc_id in body.document_ids:
+        try:
+            doc = await store.get_document(doc_id)
+            if doc is None:
+                errors.append({"document_id": doc_id, "error": "Not found"})
+                continue
+            task = IndexingTask(
+                document_id=doc.id,
+                title=doc.title,
+                content=doc.content,
+                document_type=str(doc.document_type),
+                source=doc.source or "",
+                tags=doc.tags,
+                metadata=doc.metadata,
+            )
+            await producer.enqueue(task)
+            queued += 1
+        except Exception as exc:
+            errors.append({"document_id": doc_id, "error": str(exc)})
+    return {"queued": queued, "errors": errors}
 
 
 # ---------------------------------------------------------------------------
