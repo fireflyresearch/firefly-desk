@@ -20,7 +20,9 @@
 		Plus,
 		Network,
 		Hash,
-		Layers
+		Layers,
+		Archive,
+		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import KnowledgeAddDocument from './KnowledgeAddDocument.svelte';
@@ -37,6 +39,7 @@
 		type: string;
 		source: string;
 		tags: string[];
+		status?: string;
 		chunk_count?: number;
 		created_at?: string;
 	}
@@ -57,6 +60,7 @@
 	let error = $state('');
 	let searchQuery = $state('');
 	let showStats = $state(true);
+	let statusFilter = $state('all');
 
 	// Selection
 	let selectedDocumentId = $state<string | null>(null);
@@ -71,15 +75,16 @@
 	// -----------------------------------------------------------------------
 
 	let filteredDocuments = $derived.by(() => {
-		if (!searchQuery.trim()) return documents;
-		const q = searchQuery.toLowerCase();
-		return documents.filter(
-			(d) =>
-				d.title.toLowerCase().includes(q) ||
-				d.type.toLowerCase().includes(q) ||
-				d.source.toLowerCase().includes(q) ||
-				d.tags.some((t) => t.toLowerCase().includes(q))
-		);
+		return documents.filter((d) => {
+			const matchesSearch =
+				!searchQuery.trim() ||
+				d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				d.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				d.source.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				d.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+			const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
+			return matchesSearch && matchesStatus;
+		});
 	});
 
 	let docCountsByType = $derived.by(() => {
@@ -156,18 +161,47 @@
 		if (selectedIds.size === 0) return;
 		if (!confirm(`Delete ${selectedIds.size} document(s)? This cannot be undone.`)) return;
 		error = '';
-
 		try {
-			const deletes = [...selectedIds].map((id) =>
-				apiFetch(`/knowledge/documents/${id}`, { method: 'DELETE' })
-			);
-			await Promise.allSettled(deletes);
+			await apiJson('/knowledge/documents/bulk-delete', {
+				method: 'POST',
+				body: JSON.stringify({ document_ids: [...selectedIds] })
+			});
 			selectedIds = new Set();
 			selectedDocumentId = null;
 			await loadDocuments();
 			await loadStats();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete documents';
+		}
+	}
+
+	async function bulkArchive() {
+		if (selectedIds.size === 0) return;
+		error = '';
+		try {
+			await apiJson('/knowledge/documents/bulk-archive', {
+				method: 'POST',
+				body: JSON.stringify({ document_ids: [...selectedIds] })
+			});
+			selectedIds = new Set();
+			await loadDocuments();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to archive documents';
+		}
+	}
+
+	async function bulkReindex() {
+		if (selectedIds.size === 0) return;
+		error = '';
+		try {
+			await apiJson('/knowledge/documents/bulk-reindex', {
+				method: 'POST',
+				body: JSON.stringify({ document_ids: [...selectedIds] })
+			});
+			selectedIds = new Set();
+			await loadDocuments();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to re-index documents';
 		}
 	}
 
@@ -197,6 +231,23 @@
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
+
+	function statusBadge(status: string): { color: string; label: string } {
+		switch (status) {
+			case 'published':
+				return { color: 'bg-success/10 text-success', label: 'Published' };
+			case 'indexing':
+				return { color: 'bg-accent/10 text-accent', label: 'Indexing' };
+			case 'draft':
+				return { color: 'bg-text-secondary/10 text-text-secondary', label: 'Draft' };
+			case 'error':
+				return { color: 'bg-danger/10 text-danger', label: 'Error' };
+			case 'archived':
+				return { color: 'bg-warning/10 text-warning', label: 'Archived' };
+			default:
+				return { color: 'bg-text-secondary/10 text-text-secondary', label: status || 'Unknown' };
+		}
+	}
 
 	const typeBadgeColors: Record<string, string> = {
 		text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
@@ -309,15 +360,46 @@
 						/>
 					</div>
 
+					<!-- Status filter dropdown -->
+					<select
+						bind:value={statusFilter}
+						class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+					>
+						<option value="all">All statuses</option>
+						<option value="published">Published</option>
+						<option value="draft">Draft</option>
+						<option value="indexing">Indexing</option>
+						<option value="error">Error</option>
+						<option value="archived">Archived</option>
+					</select>
+
 					{#if selectedIds.size > 0}
-						<button
-							type="button"
-							onclick={bulkDelete}
-							class="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger/90"
-						>
-							<Trash2 size={14} />
-							Delete ({selectedIds.size})
-						</button>
+						<div class="flex items-center gap-1.5">
+							<button
+								type="button"
+								onclick={bulkReindex}
+								class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+							>
+								<RefreshCw size={14} />
+								Re-index ({selectedIds.size})
+							</button>
+							<button
+								type="button"
+								onclick={bulkArchive}
+								class="inline-flex items-center gap-1.5 rounded-md border border-warning/50 px-3 py-1.5 text-sm font-medium text-warning transition-colors hover:bg-warning/10"
+							>
+								<Archive size={14} />
+								Archive ({selectedIds.size})
+							</button>
+							<button
+								type="button"
+								onclick={bulkDelete}
+								class="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger/90"
+							>
+								<Trash2 size={14} />
+								Delete ({selectedIds.size})
+							</button>
+						</div>
 					{/if}
 				</div>
 
@@ -489,6 +571,7 @@
 						<th class="w-8 px-2 py-2"></th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Title</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Type</th>
+						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Source</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Chunks</th>
@@ -524,6 +607,14 @@
 								>
 									{doc.type}
 								</span>
+							</td>
+							<td class="px-4 py-2">
+								{#if doc.status}
+									{@const badge = statusBadge(doc.status)}
+									<span class="rounded px-1.5 py-0.5 text-xs font-medium {badge.color}">
+										{badge.label}
+									</span>
+								{/if}
 							</td>
 							<td class="px-4 py-2 text-text-secondary">{doc.source || '--'}</td>
 							<td class="px-4 py-2">
@@ -565,7 +656,7 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="9" class="px-4 py-8 text-center text-sm text-text-secondary">
+							<td colspan="10" class="px-4 py-8 text-center text-sm text-text-secondary">
 								{searchQuery
 									? 'No documents match your search.'
 									: 'No documents in the knowledge base. Add one to get started.'}
