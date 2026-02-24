@@ -24,7 +24,6 @@
 		ToggleRight,
 		AlertTriangle,
 		Code,
-		Package,
 		Blocks,
 		CheckCircle,
 		XCircle
@@ -34,6 +33,34 @@
 	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
+
+	interface CatalogToolSummary {
+		id: string;
+		name: string;
+		description: string;
+		system_id?: string;
+		method?: string;
+		path?: string;
+		risk_level?: string;
+		required_permissions?: string[];
+		enabled?: boolean;
+	}
+
+	interface CustomToolSummary {
+		id: string;
+		name: string;
+		description: string;
+		python_code?: string;
+		parameters?: Record<string, unknown>;
+		output_schema?: Record<string, unknown>;
+		active?: boolean;
+		source?: string;
+		timeout_seconds?: number;
+		max_memory_mb?: number;
+		created_by?: string;
+		created_at?: string;
+		updated_at?: string;
+	}
 
 	interface UnifiedTool {
 		id: string;
@@ -116,6 +143,7 @@
 
 	// Expanded detail
 	let expandedId = $state<string | null>(null);
+	let expandedToolType = $state<'catalog' | 'custom' | 'builtin' | null>(null);
 	let detailLoading = $state(false);
 	let catalogDetail = $state<CatalogToolDetail | null>(null);
 
@@ -164,8 +192,8 @@
 		error = '';
 		try {
 			const [catalogTools, customTools] = await Promise.all([
-				apiJson<any[]>('/admin/tools'),
-				apiJson<any[]>('/admin/custom-tools')
+				apiJson<CatalogToolSummary[]>('/admin/tools'),
+				apiJson<CustomToolSummary[]>('/admin/custom-tools')
 			]);
 
 			const catalog: UnifiedTool[] = catalogTools.map((t) => ({
@@ -193,9 +221,19 @@
 	// Expand / collapse
 	// -----------------------------------------------------------------------
 
+	function isEditDirty(tool: UnifiedTool): boolean {
+		return (
+			editName !== (tool.name ?? '') ||
+			editDescription !== (tool.description ?? '') ||
+			editPythonCode !== (tool.python_code ?? '') ||
+			editActive !== (tool.active ?? true)
+		);
+	}
+
 	async function toggleExpand(tool: UnifiedTool) {
 		if (expandedId === tool.id) {
 			expandedId = null;
+			expandedToolType = null;
 			catalogDetail = null;
 			catalogTestResult = null;
 			catalogTestError = '';
@@ -205,7 +243,18 @@
 			return;
 		}
 
+		// If switching from an edited custom tool, check for unsaved changes
+		if (expandedId && expandedToolType === 'custom') {
+			const current = allTools.find((t) => t.id === expandedId);
+			if (current && isEditDirty(current)) {
+				if (!confirm('You have unsaved changes. Discard them?')) {
+					return;
+				}
+			}
+		}
+
 		expandedId = tool.id;
+		expandedToolType = tool.type;
 		catalogDetail = null;
 		catalogTestResult = null;
 		catalogTestError = '';
@@ -244,7 +293,13 @@
 		catalogTestError = '';
 		catalogTestResult = null;
 		try {
-			const params = JSON.parse(catalogTestInput);
+			let params: Record<string, unknown>;
+			try {
+				params = JSON.parse(catalogTestInput);
+			} catch {
+				catalogTestError = 'Invalid JSON in test input';
+				return;
+			}
 			catalogTestResult = await apiJson<CatalogTestResult>(
 				`/admin/tools/${endpointId}/test`,
 				{
@@ -347,7 +402,13 @@
 		customTestError = '';
 		customTestResult = null;
 		try {
-			const params = JSON.parse(customTestInput);
+			let params: Record<string, unknown>;
+			try {
+				params = JSON.parse(customTestInput);
+			} catch {
+				customTestError = 'Invalid JSON in test input';
+				return;
+			}
 			customTestResult = await apiJson<CustomTestResult>(
 				`/admin/custom-tools/${toolId}/test`,
 				{
@@ -452,10 +513,12 @@
 		{ id: 'builtin', label: 'Built-in' }
 	];
 
-	function tabCount(tabId: TabFilter): number {
-		if (tabId === 'all') return allTools.length;
-		return allTools.filter((t) => t.type === tabId).length;
-	}
+	let tabCounts = $derived({
+		all: allTools.length,
+		catalog: allTools.filter((t) => t.type === 'catalog').length,
+		custom: allTools.filter((t) => t.type === 'custom').length,
+		builtin: allTools.filter((t) => t.type === 'builtin').length
+	});
 </script>
 
 <div class="flex h-full flex-col gap-4 p-6">
@@ -500,7 +563,7 @@
 						? 'bg-surface-secondary text-text-secondary'
 						: 'bg-surface-secondary/50 text-text-secondary'}"
 				>
-					{tabCount(tab.id)}
+					{tabCounts[tab.id]}
 				</span>
 			</button>
 		{/each}
@@ -624,16 +687,21 @@
 						{#each filteredTools as tool, i}
 							<!-- Summary row -->
 							<tr
-								class="cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-surface-hover
+								class="border-b border-border last:border-b-0
 									{i % 2 === 1 ? 'bg-surface-secondary/50' : ''}"
-								onclick={() => toggleExpand(tool)}
 							>
-								<td class="px-4 py-2 text-text-secondary">
-									{#if expandedId === tool.id}
-										<ChevronDown size={14} />
-									{:else}
-										<ChevronRight size={14} />
-									{/if}
+								<td class="px-4 py-2">
+									<button
+										type="button"
+										onclick={() => toggleExpand(tool)}
+										class="text-text-secondary hover:text-text-primary"
+									>
+										{#if expandedId === tool.id}
+											<ChevronDown size={14} />
+										{:else}
+											<ChevronRight size={14} />
+										{/if}
+									</button>
 								</td>
 								<td class="px-4 py-2">
 									<div class="flex flex-col">
@@ -694,10 +762,7 @@
 									{#if tool.type === 'catalog'}
 										<button
 											type="button"
-											onclick={(e) => {
-												e.stopPropagation();
-												toggleCatalogEnabled(tool);
-											}}
+											onclick={() => toggleCatalogEnabled(tool)}
 											class="text-text-secondary transition-colors hover:text-text-primary"
 											title={tool.enabled ? 'Disable' : 'Enable'}
 										>
