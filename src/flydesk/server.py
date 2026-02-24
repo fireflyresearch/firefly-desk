@@ -355,12 +355,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     confirmation_service = ConfirmationService()
     app.state.confirmation_service = confirmation_service
 
+    from flydesk.processes.repository import ProcessRepository
+
+    process_repo = ProcessRepository(session_factory)
+
     from flydesk.tools.builtin import BuiltinToolExecutor
 
     builtin_executor = BuiltinToolExecutor(
         catalog_repo=catalog_repo,
         audit_logger=audit_logger,
         knowledge_retriever=retriever,
+        process_repo=process_repo,
     )
 
     from fireflyframework_genai.memory import MemoryManager
@@ -392,9 +397,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Process discovery engine -- analyses catalog, KG, and KB to find processes.
     from flydesk.jobs.handlers import ProcessDiscoveryHandler
     from flydesk.processes.discovery import ProcessDiscoveryEngine
-    from flydesk.processes.repository import ProcessRepository
 
-    process_repo = ProcessRepository(session_factory)
     discovery_engine = ProcessDiscoveryEngine(
         agent_factory=agent_factory,
         process_repo=process_repo,
