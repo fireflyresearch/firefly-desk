@@ -13,8 +13,6 @@
 		Plus,
 		Pencil,
 		Trash2,
-		X,
-		Save,
 		Loader2,
 		Sparkles,
 		Tag,
@@ -22,6 +20,7 @@
 		ToggleRight
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import SkillEditor from './SkillEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -46,17 +45,9 @@
 	let loading = $state(true);
 	let error = $state('');
 
-	// Form state
-	let showForm = $state(false);
+	// Editor state
+	let showEditor = $state(false);
 	let editingSkill = $state<SkillRecord | null>(null);
-	let saving = $state(false);
-	let formData = $state({
-		name: '',
-		description: '',
-		content: '',
-		tags: '',
-		active: true
-	});
 
 	// Delete confirmation
 	let confirmingDeleteId = $state<string | null>(null);
@@ -82,73 +73,28 @@
 	});
 
 	// -----------------------------------------------------------------------
-	// Form actions
+	// Editor actions
 	// -----------------------------------------------------------------------
 
-	function openCreateForm() {
+	function openCreate() {
 		editingSkill = null;
-		formData = {
-			name: '',
-			description: '',
-			content: '',
-			tags: '',
-			active: true
-		};
-		showForm = true;
+		showEditor = true;
 	}
 
-	function openEditForm(skill: SkillRecord) {
+	function openEdit(skill: SkillRecord) {
 		editingSkill = skill;
-		formData = {
-			name: skill.name,
-			description: skill.description,
-			content: skill.content,
-			tags: skill.tags.join(', '),
-			active: skill.active
-		};
-		showForm = true;
+		showEditor = true;
 	}
 
-	function cancelForm() {
-		showForm = false;
+	function closeEditor() {
+		showEditor = false;
 		editingSkill = null;
 	}
 
-	async function submitForm() {
-		saving = true;
-		error = '';
-
-		const payload = {
-			name: formData.name,
-			description: formData.description,
-			content: formData.content,
-			tags: formData.tags
-				.split(',')
-				.map((t) => t.trim())
-				.filter(Boolean),
-			active: formData.active
-		};
-
-		try {
-			if (editingSkill) {
-				await apiJson(`/admin/skills/${editingSkill.id}`, {
-					method: 'PUT',
-					body: JSON.stringify(payload)
-				});
-			} else {
-				await apiJson('/admin/skills', {
-					method: 'POST',
-					body: JSON.stringify(payload)
-				});
-			}
-			showForm = false;
-			editingSkill = null;
-			await loadSkills();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save skill';
-		} finally {
-			saving = false;
-		}
+	async function onEditorSaved() {
+		showEditor = false;
+		editingSkill = null;
+		await loadSkills();
 	}
 
 	// -----------------------------------------------------------------------
@@ -213,7 +159,7 @@
 		</div>
 		<button
 			type="button"
-			onclick={openCreateForm}
+			onclick={openCreate}
 			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
 		>
 			<Plus size={16} />
@@ -228,104 +174,13 @@
 		</div>
 	{/if}
 
-	<!-- Create/edit form -->
-	{#if showForm}
-		<div class="rounded-lg border border-border bg-surface p-4">
-			<div class="mb-3 flex items-center justify-between">
-				<h3 class="text-sm font-semibold text-text-primary">
-					{editingSkill ? `Edit Skill: ${editingSkill.name}` : 'Create Skill'}
-				</h3>
-				<button
-					type="button"
-					onclick={cancelForm}
-					class="text-text-secondary hover:text-text-primary"
-				>
-					<X size={16} />
-				</button>
-			</div>
-
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					submitForm();
-				}}
-				class="flex flex-col gap-3"
-			>
-				<div class="grid grid-cols-2 gap-3">
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-text-secondary">Name</span>
-						<input
-							type="text"
-							bind:value={formData.name}
-							required
-							placeholder="e.g. summarize-ticket"
-							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-						/>
-					</label>
-
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
-						<input
-							type="text"
-							bind:value={formData.tags}
-							placeholder="e.g. support, triage"
-							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-						/>
-					</label>
-				</div>
-
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Description</span>
-					<input
-						type="text"
-						bind:value={formData.description}
-						placeholder="Brief description of what this skill does"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
-
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Content</span>
-					<textarea
-						bind:value={formData.content}
-						rows={8}
-						placeholder="Skill instructions, prompt content, or code..."
-						class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-sm text-text-primary outline-none focus:border-accent"
-					></textarea>
-				</label>
-
-				<label class="flex items-center gap-2">
-					<input
-						type="checkbox"
-						bind:checked={formData.active}
-						class="accent-accent"
-					/>
-					<span class="text-sm text-text-primary">Active</span>
-				</label>
-
-				<div class="flex justify-end gap-2 pt-1">
-					<button
-						type="button"
-						onclick={cancelForm}
-						class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-					>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						disabled={saving}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-					>
-						{#if saving}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Save size={14} />
-						{/if}
-						{editingSkill ? 'Update Skill' : 'Create Skill'}
-					</button>
-				</div>
-			</form>
-		</div>
+	<!-- Create/edit modal -->
+	{#if showEditor}
+		<SkillEditor
+			editingSkill={editingSkill}
+			onClose={closeEditor}
+			onSaved={onEditorSaved}
+		/>
 	{/if}
 
 	<!-- Skills table -->
@@ -420,7 +275,7 @@
 										<div class="flex items-center gap-1">
 											<button
 												type="button"
-												onclick={() => openEditForm(skill)}
+												onclick={() => openEdit(skill)}
 												class="rounded p-1 text-text-secondary transition-colors hover:bg-accent/10 hover:text-accent"
 												title="Edit"
 											>
