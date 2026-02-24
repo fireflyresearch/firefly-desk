@@ -37,8 +37,10 @@ async def client():
         "FLYDESK_GITHUB_CLIENT_SECRET": "gh-client-secret",
     }
     with patch.dict(os.environ, env):
+        from flydesk.config import get_config
         from flydesk.server import create_app
 
+        get_config.cache_clear()
         app = create_app()
 
         transport = ASGITransport(app=app)
