@@ -24,6 +24,16 @@
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	interface Props {
+		embedded?: boolean;
+	}
+
+	let { embedded = false }: Props = $props();
+
+	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
 
@@ -285,24 +295,37 @@
 	let showsTenantId = $derived(formData.provider_type === 'microsoft');
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
 	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">Single Sign-On</h1>
-			<p class="text-sm text-text-secondary">
-				Manage OIDC identity providers for SSO authentication
-			</p>
+	{#if !embedded}
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Single Sign-On</h1>
+				<p class="text-sm text-text-secondary">
+					Manage OIDC identity providers for SSO authentication
+				</p>
+			</div>
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add Provider
+			</button>
 		</div>
-		<button
-			type="button"
-			onclick={openAddForm}
-			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			<Plus size={16} />
-			Add Provider
-		</button>
-	</div>
+	{:else}
+		<div class="flex justify-end">
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add Provider
+			</button>
+		</div>
+	{/if}
 
 	<!-- Error banner -->
 	{#if error}
