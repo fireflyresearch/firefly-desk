@@ -52,6 +52,16 @@ class LocalUserRepository:
             )
             return result.scalars().first()
 
+    async def get_by_email(self, email: str) -> LocalUserRow | None:
+        """Retrieve a local user by email address (case-insensitive)."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(LocalUserRow).where(
+                    func.lower(LocalUserRow.email) == email.lower()
+                )
+            )
+            return result.scalars().first()
+
     async def get_by_id(self, user_id: str) -> LocalUserRow | None:
         """Retrieve a local user by ID."""
         async with self._session_factory() as session:

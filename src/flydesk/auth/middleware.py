@@ -131,6 +131,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
             raw_claims=claims,
         )
 
+        # Merge local user roles for SSO-authenticated users.
+        # Local JWTs already carry the correct role; only OIDC tokens need merging.
+        if claims.get("iss") != "flydesk-local":
+            local_user_repo = getattr(request.app.state, "local_user_repo", None)
+            if local_user_repo and session.email:
+                local_user = await local_user_repo.get_by_email(session.email)
+                if (
+                    local_user
+                    and local_user.is_active
+                    and local_user.role not in session.roles
+                ):
+                    session = session.model_copy(
+                        update={"roles": [*session.roles, local_user.role]},
+                    )
+
         # Resolve OIDC roles to local permissions and access scopes via RoleRepository
         role_repo = getattr(request.app.state, "role_repo", None)
         if role_repo is not None:
