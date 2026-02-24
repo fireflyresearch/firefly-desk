@@ -112,7 +112,7 @@ class BuiltinToolAdapter(BaseTool):
         tool_def: ToolDefinition,
         executor: BuiltinToolExecutor,
     ) -> None:
-        parameters = _build_parameter_specs(tool_def)
+        parameters = _build_flat_parameter_specs(tool_def)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_def.name)[:128]
         super().__init__(
             name=safe_name,
@@ -253,6 +253,24 @@ def _build_parameter_specs(tool_def: ToolDefinition) -> list[ParameterSpec]:
                     description=str(param_info),
                     required=section == "path",
                 ))
+    return specs
+
+
+def _build_flat_parameter_specs(tool_def: ToolDefinition) -> list[ParameterSpec]:
+    """Convert flat ToolDefinition.parameters to ParameterSpec list.
+
+    Built-in tools use ``{param_name: {type, description, required}}`` format
+    rather than the nested ``path/query/body`` sections used by catalog tools.
+    """
+    specs: list[ParameterSpec] = []
+    for param_name, param_info in tool_def.parameters.items():
+        if isinstance(param_info, dict):
+            specs.append(ParameterSpec(
+                name=param_name,
+                type_annotation=param_info.get("type", "str"),
+                description=param_info.get("description", ""),
+                required=param_info.get("required", False),
+            ))
     return specs
 
 

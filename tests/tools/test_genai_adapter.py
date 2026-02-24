@@ -25,6 +25,7 @@ from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 from flydesk.tools.factory import ToolDefinition
 from flydesk.tools.genai_adapter import (
     CatalogToolAdapter,
+    _build_flat_parameter_specs,
     _build_parameter_specs,
     _nest_arguments,
     adapt_tools,
@@ -554,3 +555,165 @@ class TestAdapterAsBaseTool:
     ):
         adapter = CatalogToolAdapter(simple_tool_def, mock_executor, user_session, "conv-1")
         assert adapter.guards == []
+
+
+# ---------------------------------------------------------------------------
+# _build_flat_parameter_specs tests (built-in tools)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildFlatParameterSpecs:
+    """Tests for _build_flat_parameter_specs which handles built-in tool params.
+
+    Built-in tools use a flat ``{param_name: {type, description, required}}``
+    format, unlike catalog tools which nest under ``path/query/body`` sections.
+    """
+
+    def test_search_processes_produces_query_param(self):
+        """search_processes has a required ``query`` param -- the P0 bug case."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__search_processes",
+            name="search_processes",
+            description="Search business processes",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/processes/search",
+            parameters={
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find matching processes",
+                    "required": True,
+                },
+            },
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert len(specs) == 1
+        assert specs[0] == ParameterSpec(
+            name="query",
+            type_annotation="string",
+            description="Search term to find matching processes",
+            required=True,
+        )
+
+    def test_search_knowledge_produces_query_and_top_k(self):
+        """search_knowledge has ``query`` (required) + ``top_k`` (optional)."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__search_knowledge",
+            name="search_knowledge",
+            description="Search the knowledge base",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/knowledge/search",
+            parameters={
+                "query": {
+                    "type": "string",
+                    "description": "Search query",
+                    "required": True,
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of results (default 5)",
+                    "required": False,
+                },
+            },
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert len(specs) == 2
+        by_name = {s.name: s for s in specs}
+        assert "query" in by_name
+        assert by_name["query"].required is True
+        assert by_name["query"].type_annotation == "string"
+        assert "top_k" in by_name
+        assert by_name["top_k"].required is False
+        assert by_name["top_k"].type_annotation == "integer"
+
+    def test_list_catalog_systems_no_params(self):
+        """list_catalog_systems has no parameters -- produces empty list."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__list_systems",
+            name="list_catalog_systems",
+            description="List all systems",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/catalog/systems",
+            parameters={},
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert specs == []
+
+    def test_list_system_endpoints_produces_system_id(self):
+        """list_system_endpoints has a required ``system_id`` param."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__list_endpoints",
+            name="list_system_endpoints",
+            description="List endpoints for a system",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/catalog/systems/{system_id}/endpoints",
+            parameters={
+                "system_id": {
+                    "type": "string",
+                    "description": "System ID to list endpoints for",
+                    "required": True,
+                },
+            },
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert len(specs) == 1
+        assert specs[0].name == "system_id"
+        assert specs[0].required is True
+        assert specs[0].type_annotation == "string"
+
+    def test_defaults_type_to_str(self):
+        """When ``type`` key is missing, defaults to ``str``."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__test",
+            name="test_tool",
+            description="Test",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/test",
+            parameters={"param": {"description": "A param"}},
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert len(specs) == 1
+        assert specs[0].type_annotation == "str"
+
+    def test_defaults_required_to_false(self):
+        """When ``required`` key is missing, defaults to ``False``."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__test",
+            name="test_tool",
+            description="Test",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/test",
+            parameters={"param": {"type": "str", "description": "A param"}},
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert specs[0].required is False
+
+    def test_non_dict_values_skipped(self):
+        """Non-dict param values (e.g. plain strings) are skipped."""
+        td = ToolDefinition(
+            endpoint_id="__builtin__test",
+            name="test_tool",
+            description="Test",
+            risk_level=RiskLevel.READ,
+            system_id="__flydesk__",
+            method="GET",
+            path="/__builtin__/test",
+            parameters={
+                "good_param": {"type": "str", "description": "OK", "required": True},
+                "bad_param": "not a dict",
+            },
+        )
+        specs = _build_flat_parameter_specs(td)
+        assert len(specs) == 1
+        assert specs[0].name == "good_param"
