@@ -11,11 +11,12 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.audit import AuditEventRow
@@ -92,6 +93,12 @@ class UpdatePreferencesRequest(BaseModel):
     notifications_enabled: bool | None = None
 
 
+class UpdateUserRolesRequest(BaseModel):
+    """Request body for assigning roles to a user."""
+
+    role_ids: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Admin endpoints
 # ---------------------------------------------------------------------------
@@ -147,7 +154,62 @@ async def list_users(session_factory: SessionFactory) -> list[UserSummary]:
     except Exception:
         logger.debug("Failed to query users from database.", exc_info=True)
 
+    # Enrich with role assignments
+    try:
+        from flydesk.models.user_role import UserRoleRow
+
+        async with session_factory() as session:
+            result = await session.execute(
+                select(UserRoleRow.user_id, UserRoleRow.role_id)
+            )
+            for row in result.all():
+                uid, rid = row[0], row[1]
+                if uid in users:
+                    users[uid].roles.append(rid)
+    except Exception:
+        logger.debug("Failed to load role assignments", exc_info=True)
+
     return list(users.values())
+
+
+@router.get("/api/admin/users/{user_id}/roles", dependencies=[AdminUsers])
+async def get_user_roles(user_id: str, session_factory: SessionFactory) -> list[str]:
+    """Get role IDs assigned to a user."""
+    from flydesk.models.user_role import UserRoleRow
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(UserRoleRow.role_id).where(UserRoleRow.user_id == user_id)
+        )
+        return [row[0] for row in result.all()]
+
+
+@router.put("/api/admin/users/{user_id}/roles", dependencies=[AdminUsers])
+async def update_user_roles(
+    user_id: str, body: UpdateUserRolesRequest, session_factory: SessionFactory
+) -> list[str]:
+    """Replace all role assignments for a user."""
+    from flydesk.models.user_role import UserRoleRow
+
+    async with session_factory() as session:
+        # Delete existing assignments
+        await session.execute(
+            delete(UserRoleRow).where(UserRoleRow.user_id == user_id)
+        )
+        # Insert new assignments
+        for role_id in body.role_ids:
+            session.add(UserRoleRow(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                role_id=role_id,
+            ))
+        await session.commit()
+
+        # Return the updated role IDs
+        result = await session.execute(
+            select(UserRoleRow.role_id).where(UserRoleRow.user_id == user_id)
+        )
+        return [row[0] for row in result.all()]
 
 
 # ---------------------------------------------------------------------------
