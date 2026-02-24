@@ -19,7 +19,8 @@
 		Hash,
 		Pencil,
 		CheckCircle2,
-		AlertCircle
+		AlertCircle,
+		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -34,6 +35,7 @@
 		source: string;
 		content?: string;
 		tags: string[];
+		status?: string;
 		chunk_count?: number;
 		created_at?: string;
 		updated_at?: string;
@@ -64,11 +66,14 @@
 	let saving = $state(false);
 	let deleting = $state(false);
 
+	let reindexing = $state(false);
+
 	// Edit form
 	let editForm = $state({
 		title: '',
 		source: '',
-		tags: ''
+		tags: '',
+		content: ''
 	});
 
 	// -----------------------------------------------------------------------
@@ -100,7 +105,8 @@
 		editForm = {
 			title: doc.title,
 			source: doc.source || '',
-			tags: doc.tags.join(', ')
+			tags: doc.tags.join(', '),
+			content: doc.content || ''
 		};
 		editing = true;
 	}
@@ -114,21 +120,27 @@
 		error = '';
 		success = '';
 
-		const payload = {
+		const contentChanged = editForm.content !== (doc?.content || '');
+		const payload: Record<string, any> = {
 			title: editForm.title,
-			source: editForm.source,
 			tags: editForm.tags
 				.split(',')
 				.map((t) => t.trim())
 				.filter(Boolean)
 		};
+		if (contentChanged) {
+			payload.content = editForm.content;
+			payload.status = 'draft';
+		}
 
 		try {
 			await apiJson(`/knowledge/documents/${documentId}`, {
 				method: 'PUT',
 				body: JSON.stringify(payload)
 			});
-			success = 'Document updated.';
+			success = contentChanged
+				? 'Document updated. Re-index to apply changes.'
+				: 'Document updated.';
 			editing = false;
 			await loadDocument();
 			onUpdated?.();
@@ -154,9 +166,44 @@
 		}
 	}
 
+	async function reindexDocument() {
+		if (!doc) return;
+		reindexing = true;
+		error = '';
+		try {
+			await apiJson('/knowledge/documents/bulk-reindex', {
+				method: 'POST',
+				body: JSON.stringify({ document_ids: [documentId] })
+			});
+			success = 'Document queued for re-indexing.';
+			await loadDocument();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to re-index';
+		} finally {
+			reindexing = false;
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
+
+	function statusBadge(status: string): { color: string; label: string } {
+		switch (status) {
+			case 'published':
+				return { color: 'bg-success/10 text-success', label: 'Published' };
+			case 'indexing':
+				return { color: 'bg-accent/10 text-accent', label: 'Indexing' };
+			case 'draft':
+				return { color: 'bg-text-secondary/10 text-text-secondary', label: 'Draft' };
+			case 'error':
+				return { color: 'bg-danger/10 text-danger', label: 'Error' };
+			case 'archived':
+				return { color: 'bg-warning/10 text-warning', label: 'Archived' };
+			default:
+				return { color: 'bg-text-secondary/10 text-text-secondary', label: status || 'Unknown' };
+		}
+	}
 
 	const typeBadgeColors: Record<string, string> = {
 		text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
@@ -190,6 +237,19 @@
 		</div>
 		<div class="flex items-center gap-1">
 			{#if !editing}
+				<button
+					type="button"
+					onclick={reindexDocument}
+					disabled={reindexing}
+					class="rounded p-1.5 text-text-secondary transition-colors hover:bg-accent/10 hover:text-accent"
+					title="Re-index"
+				>
+					{#if reindexing}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						<RefreshCw size={14} />
+					{/if}
+				</button>
 				<button
 					type="button"
 					onclick={startEditing}
@@ -283,6 +343,15 @@
 						/>
 					</label>
 
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">Content</span>
+						<textarea
+							bind:value={editForm.content}
+							rows={12}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+						></textarea>
+					</label>
+
 					<div class="flex justify-end gap-2 pt-1">
 						<button
 							type="button"
@@ -318,6 +387,14 @@
 						>
 							{doc.type}
 						</span>
+						{#if doc.status}
+							{@const badge = statusBadge(doc.status)}
+							<span
+								class="mt-1 ml-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium {badge.color}"
+							>
+								{badge.label}
+							</span>
+						{/if}
 					</div>
 
 					<!-- Metadata grid -->

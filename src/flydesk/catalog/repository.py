@@ -365,9 +365,9 @@ class CatalogRepository:
             )
 
     async def update_knowledge_document(
-        self, document_id: str, *, title=None, document_type=None, tags=None, status=None
+        self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None
     ):
-        """Update a knowledge document's metadata fields."""
+        """Update a knowledge document's metadata and optionally content."""
         import json as _json
 
         from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
@@ -383,6 +383,8 @@ class CatalogRepository:
                 row.document_type = str(document_type)
             if tags is not None:
                 row.tags = _json.dumps(tags)
+            if content is not None:
+                row.content = content
             if status is not None:
                 row.status = str(status)
             await session.commit()
