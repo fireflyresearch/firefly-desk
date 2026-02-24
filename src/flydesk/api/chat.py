@@ -50,90 +50,113 @@ class SuggestionsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Default suggestion sets by role
+# Dynamic suggestion builder
 # ---------------------------------------------------------------------------
 
-_ADMIN_SUGGESTIONS: list[dict[str, str]] = [
-    {
-        "icon": "heart-pulse",
-        "title": "System Health",
-        "description": "Review current status of all systems",
-        "text": "Review system health",
-    },
-    {
-        "icon": "shield",
-        "title": "Audit Events",
-        "description": "Check recent security and activity logs",
-        "text": "Check recent audit events",
-    },
-    {
-        "icon": "settings",
-        "title": "LLM Configuration",
-        "description": "Manage AI model providers",
-        "text": "Manage LLM providers",
-    },
-    {
-        "icon": "activity",
-        "title": "Active Sessions",
-        "description": "Monitor current agent activity",
-        "text": "Show active agent sessions",
-    },
-    {
-        "icon": "cpu",
-        "title": "Resources",
-        "description": "Check running resources and usage",
-        "text": "What resources are running?",
-    },
-    {
-        "icon": "help-circle",
-        "title": "Capabilities",
-        "description": "Learn what I can do for you",
-        "text": "What can you help me with?",
-    },
-]
 
-_DEFAULT_SUGGESTIONS: list[dict[str, str]] = [
-    {
-        "icon": "search",
-        "title": "Explore Systems",
-        "description": "View all registered systems and services",
-        "text": "Show me all registered systems",
-    },
-    {
-        "icon": "activity",
-        "title": "Service Status",
-        "description": "Check the health of your services",
-        "text": "What is the status of all services?",
-    },
-    {
-        "icon": "book-open",
-        "title": "Knowledge Base",
-        "description": "Search organizational knowledge",
-        "text": "How does the knowledge base work?",
-    },
-    {
-        "icon": "help-circle",
-        "title": "Get Help",
-        "description": "Learn what I can do for you",
-        "text": "What can you help me with?",
-    },
-]
+async def _build_suggestions(request: Request, is_admin: bool) -> list[SuggestionItem]:
+    """Build contextual suggestions based on what data is actually seeded."""
+    from flydesk.catalog.repository import CatalogRepository
+    from flydesk.processes.repository import ProcessRepository
+
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if session_factory is None:
+        return _fallback_suggestions(is_admin)
+
+    suggestions: list[SuggestionItem] = []
+
+    try:
+        catalog_repo = CatalogRepository(session_factory)
+        systems = await catalog_repo.list_systems()
+        docs = await catalog_repo.list_knowledge_documents()
+        process_repo = ProcessRepository(session_factory)
+        processes = await process_repo.list(limit=50)
+    except Exception:
+        logger.debug("Failed to query repos for suggestions", exc_info=True)
+        return _fallback_suggestions(is_admin)
+
+    system_count = len(systems)
+    doc_count = len(docs)
+    process_count = len(processes)
+
+    # 1. Systems suggestion (when systems exist)
+    if system_count > 0:
+        system_names = ", ".join(s.name for s in systems[:3])
+        suffix = f" and {system_count - 3} more" if system_count > 3 else ""
+        suggestions.append(SuggestionItem(
+            icon="search",
+            title="Explore Systems",
+            description=f"{system_count} registered: {system_names}{suffix}",
+            text="Show me all registered systems and their current status",
+        ))
+
+    # 2. Knowledge suggestion (when docs exist)
+    if doc_count > 0:
+        suggestions.append(SuggestionItem(
+            icon="book-open",
+            title="Knowledge Base",
+            description=f"Search across {doc_count} knowledge document{'s' if doc_count != 1 else ''}",
+            text="What information is available in the knowledge base?",
+        ))
+
+    # 3. Process suggestion (when processes discovered)
+    if process_count > 0:
+        top_process = processes[0].name if processes else ""
+        suggestions.append(SuggestionItem(
+            icon="git-branch",
+            title="Business Processes",
+            description=f"{process_count} discovered — e.g. {top_process}",
+            text="Show me the discovered business processes and how they work",
+        ))
+
+    # 4. Admin-specific suggestions
+    if is_admin:
+        suggestions.append(SuggestionItem(
+            icon="heart-pulse",
+            title="System Health",
+            description="Review current status of all systems",
+            text="Review system health and check for any issues",
+        ))
+        suggestions.append(SuggestionItem(
+            icon="shield",
+            title="Audit Events",
+            description="Check recent security and activity logs",
+            text="Show me recent audit events",
+        ))
+
+    # 6. Always include a capabilities suggestion
+    suggestions.append(SuggestionItem(
+        icon="help-circle",
+        title="Capabilities",
+        description="Learn what I can do for you",
+        text="What can you help me with?",
+    ))
+
+    # Cap at 6 suggestions for the 2x3 grid
+    return suggestions[:6]
+
+
+def _fallback_suggestions(is_admin: bool) -> list[SuggestionItem]:
+    """Static fallback when repos are unavailable."""
+    base: list[SuggestionItem] = [
+        SuggestionItem(icon="search", title="Explore Systems", description="View all registered systems and services", text="Show me all registered systems"),
+        SuggestionItem(icon="book-open", title="Knowledge Base", description="Search organizational knowledge", text="What information is available in the knowledge base?"),
+        SuggestionItem(icon="help-circle", title="Capabilities", description="Learn what I can do for you", text="What can you help me with?"),
+    ]
+    if is_admin:
+        base.insert(1, SuggestionItem(icon="heart-pulse", title="System Health", description="Review current status of all systems", text="Review system health"))
+    return base
 
 
 @router.get("/suggestions", response_model=SuggestionsResponse)
 async def get_suggestions(request: Request) -> SuggestionsResponse:
-    """Return role-based suggestions for the chat empty state."""
+    """Return contextual suggestions based on seeded data and user role."""
     user_session = getattr(request.state, "user_session", None)
     roles: list[str] = list(user_session.roles) if user_session and hasattr(user_session, "roles") else []
+    is_admin = "admin" in roles
 
-    if "admin" in roles:
-        items = _ADMIN_SUGGESTIONS
-    else:
-        items = _DEFAULT_SUGGESTIONS
-
-    return SuggestionsResponse(
-        suggestions=[SuggestionItem(**s) for s in items],
-    )
+    items = await _build_suggestions(request, is_admin)
+    return SuggestionsResponse(suggestions=items)
 
 
 async def _persist_messages(

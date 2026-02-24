@@ -70,8 +70,6 @@ from flydesk.api.roles import get_role_repo
 from flydesk.api.roles import router as roles_router
 from flydesk.api.settings import get_settings_repo
 from flydesk.api.settings import router as settings_router
-from flydesk.api.skills import get_skill_repo
-from flydesk.api.skills import router as skills_router
 from flydesk.api.setup import router as setup_router
 from flydesk.api.sso_mappings import get_settings_repo as sso_mappings_get_settings
 from flydesk.api.sso_mappings import router as sso_mappings_router
@@ -134,12 +132,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[prompts_get_settings] = lambda: settings_repo
     app.dependency_overrides[tools_get_settings] = lambda: settings_repo
     app.dependency_overrides[sso_mappings_get_settings] = lambda: settings_repo
-
-    # Skills repository
-    from flydesk.skills.repository import SkillRepository
-
-    skill_repo = SkillRepository(session_factory)
-    app.dependency_overrides[get_skill_repo] = lambda: skill_repo
 
     # Custom tools repository and sandbox executor
     from flydesk.tools.custom_repository import CustomToolRepository
@@ -661,7 +653,6 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(users_router)
     app.include_router(roles_router)
-    app.include_router(skills_router)
     app.include_router(prompts_router)
     app.include_router(tools_admin_router)
     app.include_router(sso_mappings_router)
