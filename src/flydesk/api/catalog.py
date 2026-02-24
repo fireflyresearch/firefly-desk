@@ -147,6 +147,22 @@ async def get_endpoint(endpoint_id: str, repo: Repo) -> ServiceEndpoint:
     return endpoint
 
 
+@router.put("/endpoints/{endpoint_id}", dependencies=[CatalogWrite])
+async def update_endpoint(
+    endpoint_id: str, endpoint: ServiceEndpoint, repo: Repo, trigger: Trigger
+) -> ServiceEndpoint:
+    """Update an existing service endpoint."""
+    existing = await repo.get_endpoint(endpoint_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=404, detail=f"Endpoint {endpoint_id} not found"
+        )
+    await repo.update_endpoint(endpoint)
+    if trigger is not None:
+        await trigger.on_catalog_updated(endpoint.system_id)
+    return endpoint
+
+
 @router.delete("/endpoints/{endpoint_id}", status_code=204, dependencies=[CatalogDelete])
 async def delete_endpoint(endpoint_id: str, repo: Repo) -> Response:
     """Remove a service endpoint."""

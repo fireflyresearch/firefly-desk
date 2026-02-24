@@ -28,6 +28,16 @@ class DocumentType(StrEnum):
     OTHER = "other"
 
 
+class DocumentStatus(StrEnum):
+    """Lifecycle status of a knowledge document."""
+
+    DRAFT = "draft"
+    INDEXING = "indexing"
+    PUBLISHED = "published"
+    ERROR = "error"
+    ARCHIVED = "archived"
+
+
 class KnowledgeDocument(BaseModel):
     """A knowledge base document (operational procedure, policy, etc.)."""
 
@@ -35,6 +45,7 @@ class KnowledgeDocument(BaseModel):
     title: str
     content: str
     document_type: DocumentType = DocumentType.OTHER
+    status: DocumentStatus = DocumentStatus.DRAFT
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
