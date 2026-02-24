@@ -19,7 +19,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -36,12 +36,22 @@ class SetupStatus(BaseModel):
     has_seed_data: bool
     setup_completed: bool
     llm_configured: bool
+    has_admin_user: bool
     app_title: str
     app_version: str
     agent_name: str
     accent_color: str
     agent_avatar_url: str = ""
     agent_display_name: str = ""
+
+
+class CreateAdminRequest(BaseModel):
+    """Request body for creating the initial admin user during setup."""
+
+    username: str
+    email: str
+    display_name: str
+    password: str
 
 
 class SeedRequest(BaseModel):
@@ -406,6 +416,7 @@ async def get_setup_status(request: Request) -> SetupStatus:
     has_seed = False
     setup_completed = False
     llm_configured = False
+    has_admin_user = False
     session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory:
         from flydesk.catalog.repository import CatalogRepository
@@ -429,6 +440,15 @@ async def get_setup_status(request: Request) -> SetupStatus:
         providers = await llm_repo.list_providers()
         llm_configured = len(providers) > 0
 
+        # Check whether a local admin user exists
+        try:
+            from flydesk.auth.local_user_repository import LocalUserRepository
+
+            local_user_repo = LocalUserRepository(session_factory)
+            has_admin_user = await local_user_repo.has_any_user()
+        except Exception:
+            logger.debug("Failed to check for admin user.", exc_info=True)
+
     # Load agent customization for display name / avatar
     agent_display_name = config.agent_name
     agent_avatar_url = ""
@@ -447,6 +467,7 @@ async def get_setup_status(request: Request) -> SetupStatus:
         has_seed_data=has_seed,
         setup_completed=setup_completed,
         llm_configured=llm_configured,
+        has_admin_user=has_admin_user,
         app_title=config.app_title,
         app_version=__version__,
         agent_name=config.agent_name,
@@ -454,6 +475,52 @@ async def get_setup_status(request: Request) -> SetupStatus:
         agent_avatar_url=agent_avatar_url,
         agent_display_name=agent_display_name,
     )
+
+
+@router.post("/create-admin")
+async def create_admin_user(body: CreateAdminRequest, request: Request) -> dict:
+    """Create the initial admin user during first-time setup.
+
+    This endpoint is only available before setup is marked as completed
+    and when no local users exist yet.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    from flydesk.auth.local_user_repository import LocalUserRepository
+    from flydesk.settings.repository import SettingsRepository
+
+    local_user_repo = LocalUserRepository(session_factory)
+    settings_repo = SettingsRepository(session_factory)
+
+    # Guard: only works before setup_completed
+    setup_done = await settings_repo.get_app_setting("setup_completed")
+    if setup_done == "true":
+        raise HTTPException(status_code=403, detail="Setup already completed")
+
+    # Guard: no existing admin
+    if await local_user_repo.has_any_user():
+        raise HTTPException(status_code=409, detail="Admin user already exists")
+
+    # Validate password (min 8 chars)
+    if len(body.password) < 8:
+        raise HTTPException(
+            status_code=422, detail="Password must be at least 8 characters"
+        )
+
+    # Hash and create user with role="admin"
+    from flydesk.auth.password import hash_password
+
+    pw_hash = hash_password(body.password)
+    user = await local_user_repo.create_user(
+        username=body.username,
+        email=body.email,
+        display_name=body.display_name,
+        password_hash=pw_hash,
+        role="admin",
+    )
+    return {"success": True, "user_id": user.id}
 
 
 @router.get("/first-run")
