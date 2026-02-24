@@ -38,6 +38,7 @@
 		scopes: string[] | null;
 		roles_claim: string | null;
 		permissions_claim: string | null;
+		allowed_email_domains: string[] | null;
 		is_active: boolean;
 		created_at: string | null;
 		updated_at: string | null;
@@ -84,7 +85,8 @@
 		tenant_id: '',
 		scopes: '',
 		roles_claim: '',
-		permissions_claim: ''
+		permissions_claim: '',
+		allowed_email_domains: ''
 	});
 	let saving = $state(false);
 
@@ -128,7 +130,8 @@
 			tenant_id: '',
 			scopes: '',
 			roles_claim: '',
-			permissions_claim: ''
+			permissions_claim: '',
+			allowed_email_domains: ''
 		};
 		showForm = true;
 	}
@@ -144,7 +147,8 @@
 			tenant_id: provider.tenant_id || '',
 			scopes: provider.scopes?.join(', ') || '',
 			roles_claim: provider.roles_claim || '',
-			permissions_claim: provider.permissions_claim || ''
+			permissions_claim: provider.permissions_claim || '',
+			allowed_email_domains: provider.allowed_email_domains?.join(', ') || ''
 		};
 		showForm = true;
 	}
@@ -165,6 +169,13 @@
 					.filter(Boolean)
 			: null;
 
+		const domainsList = formData.allowed_email_domains
+			? formData.allowed_email_domains
+					.split(',')
+					.map((d) => d.trim())
+					.filter(Boolean)
+			: null;
+
 		const payload: Record<string, unknown> = {
 			provider_type: formData.provider_type,
 			display_name: formData.display_name,
@@ -174,6 +185,7 @@
 			scopes: scopesList,
 			roles_claim: formData.roles_claim || null,
 			permissions_claim: formData.permissions_claim || null,
+			allowed_email_domains: domainsList,
 			is_active: true
 		};
 
@@ -228,6 +240,7 @@
 					scopes: provider.scopes,
 					roles_claim: provider.roles_claim,
 					permissions_claim: provider.permissions_claim,
+					allowed_email_domains: provider.allowed_email_domains,
 					is_active: !provider.is_active
 				})
 			});
@@ -422,6 +435,19 @@
 					/>
 				</label>
 
+				<label class="col-span-2 flex flex-col gap-1">
+					<span class="text-xs font-medium text-text-secondary">
+						Allowed Email Domains
+						<span class="text-text-secondary/60">(optional, comma-separated)</span>
+					</span>
+					<input
+						type="text"
+						bind:value={formData.allowed_email_domains}
+						placeholder="example.com, mycompany.org"
+						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+					/>
+				</label>
+
 				<div class="col-span-2 flex justify-end gap-2 pt-1">
 					<button
 						type="button"
@@ -481,8 +507,15 @@
 									? 'bg-surface-secondary/50'
 									: ''}"
 							>
-								<td class="px-4 py-2 font-medium text-text-primary">
-									{provider.display_name}
+								<td class="px-4 py-2">
+									<div class="font-medium text-text-primary">
+										{provider.display_name}
+									</div>
+									{#if provider.allowed_email_domains && provider.allowed_email_domains.length > 0}
+										<div class="mt-0.5 text-xs text-text-secondary">
+											{provider.allowed_email_domains.join(', ')}
+										</div>
+									{/if}
 								</td>
 								<td class="px-4 py-2">
 									<span
