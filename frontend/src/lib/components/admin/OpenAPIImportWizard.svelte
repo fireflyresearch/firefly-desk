@@ -216,6 +216,7 @@
 				method: ep.method,
 				operation_id: ep.operation_id,
 				summary: ep.summary,
+				description: ep.description,
 				parameters: ep.parameters,
 				tags: ep.tags
 			}));
@@ -466,7 +467,8 @@
 											>Method</th
 										>
 										<th class="px-3 py-2 text-xs font-medium text-text-secondary">Path</th>
-										<th class="px-3 py-2 text-xs font-medium text-text-secondary">Summary</th
+										<th class="px-3 py-2 text-xs font-medium text-text-secondary"
+										>Summary / Description</th
 										>
 										<th class="px-3 py-2 text-xs font-medium text-text-secondary">Tags</th>
 									</tr>
@@ -498,8 +500,23 @@
 											<td class="px-3 py-2 font-mono text-xs text-text-primary">
 												{ep.path}
 											</td>
-											<td class="px-3 py-2 text-text-secondary">
-												{ep.summary || '--'}
+											<td class="px-3 py-2">
+												<input
+													type="text"
+													value={ep.summary}
+													oninput={(e) => { if (parsedSpec) parsedSpec.endpoints[i].summary = e.currentTarget.value; }}
+													class="w-full bg-transparent text-sm text-text-primary outline-none focus:border-b focus:border-accent"
+													placeholder="Summary"
+													onclick={(e) => e.stopPropagation()}
+												/>
+												<input
+													type="text"
+													value={ep.description ?? ''}
+													oninput={(e) => { if (parsedSpec) parsedSpec.endpoints[i].description = e.currentTarget.value; }}
+													class="mt-0.5 w-full bg-transparent text-xs text-text-secondary outline-none focus:border-b focus:border-accent"
+													placeholder="Description (optional)"
+													onclick={(e) => e.stopPropagation()}
+												/>
 											</td>
 											<td class="px-3 py-2">
 												{#if ep.tags && ep.tags.length > 0}
