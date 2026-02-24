@@ -81,3 +81,32 @@ class TestServiceEndpoint:
         assert endpoint.examples == []
         assert endpoint.timeout_seconds == 30.0
         assert endpoint.tags == []
+
+
+class TestNoneAuthType:
+    def test_none_auth_type_exists(self):
+        from flydesk.catalog.enums import AuthType
+        assert AuthType.NONE == "none"
+
+    def test_system_without_auth(self):
+        from flydesk.catalog.models import ExternalSystem
+        system = ExternalSystem(
+            id="public-api",
+            name="Public API",
+            description="No auth needed",
+            base_url="https://api.example.com",
+        )
+        assert system.auth_config is None
+
+    def test_system_with_none_auth(self):
+        from flydesk.catalog.enums import AuthType
+        from flydesk.catalog.models import AuthConfig, ExternalSystem
+        system = ExternalSystem(
+            id="public-api",
+            name="Public API",
+            description="No auth needed",
+            base_url="https://api.example.com",
+            auth_config=AuthConfig(auth_type=AuthType.NONE),
+        )
+        assert system.auth_config.auth_type == AuthType.NONE
+        assert system.auth_config.credential_id is None

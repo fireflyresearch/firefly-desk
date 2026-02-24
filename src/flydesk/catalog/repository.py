@@ -58,7 +58,7 @@ class CatalogRepository:
                 name=system.name,
                 description=system.description,
                 base_url=system.base_url,
-                auth_config=_to_json(system.auth_config.model_dump()),
+                auth_config=_to_json(system.auth_config.model_dump()) if system.auth_config else None,
                 health_check_path=system.health_check_path,
                 tags=_to_json(system.tags),
                 agent_enabled=system.agent_enabled,
@@ -92,7 +92,7 @@ class CatalogRepository:
             row.name = system.name
             row.description = system.description
             row.base_url = system.base_url
-            row.auth_config = _to_json(system.auth_config.model_dump())
+            row.auth_config = _to_json(system.auth_config.model_dump()) if system.auth_config else None
             row.health_check_path = system.health_check_path
             row.tags = _to_json(system.tags)
             row.agent_enabled = system.agent_enabled
@@ -409,7 +409,7 @@ class CatalogRepository:
             name=row.name,
             description=row.description,
             base_url=row.base_url,
-            auth_config=AuthConfig(**_from_json(row.auth_config)),
+            auth_config=AuthConfig(**_from_json(row.auth_config)) if row.auth_config else None,
             health_check_path=row.health_check_path,
             tags=_from_json(row.tags),
             status=SystemStatus(row.status),
