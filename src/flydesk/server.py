@@ -441,6 +441,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         agent_factory=agent_factory,
         catalog_repo=catalog_repo,
         customization_service=customization_service,
+        settings_repo=settings_repo,
     )
     app.state.desk_agent = desk_agent
 
