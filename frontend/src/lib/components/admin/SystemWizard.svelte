@@ -21,6 +21,7 @@
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -371,13 +372,13 @@
 
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Description <span class="text-danger">*</span></span>
-						<textarea
-							bind:value={description}
-							rows={3}
-							required
-							placeholder="Brief description of the system and its purpose"
-							class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-						></textarea>
+						<RichEditor
+							value={description}
+							placeholder="System description..."
+							mode="compact"
+							minHeight="80px"
+							onchange={(md) => (description = md)}
+						/>
 					</label>
 
 					<label class="flex flex-col gap-1">

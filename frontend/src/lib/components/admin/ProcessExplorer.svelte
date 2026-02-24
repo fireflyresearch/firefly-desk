@@ -37,6 +37,7 @@
 		CircleX
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { parseSSEStream } from '$lib/services/sse.js';
 	import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
 	import {
@@ -1071,11 +1072,13 @@
 								<!-- Description -->
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-medium text-text-secondary">Description</span>
-									<textarea
-										bind:value={stepForm.description}
-										rows={3}
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-									></textarea>
+									<RichEditor
+										value={stepForm.description}
+										placeholder="Step description..."
+										mode="compact"
+										minHeight="80px"
+										onchange={(md) => (stepForm.description = md)}
+									/>
 								</label>
 
 								<!-- System ID -->
