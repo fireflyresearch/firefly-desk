@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 from typing import Annotated, Any
@@ -156,6 +157,81 @@ def _pop_state(state: str) -> dict[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_domains(raw: Any) -> set[str]:
+    """Parse ``allowed_email_domains`` from DB into a set of lowercase domains.
+
+    The column may be ``None``, a JSON string (SQLite/Text backend), or an
+    already-decoded list (Postgres JSONB).  Returns an empty set when the
+    value is ``None`` or empty, which means *all* domains are allowed.
+    """
+    if not raw:
+        return set()
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return set()
+    if not isinstance(raw, (list, tuple, set)):
+        return set()
+    return {d.lower().strip() for d in raw if isinstance(d, str) and d.strip()}
+
+
+def _extract_email_from_id_token(id_token_raw: str | None) -> str | None:
+    """Decode an id_token (without verification) to extract the email claim.
+
+    This is a *fast-path* check; the id_token has already been validated
+    by the OIDC provider during the code exchange.  We only peek at the
+    payload to get the email for domain filtering.
+    """
+    if not id_token_raw:
+        return None
+    try:
+        import base64
+
+        # JWT = header.payload.signature — we only need the payload.
+        parts = id_token_raw.split(".")
+        if len(parts) < 2:
+            return None
+        # Add padding to handle missing base64 padding
+        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get("email")
+    except Exception:
+        return None
+
+
+def _check_email_domain(
+    email: str | None,
+    allowed_domains: set[str],
+    *,
+    context: str = "userinfo",
+) -> None:
+    """Raise HTTPException(403) if the email domain is not in the allowed set.
+
+    When *allowed_domains* is empty the check is a no-op (all domains allowed).
+    When *email* is falsy the check is also a no-op (gracefully allow missing email).
+    """
+    if not allowed_domains:
+        return  # No restriction configured
+    if not email:
+        return  # No email to check — allow through
+
+    domain = email.rsplit("@", 1)[-1].lower() if "@" in email else ""
+    if not domain:
+        return  # Malformed email with no domain — allow through
+
+    if domain not in allowed_domains:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Email domain '{domain}' is not allowed for this SSO provider",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -282,12 +358,27 @@ async def auth_callback(
     id_token = tokens.get("id_token")
     expires_in = tokens.get("expires_in")
 
+    # -- Email domain filtering -----------------------------------------
+    allowed_domains = _parse_domains(row.allowed_email_domains)
+
+    # Fast path: check email from id_token claims (avoids userinfo round-trip
+    # when the domain is blocked).
+    if allowed_domains and id_token:
+        id_email = _extract_email_from_id_token(id_token)
+        if id_email:
+            _check_email_domain(id_email, allowed_domains, context="id_token")
+
     # Fetch userinfo
     user_info: dict[str, Any] = {}
     try:
         user_info = await oidc_client.get_userinfo(access_token)
     except Exception:
         logger.debug("Userinfo fetch failed (non-fatal).", exc_info=True)
+
+    # Check email domain from userinfo (authoritative source).
+    if allowed_domains:
+        userinfo_email = (user_info.get("email", "") or "")
+        _check_email_domain(userinfo_email, allowed_domains, context="userinfo")
 
     # Set a session cookie with the access token
     response.set_cookie(
