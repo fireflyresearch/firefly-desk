@@ -1218,44 +1218,46 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to configure embedding/vector store: {exc}",
             )
 
-    # 3. Seed banking data if requested
+    # 3. Seed banking data if requested (skip if already loaded by SampleDataStep)
     if body.seed_data:
         try:
             from flydesk.catalog.repository import CatalogRepository
-            from flydesk.seeds.banking import seed_banking_catalog
+            from flydesk.seeds.banking import SYSTEMS, seed_banking_catalog
             from flydesk.skills.repository import SkillRepository
 
             catalog_repo = CatalogRepository(session_factory)
-            skill_repo = SkillRepository(session_factory)
 
-            # Get the knowledge indexer so banking docs get chunked and indexed
-            from flydesk.api.knowledge import get_knowledge_indexer
+            # Guard: check if data was already seeded (e.g. by SampleDataStep)
+            first_system = await catalog_repo.get_system(SYSTEMS[0].id)
+            if first_system is not None:
+                details["seed_data"] = "already_loaded"
+                logger.info("Seed data already present, skipping re-seed")
+            else:
+                skill_repo = SkillRepository(session_factory)
 
-            indexer_fn = request.app.dependency_overrides.get(
-                get_knowledge_indexer, get_knowledge_indexer
-            )
-            indexer = indexer_fn()
-
-            await seed_banking_catalog(
-                catalog_repo, knowledge_indexer=indexer, skill_repo=skill_repo
-            )
-            details["seed_data"] = "loaded"
-
-            # Also seed platform docs (idempotent)
-            try:
+                # Get the knowledge indexer so banking docs get chunked and indexed
                 from flydesk.api.knowledge import get_knowledge_indexer
-                from flydesk.seeds.platform_docs import seed_platform_docs
 
                 indexer_fn = request.app.dependency_overrides.get(
                     get_knowledge_indexer, get_knowledge_indexer
                 )
                 indexer = indexer_fn()
-                await seed_platform_docs(indexer)
-                details["platform_docs"] = "loaded"
-            except Exception:
-                logger.debug(
-                    "Platform docs seeding skipped (non-fatal).", exc_info=True
+
+                await seed_banking_catalog(
+                    catalog_repo, knowledge_indexer=indexer, skill_repo=skill_repo
                 )
+                details["seed_data"] = "loaded"
+
+                # Also seed platform docs (idempotent)
+                try:
+                    from flydesk.seeds.platform_docs import seed_platform_docs
+
+                    await seed_platform_docs(indexer)
+                    details["platform_docs"] = "loaded"
+                except Exception:
+                    logger.debug(
+                        "Platform docs seeding skipped (non-fatal).", exc_info=True
+                    )
         except Exception as exc:
             logger.error("Failed to seed data: %s", exc)
             return ConfigureResult(
@@ -1286,8 +1288,8 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to save agent settings: {exc}",
             )
 
-    # 5. Trigger KG recomputation if embedding is configured and data was seeded
-    if body.embedding and body.seed_data:
+    # 5. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
+    if body.embedding and body.seed_data and details.get("seed_data") != "already_loaded":
         job_runner = getattr(request.app.state, "job_runner", None)
         if job_runner:
             try:
