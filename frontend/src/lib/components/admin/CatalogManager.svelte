@@ -232,12 +232,46 @@
 		switch (status) {
 			case 'active':
 				return 'bg-success/10 text-success';
-			case 'inactive':
+			case 'draft':
+				return 'bg-warning/10 text-warning';
+			case 'disabled':
 				return 'bg-text-secondary/10 text-text-secondary';
-			case 'error':
+			case 'deprecated':
 				return 'bg-danger/10 text-danger';
+			case 'degraded':
+				return 'bg-orange-400/10 text-orange-400';
 			default:
 				return 'bg-text-secondary/10 text-text-secondary';
+		}
+	}
+
+	const STATUS_TRANSITIONS: Record<string, { label: string; target: string }[]> = {
+		draft: [{ label: 'Activate', target: 'active' }],
+		active: [
+			{ label: 'Disable', target: 'disabled' },
+			{ label: 'Deprecate', target: 'deprecated' },
+		],
+		disabled: [
+			{ label: 'Re-activate', target: 'active' },
+			{ label: 'Deprecate', target: 'deprecated' },
+		],
+		deprecated: [],
+		degraded: [
+			{ label: 'Mark Active', target: 'active' },
+			{ label: 'Disable', target: 'disabled' },
+		],
+	};
+
+	async function transitionStatus(systemId: string, newStatus: string) {
+		error = '';
+		try {
+			await apiJson(`/catalog/systems/${systemId}/status`, {
+				method: 'PUT',
+				body: JSON.stringify({ status: newStatus }),
+			});
+			await loadSystems();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Status transition failed';
 		}
 	}
 
@@ -346,11 +380,26 @@
 									{system.base_url}
 								</td>
 								<td class="px-4 py-2">
-									<span
-										class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
-									>
-										{system.status}
-									</span>
+									<div class="flex items-center gap-2">
+										<span
+											class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
+										>
+											{system.status}
+										</span>
+										{#if STATUS_TRANSITIONS[system.status]?.length > 0}
+											<div class="flex gap-1">
+												{#each STATUS_TRANSITIONS[system.status] as action}
+													<button
+														type="button"
+														class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+														onclick={() => transitionStatus(system.id, action.target)}
+													>
+														{action.label}
+													</button>
+												{/each}
+											</div>
+										{/if}
+									</div>
 								</td>
 								<td class="px-4 py-2">
 									{#if system.tags.length > 0}
