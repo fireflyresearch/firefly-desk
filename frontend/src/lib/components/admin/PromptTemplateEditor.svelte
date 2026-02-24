@@ -18,6 +18,7 @@
 		AlertCircle
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import CodeEditor from '$lib/components/shared/CodeEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -280,12 +281,16 @@
 						</div>
 					</div>
 
-					<!-- Textarea -->
-					<textarea
-						bind:value={editedSource}
-						spellcheck={false}
-						class="flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text-primary outline-none"
-					></textarea>
+					<!-- Template source editor -->
+					<div class="flex-1 overflow-auto">
+						<CodeEditor
+							value={editedSource}
+							language="jinja2"
+							placeholder="Enter Jinja2 template..."
+							onchange={(v) => (editedSource = v)}
+							minHeight="100%"
+						/>
+					</div>
 				{:else}
 					<div class="flex flex-1 flex-col items-center justify-center gap-2 text-text-secondary">
 						<FileCode size={32} strokeWidth={1} />
