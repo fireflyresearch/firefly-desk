@@ -1019,12 +1019,17 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
 
 @router.post("/clear")
 async def clear_seed_data(request: Request) -> SeedResult:
-    """Remove all seed data (banking systems, knowledge docs)."""
+    """Remove all seed and generated data, then reset the setup wizard."""
     session_factory = getattr(request.app.state, "session_factory", None)
     if not session_factory:
         return SeedResult(success=False, message="Database not initialised")
 
+    cleared: list[str] = []
+
     try:
+        # ------------------------------------------------------------------
+        # 1. Unseed banking catalog (existing logic)
+        # ------------------------------------------------------------------
         from flydesk.catalog.repository import CatalogRepository
         from flydesk.seeds.banking import unseed_banking_catalog
         from flydesk.skills.repository import SkillRepository
@@ -1041,19 +1046,60 @@ async def clear_seed_data(request: Request) -> SeedResult:
         indexer = indexer_fn()
 
         await unseed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
+        cleared.append("banking catalog")
 
         # Also clear platform docs
         try:
             from flydesk.seeds.platform_docs import unseed_platform_docs
 
             await unseed_platform_docs(indexer)
+            cleared.append("platform docs")
         except Exception:
             logger.debug("Platform docs removal skipped (non-fatal).", exc_info=True)
 
-        return SeedResult(success=True, message="Demo data cleared successfully.")
+        # ------------------------------------------------------------------
+        # 2. Clear KG entities & relations
+        # ------------------------------------------------------------------
+        from sqlalchemy import delete
+
+        from flydesk.models.knowledge import EntityRow, RelationRow
+
+        async with session_factory() as session:
+            await session.execute(delete(RelationRow))
+            await session.execute(delete(EntityRow))
+            await session.commit()
+        cleared.append("knowledge graph (entities + relations)")
+
+        # ------------------------------------------------------------------
+        # 3. Clear business processes (dependencies -> steps -> processes)
+        # ------------------------------------------------------------------
+        from flydesk.models.process import (
+            BusinessProcessRow,
+            ProcessDependencyRow,
+            ProcessStepRow,
+        )
+
+        async with session_factory() as session:
+            await session.execute(delete(ProcessDependencyRow))
+            await session.execute(delete(ProcessStepRow))
+            await session.execute(delete(BusinessProcessRow))
+            await session.commit()
+        cleared.append("business processes")
+
+        # ------------------------------------------------------------------
+        # 4. Reset setup_completed so the wizard can run again
+        # ------------------------------------------------------------------
+        from flydesk.settings.repository import SettingsRepository
+
+        settings_repo = SettingsRepository(session_factory)
+        await settings_repo.set_app_setting("setup_completed", "false", category="setup")
+        cleared.append("setup_completed flag")
+
+        summary = "Cleared: " + ", ".join(cleared) + "."
+        return SeedResult(success=True, message=summary)
     except Exception as exc:
-        logger.error("Failed to clear seed data: %s", exc, exc_info=True)
-        return SeedResult(success=False, message=f"Failed to clear demo data: {exc}")
+        logger.error("Failed to clear data: %s", exc, exc_info=True)
+        return SeedResult(success=False, message=f"Failed to clear data: {exc}")
 
 
 @router.post("/reset")
