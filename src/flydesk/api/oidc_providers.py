@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated, Any
 
@@ -40,6 +41,7 @@ class OIDCProviderRequest(BaseModel):
     client_secret: str | None = None
     tenant_id: str | None = None
     scopes: list[str] | None = None
+    allowed_email_domains: list[str] | None = None
     roles_claim: str | None = None
     permissions_claim: str | None = None
     is_active: bool = True
@@ -56,6 +58,7 @@ class OIDCProviderResponse(BaseModel):
     has_client_secret: bool
     tenant_id: str | None = None
     scopes: list[str] | None = None
+    allowed_email_domains: list[str] | None = None
     roles_claim: str | None = None
     permissions_claim: str | None = None
     is_active: bool = True
@@ -108,6 +111,7 @@ def _to_response(row: OIDCProviderRow) -> OIDCProviderResponse:
         has_client_secret=row.client_secret_encrypted is not None,
         tenant_id=row.tenant_id,
         scopes=_parse_scopes(row.scopes),
+        allowed_email_domains=_parse_json_list(row.allowed_email_domains),
         roles_claim=row.roles_claim,
         permissions_claim=row.permissions_claim,
         is_active=row.is_active,
@@ -116,21 +120,24 @@ def _to_response(row: OIDCProviderRow) -> OIDCProviderResponse:
     )
 
 
-def _parse_scopes(value: Any) -> list[str] | None:
-    """Parse scopes which may be JSON string or list."""
+def _parse_json_list(value: Any) -> list[str] | None:
+    """Parse a value that may be a JSON string or already a list."""
     if value is None:
         return None
     if isinstance(value, list):
         return value
     if isinstance(value, str):
-        import json
-
         try:
             parsed = json.loads(value)
             return parsed if isinstance(parsed, list) else None
         except (json.JSONDecodeError, TypeError):
             return None
     return None
+
+
+def _parse_scopes(value: Any) -> list[str] | None:
+    """Parse scopes which may be JSON string or list."""
+    return _parse_json_list(value)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +165,7 @@ async def create_provider(
         client_secret=body.client_secret,
         tenant_id=body.tenant_id,
         scopes=body.scopes,
+        allowed_email_domains=body.allowed_email_domains,
         roles_claim=body.roles_claim,
         permissions_claim=body.permissions_claim,
         is_active=body.is_active,
@@ -190,6 +198,7 @@ async def update_provider(
         "client_id": body.client_id,
         "tenant_id": body.tenant_id,
         "scopes": body.scopes,
+        "allowed_email_domains": body.allowed_email_domains,
         "roles_claim": body.roles_claim,
         "permissions_claim": body.permissions_claim,
         "is_active": body.is_active,

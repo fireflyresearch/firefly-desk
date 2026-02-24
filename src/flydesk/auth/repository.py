@@ -55,6 +55,7 @@ _UPDATABLE_FIELDS: frozenset[str] = frozenset({
     "roles_claim",
     "permissions_claim",
     "is_active",
+    "allowed_email_domains",
 })
 
 
@@ -113,6 +114,7 @@ class OIDCProviderRepository:
         client_secret: str | None = None,
         tenant_id: str | None = None,
         scopes: list[str] | None = None,
+        allowed_email_domains: list[str] | None = None,
         roles_claim: str | None = None,
         permissions_claim: str | None = None,
         is_active: bool = True,
@@ -128,6 +130,8 @@ class OIDCProviderRepository:
             client_secret_encrypted=self._encrypt(client_secret),
             tenant_id=tenant_id,
             scopes=_to_json(scopes) if scopes else None,
+            # None or [] both mean "all domains allowed" (no restriction).
+            allowed_email_domains=_to_json(allowed_email_domains) if allowed_email_domains else None,
             roles_claim=roles_claim,
             permissions_claim=permissions_claim,
             is_active=is_active,
@@ -178,6 +182,8 @@ class OIDCProviderRepository:
                     row.client_secret_encrypted = self._encrypt(value)
                 elif key == "scopes":
                     row.scopes = _to_json(value) if value else None
+                elif key == "allowed_email_domains":
+                    row.allowed_email_domains = _to_json(value) if value else None
                 elif key == "metadata":
                     row.metadata_ = _to_json(value) if value else None
                 elif key in _UPDATABLE_FIELDS:
