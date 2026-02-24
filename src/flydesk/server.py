@@ -467,6 +467,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.dependency_overrides[auth_get_oidc_client] = lambda: _default_oidc_client
 
+    # Local user repository
+    from flydesk.auth.local_user_repository import LocalUserRepository
+    from flydesk.api.auth import get_local_user_repo
+
+    local_user_repo = LocalUserRepository(session_factory)
+    app.state.local_user_repo = local_user_repo
+    app.dependency_overrides[get_local_user_repo] = lambda: local_user_repo
+
     # Users API dependency overrides
     app.dependency_overrides[users_get_session] = lambda: session_factory
     app.dependency_overrides[users_get_settings] = lambda: settings_repo
@@ -599,15 +607,18 @@ def create_app() -> FastAPI:
 
         app.add_middleware(DevAuthMiddleware)
     else:
-        from flydesk.auth.oidc import OIDCClient
-        from flydesk.auth.providers import get_provider
+        oidc_client = None
+        provider_profile = None
+        if config.oidc_issuer_url:
+            from flydesk.auth.oidc import OIDCClient
+            from flydesk.auth.providers import get_provider
 
-        oidc_client = OIDCClient(
-            issuer_url=config.oidc_issuer_url,
-            client_id=config.oidc_client_id,
-            client_secret=config.oidc_client_secret,
-        )
-        provider_profile = get_provider(config.oidc_provider_type)
+            oidc_client = OIDCClient(
+                issuer_url=config.oidc_issuer_url,
+                client_id=config.oidc_client_id,
+                client_secret=config.oidc_client_secret,
+            )
+            provider_profile = get_provider(config.oidc_provider_type)
 
         app.add_middleware(
             AuthMiddleware,
@@ -615,6 +626,7 @@ def create_app() -> FastAPI:
             permissions_claim=config.oidc_permissions_claim,
             oidc_client=oidc_client,
             provider_profile=provider_profile,
+            local_jwt_secret=config.effective_jwt_secret,
         )
 
     # Routers
