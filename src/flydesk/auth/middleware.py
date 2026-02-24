@@ -37,7 +37,7 @@ PUBLIC_PATH_PREFIXES = (
     "/api/auth/callback",
     "/api/auth/logout",
     "/api/auth/login",
-    "/api/setup/create-admin",
+    "/api/setup/",
 )
 
 
