@@ -24,6 +24,7 @@
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -456,23 +457,24 @@
 
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Description <span class="text-danger">*</span></span>
-						<textarea
-							bind:value={formData.description}
-							rows={3}
-							required
-							placeholder="Brief description of what this endpoint does"
-							class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-						></textarea>
+						<RichEditor
+							value={formData.description}
+							placeholder="Endpoint description..."
+							mode="compact"
+							minHeight="80px"
+							onchange={(md) => (formData.description = md)}
+						/>
 					</label>
 
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">When to Use (Agent Guidance)</span>
-						<textarea
-							bind:value={formData.when_to_use}
-							rows={2}
-							placeholder="Describe when the agent should invoke this endpoint"
-							class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-						></textarea>
+						<RichEditor
+							value={formData.when_to_use}
+							placeholder="When to use this endpoint..."
+							mode="compact"
+							minHeight="60px"
+							onchange={(md) => (formData.when_to_use = md)}
+						/>
 						<span class="text-xs text-text-secondary">
 							Natural language guidance for the AI agent on when to use this endpoint.
 						</span>

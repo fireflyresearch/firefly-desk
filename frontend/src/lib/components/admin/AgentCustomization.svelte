@@ -22,6 +22,7 @@
 		Eye
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import {
 		agentSettings,
 		loadAgentSettings,
@@ -338,12 +339,13 @@
 					<div class="flex flex-col gap-4">
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Personality Description</span>
-							<textarea
-								bind:value={form.personality}
-								rows={2}
-								placeholder="warm, professional, knowledgeable"
-								class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
-							></textarea>
+							<RichEditor
+								value={form.personality}
+								placeholder="Agent personality..."
+								mode="compact"
+								minHeight="60px"
+								onchange={(md) => (form.personality = md)}
+							/>
 							<span class="text-xs text-text-secondary">
 								Brief keywords or description of the agent personality
 							</span>
@@ -376,12 +378,13 @@
 						<!-- Greeting -->
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Greeting Message</span>
-							<textarea
-								bind:value={form.greeting}
-								rows={2}
-								placeholder="Hello! I'm {name}, your intelligent assistant."
-								class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
-							></textarea>
+							<RichEditor
+								value={form.greeting}
+								placeholder="Greeting message..."
+								mode="compact"
+								minHeight="60px"
+								onchange={(md) => (form.greeting = md)}
+							/>
 							<span class="text-xs text-text-secondary">
 								Use <code class="rounded bg-surface-secondary px-1 py-0.5 text-xs">{'{name}'}</code> as
 								a placeholder for the display name
@@ -470,12 +473,13 @@
 					<p class="mb-3 text-xs text-text-secondary">
 						Advanced free-form instructions appended to the system prompt. For power users.
 					</p>
-					<textarea
-						bind:value={form.custom_instructions}
-						rows={6}
-						placeholder="Enter custom system instructions..."
-						class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none transition-colors focus:border-accent"
-					></textarea>
+					<RichEditor
+						value={form.custom_instructions}
+						placeholder="Custom instructions..."
+						mode="full"
+						minHeight="200px"
+						onchange={(md) => (form.custom_instructions = md)}
+					/>
 				</section>
 			</div>
 
