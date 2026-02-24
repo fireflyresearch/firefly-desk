@@ -18,6 +18,7 @@
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import SystemWizard from './SystemWizard.svelte';
+	import EndpointWizard from './EndpointWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -26,9 +27,12 @@
 	interface Endpoint {
 		id: string;
 		system_id: string;
+		name: string;
 		method: string;
 		path: string;
 		description: string;
+		risk_level?: string;
+		protocol_type?: string;
 	}
 
 	interface System {
@@ -71,10 +75,15 @@
 	let expandedIds = $state<Set<string>>(new Set());
 	let endpointCache = $state<Record<string, Endpoint[]>>({});
 
-	// Wizard state
+	// System Wizard state
 	let showForm = $state(false);
 	let saving = $state(false);
 	let editingSystemFull = $state<SystemFull | null>(null);
+
+	// Endpoint Wizard state
+	let showEndpointWizard = $state(false);
+	let endpointWizardSystemId = $state('');
+	let editingEndpoint = $state<any | null>(null);
 
 	// -----------------------------------------------------------------------
 	// Data loading
@@ -159,6 +168,48 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// Endpoint actions
+	// -----------------------------------------------------------------------
+
+	function openAddEndpoint(systemId: string) {
+		endpointWizardSystemId = systemId;
+		editingEndpoint = null;
+		showEndpointWizard = true;
+	}
+
+	async function openEditEndpoint(endpoint: Endpoint) {
+		endpointWizardSystemId = endpoint.system_id;
+		editingEndpoint = endpoint;
+		showEndpointWizard = true;
+	}
+
+	function closeEndpointWizard() {
+		showEndpointWizard = false;
+		editingEndpoint = null;
+	}
+
+	async function onEndpointSaved() {
+		showEndpointWizard = false;
+		editingEndpoint = null;
+		// Clear endpoint cache to force reload
+		endpointCache = {};
+		await loadSystems();
+	}
+
+	async function deleteEndpoint(endpointId: string, systemId: string) {
+		error = '';
+		try {
+			await apiJson(`/catalog/endpoints/${endpointId}`, { method: 'DELETE' });
+			// Invalidate cache for this system
+			delete endpointCache[systemId];
+			endpointCache = { ...endpointCache };
+			await loadEndpoints(systemId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to delete endpoint';
+		}
+	}
+
+	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
 
@@ -237,6 +288,16 @@
 			editingSystem={editingSystemFull}
 			onClose={closeWizard}
 			onSaved={onWizardSaved}
+		/>
+	{/if}
+
+	<!-- Endpoint Wizard modal -->
+	{#if showEndpointWizard}
+		<EndpointWizard
+			systemId={endpointWizardSystemId}
+			editingEndpoint={editingEndpoint}
+			onClose={closeEndpointWizard}
+			onSaved={onEndpointSaved}
 		/>
 	{/if}
 
@@ -365,6 +426,9 @@
 														<th class="px-3 py-1.5 font-medium text-text-secondary">
 															Description
 														</th>
+														<th class="px-3 py-1.5 font-medium text-text-secondary">
+															Actions
+														</th>
 													</tr>
 												</thead>
 												<tbody>
@@ -374,6 +438,11 @@
 																<span class="rounded px-1.5 py-0.5 font-mono font-medium {methodVariant(ep.method)}">
 																	{ep.method}
 																</span>
+																{#if ep.protocol_type && ep.protocol_type !== 'rest'}
+																	<span class="ml-1 rounded bg-surface-secondary px-1 py-0.5 text-[10px] font-medium uppercase text-text-secondary">
+																		{ep.protocol_type}
+																	</span>
+																{/if}
 															</td>
 															<td class="px-3 py-1.5 font-mono text-text-primary">
 																{ep.path}
@@ -381,14 +450,55 @@
 															<td class="px-3 py-1.5 text-text-secondary">
 																{ep.description}
 															</td>
+															<td class="px-3 py-1.5">
+																<div class="flex items-center gap-1">
+																	<button
+																		type="button"
+																		onclick={() => openEditEndpoint(ep)}
+																		class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+																		title="Edit endpoint"
+																	>
+																		<Pencil size={12} />
+																	</button>
+																	<button
+																		type="button"
+																		onclick={() => deleteEndpoint(ep.id, system.id)}
+																		class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+																		title="Delete endpoint"
+																	>
+																		<Trash2 size={12} />
+																	</button>
+																</div>
+															</td>
 														</tr>
 													{/each}
 												</tbody>
 											</table>
+
+											<div class="mt-2">
+												<button
+													type="button"
+													onclick={() => openAddEndpoint(system.id)}
+													class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+												>
+													<Plus size={12} />
+													Add Endpoint
+												</button>
+											</div>
 										{:else}
 											<p class="text-xs text-text-secondary">
 												No endpoints configured for this system.
 											</p>
+											<div class="mt-2">
+												<button
+													type="button"
+													onclick={() => openAddEndpoint(system.id)}
+													class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+												>
+													<Plus size={12} />
+													Add Endpoint
+												</button>
+											</div>
 										{/if}
 									</td>
 								</tr>
