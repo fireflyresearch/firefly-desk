@@ -180,6 +180,7 @@ class LLMTestRequest(BaseModel):
     provider_type: str
     api_key: str | None = None
     base_url: str | None = None
+    model_id: str | None = None
 
 
 class LLMTestResult(BaseModel):
@@ -304,6 +305,17 @@ async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
 
     checker = LLMHealthChecker()
     status = await checker.check(transient)
+
+    # Validate model ID if provided and the provider is reachable
+    if status.reachable and body.model_id:
+        model_id = body.model_id.strip()
+        models = await checker.list_models(transient)
+        if models and model_id not in models:
+            return LLMTestResult(
+                reachable=True,
+                latency_ms=status.latency_ms,
+                error=f"Provider is reachable but model '{model_id}' not found. Available: {', '.join(models[:10])}",
+            )
 
     error = status.error
     if error:
