@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import time
 from typing import Any
 
@@ -31,9 +33,32 @@ VALID_CLAIMS: dict[str, Any] = {
 }
 
 
+def _b64url(data: bytes) -> str:
+    """Base64url-encode without padding (per JWT spec)."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _make_fake_jwt(name: str) -> str:
+    """Build a fake JWT with RS256+kid header so the middleware routes it to token_decoder.
+
+    The ``name`` is embedded in the payload so the mock decoder can identify it.
+    The token has a valid JWT structure (three dot-separated base64url segments)
+    but the signature is fake -- the mock decoder never verifies it.
+    """
+    header = json.dumps({"alg": "RS256", "typ": "JWT", "kid": "test-key"}).encode()
+    payload = json.dumps({"_test_name": name}).encode()
+    return f"{_b64url(header)}.{_b64url(payload)}.fake-sig"
+
+
+# Pre-built fake JWTs for the mock decoder
+GOOD_TOKEN = _make_fake_jwt("good-token")
+BAD_TOKEN = _make_fake_jwt("bad-token")
+NESTED_TOKEN = _make_fake_jwt("nested-token")
+
+
 def _mock_decoder(token: str) -> dict[str, Any]:
-    """Return valid claims for 'good-token', raise for anything else."""
-    if token == "good-token":
+    """Return valid claims for the good token, raise for anything else."""
+    if token == GOOD_TOKEN:
         return VALID_CLAIMS
     raise ValueError("bad token")
 
@@ -114,7 +139,7 @@ class TestAuthMiddleware:
         """A request with a bad token returns 401."""
         response = await client.get(
             "/api/protected",
-            headers={"Authorization": "Bearer bad-token"},
+            headers={"Authorization": f"Bearer {BAD_TOKEN}"},
         )
         assert response.status_code == 401
         assert "Invalid or expired" in response.json()["detail"]
@@ -123,7 +148,7 @@ class TestAuthMiddleware:
         """A valid token produces a UserSession available on request.state."""
         response = await client.get(
             "/api/protected",
-            headers={"Authorization": "Bearer good-token"},
+            headers={"Authorization": f"Bearer {GOOD_TOKEN}"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -136,7 +161,7 @@ class TestAuthMiddleware:
         """Roles are pulled from the configurable claim key."""
         response = await client.get(
             "/api/protected",
-            headers={"Authorization": "Bearer good-token"},
+            headers={"Authorization": f"Bearer {GOOD_TOKEN}"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -154,7 +179,7 @@ class TestAuthMiddleware:
         }
 
         def nested_decoder(token: str) -> dict[str, Any]:
-            if token == "nested-token":
+            if token == NESTED_TOKEN:
                 return nested_claims
             raise ValueError("bad token")
 
@@ -176,7 +201,7 @@ class TestAuthMiddleware:
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get(
                 "/api/protected",
-                headers={"Authorization": "Bearer nested-token"},
+                headers={"Authorization": f"Bearer {NESTED_TOKEN}"},
             )
 
         assert response.status_code == 200
