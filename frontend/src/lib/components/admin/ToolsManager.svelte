@@ -29,6 +29,7 @@
 		XCircle
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import CodeEditor from '$lib/components/shared/CodeEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -620,25 +621,26 @@
 					</label>
 				</div>
 
-				<label class="flex flex-col gap-1">
+				<div class="flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">Python Code</span>
-					<textarea
-						bind:value={newPythonCode}
-						rows={10}
-						placeholder="async def run(params: dict) -> dict:&#10;    # Your tool logic here&#10;    return {'{'}result{'}'}"
-						class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-					></textarea>
-				</label>
+					<CodeEditor
+						value={newPythonCode}
+						language="python"
+						placeholder={"async def run(params: dict) -> dict:\n    # Your tool logic here\n    return {\"result\"}"}
+						onchange={(v) => (newPythonCode = v)}
+					/>
+				</div>
 
-				<label class="flex flex-col gap-1">
+				<div class="flex flex-col gap-1">
 					<span class="text-xs font-medium text-text-secondary">Parameters (JSON Schema)</span>
-					<textarea
-						bind:value={newParameters}
-						rows={4}
+					<CodeEditor
+						value={newParameters}
+						language="json"
 						placeholder={'{"type": "object", "properties": {}}'}
-						class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-					></textarea>
-				</label>
+						minHeight="120px"
+						onchange={(v) => (newParameters = v)}
+					/>
+				</div>
 
 				<div class="flex justify-end gap-2 pt-1">
 					<button
@@ -905,12 +907,13 @@
 															Test Tool (Preview Mode)
 														</h4>
 														<div class="flex flex-col gap-2">
-															<textarea
-																bind:value={catalogTestInput}
-																rows={4}
+															<CodeEditor
+																value={catalogTestInput}
+																language="json"
 																placeholder={'{"param_name": "value"}'}
-																class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-															></textarea>
+																minHeight="120px"
+																onchange={(v) => (catalogTestInput = v)}
+															/>
 															<div class="flex items-center gap-2">
 																<button
 																	type="button"
@@ -1015,27 +1018,28 @@
 													</label>
 												</div>
 
-												<label class="flex flex-col gap-1">
+												<div class="flex flex-col gap-1">
 													<span class="text-xs font-medium text-text-secondary">
 														Python Code
 													</span>
-													<textarea
-														bind:value={editPythonCode}
-														rows={10}
-														class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-													></textarea>
-												</label>
+													<CodeEditor
+														value={editPythonCode}
+														language="python"
+														onchange={(v) => (editPythonCode = v)}
+													/>
+												</div>
 
-												<label class="flex flex-col gap-1">
+												<div class="flex flex-col gap-1">
 													<span class="text-xs font-medium text-text-secondary">
 														Parameters (JSON)
 													</span>
-													<textarea
-														bind:value={editParameters}
-														rows={4}
-														class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-													></textarea>
-												</label>
+													<CodeEditor
+														value={editParameters}
+														language="json"
+														minHeight="120px"
+														onchange={(v) => (editParameters = v)}
+													/>
+												</div>
 
 												<!-- Active toggle -->
 												<div class="flex items-center gap-3">
@@ -1118,12 +1122,13 @@
 														Test Tool
 													</h4>
 													<div class="flex flex-col gap-2">
-														<textarea
-															bind:value={customTestInput}
-															rows={4}
+														<CodeEditor
+															value={customTestInput}
+															language="json"
 															placeholder={'{"param_name": "value"}'}
-															class="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
-														></textarea>
+															minHeight="120px"
+															onchange={(v) => (customTestInput = v)}
+														/>
 														<div class="flex items-center gap-2">
 															<button
 																type="button"
@@ -1229,11 +1234,11 @@
 														<h4 class="mb-1 text-xs font-medium text-text-secondary">
 															Source Code
 														</h4>
-														<div class="rounded-md border border-border bg-surface-secondary p-3">
-															<pre
-																class="whitespace-pre-wrap font-mono text-xs text-text-primary"
-															>{tool.python_code}</pre>
-														</div>
+														<CodeEditor
+															value={tool.python_code}
+															language="python"
+															readonly={true}
+														/>
 													</div>
 												{/if}
 
@@ -1242,11 +1247,12 @@
 														<h4 class="mb-1 text-xs font-medium text-text-secondary">
 															Parameters
 														</h4>
-														<div class="rounded-md border border-border bg-surface-secondary p-3">
-															<pre
-																class="whitespace-pre-wrap font-mono text-xs text-text-primary"
-															>{JSON.stringify(tool.parameters, null, 2)}</pre>
-														</div>
+														<CodeEditor
+															value={JSON.stringify(tool.parameters, null, 2)}
+															language="json"
+															readonly={true}
+															minHeight="120px"
+														/>
 													</div>
 												{/if}
 
