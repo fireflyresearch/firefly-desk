@@ -28,7 +28,7 @@
 
 	interface AuthConfig {
 		auth_type: string;
-		credential_id: string;
+		credential_id?: string;
 		token_url?: string | null;
 		scopes?: string[] | null;
 		auth_headers?: Record<string, string> | null;
@@ -76,6 +76,7 @@
 	const STEPS = ['Basics', 'Authentication', 'Agent Access', 'Review & Create'] as const;
 
 	const AUTH_TYPES = [
+		{ value: 'none', label: 'No Authentication' },
 		{ value: 'oauth2', label: 'OAuth 2.0' },
 		{ value: 'api_key', label: 'API Key' },
 		{ value: 'basic', label: 'Basic Auth' },
@@ -110,7 +111,7 @@
 	let healthCheckPath = $state(_init?.health_check_path ?? '');
 
 	// Step 2: Authentication
-	let authType = $state(_init?.auth_config?.auth_type ?? 'api_key');
+	let authType = $state(_init?.auth_config?.auth_type ?? 'none');
 	let credentialId = $state(_init?.auth_config?.credential_id ?? '');
 	let tokenUrl = $state(_init?.auth_config?.token_url ?? '');
 	let scopes = $state(_init?.auth_config?.scopes?.join(', ') ?? '');
@@ -127,7 +128,7 @@
 	// -----------------------------------------------------------------------
 
 	const step1Valid = $derived(name.trim() !== '' && description.trim() !== '' && baseUrl.trim() !== '');
-	const step2Valid = $derived(authType !== '' && credentialId.trim() !== '');
+	const step2Valid = $derived(authType === 'none' || (authType !== '' && credentialId.trim() !== ''));
 
 	function isStepValid(step: number): boolean {
 		switch (step) {
@@ -192,17 +193,23 @@
 	// -----------------------------------------------------------------------
 
 	function buildPayload(): SystemPayload {
-		const authConfig: AuthConfig = {
-			auth_type: authType,
-			credential_id: credentialId.trim()
-		};
+		let authConfig: AuthConfig;
 
-		if (authType === 'oauth2') {
-			authConfig.token_url = tokenUrl.trim() || null;
-			authConfig.scopes = scopes
-				.split(',')
-				.map((s) => s.trim())
-				.filter(Boolean);
+		if (authType === 'none') {
+			authConfig = { auth_type: 'none' };
+		} else {
+			authConfig = {
+				auth_type: authType,
+				credential_id: credentialId.trim()
+			};
+
+			if (authType === 'oauth2') {
+				authConfig.token_url = tokenUrl.trim() || null;
+				authConfig.scopes = scopes
+					.split(',')
+					.map((s) => s.trim())
+					.filter(Boolean);
+			}
 		}
 
 		return {
@@ -438,64 +445,72 @@
 						</select>
 					</label>
 
-					<!-- Dynamic fields for OAuth2 -->
-					{#if authType === 'oauth2'}
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-text-secondary">Token URL</span>
-							<input
-								type="url"
-								bind:value={tokenUrl}
-								placeholder="https://auth.example.com/oauth/token"
-								class="rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent"
-							/>
-						</label>
+					{#if authType === 'none'}
+						<div class="rounded-lg border border-border/50 bg-surface-hover/30 p-4">
+							<p class="text-sm text-text-secondary">
+								This system does not require authentication. API calls will be made without credentials.
+							</p>
+						</div>
+					{:else}
+						<!-- Dynamic fields for OAuth2 -->
+						{#if authType === 'oauth2'}
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-medium text-text-secondary">Token URL</span>
+								<input
+									type="url"
+									bind:value={tokenUrl}
+									placeholder="https://auth.example.com/oauth/token"
+									class="rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent"
+								/>
+							</label>
+
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-medium text-text-secondary">Scopes (comma-separated)</span>
+								<input
+									type="text"
+									bind:value={scopes}
+									placeholder="e.g. read, write, admin"
+									class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+								/>
+							</label>
+						{/if}
 
 						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-text-secondary">Scopes (comma-separated)</span>
-							<input
-								type="text"
-								bind:value={scopes}
-								placeholder="e.g. read, write, admin"
-								class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-							/>
+							<span class="text-xs font-medium text-text-secondary">Credential <span class="text-danger">*</span></span>
+							{#if credentials.length > 0}
+								<select
+									bind:value={credentialId}
+									class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+								>
+									<option value="" disabled>Select a credential...</option>
+									{#each credentials as cred}
+										<option value={cred.id}>{cred.name} ({cred.credential_type})</option>
+									{/each}
+								</select>
+							{:else}
+								<input
+									type="text"
+									bind:value={credentialId}
+									required
+									placeholder="Credential ID"
+									class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+								/>
+							{/if}
+							<span class="text-xs text-text-secondary">
+								{#if authType === 'oauth2'}
+									OAuth2 client credentials stored in the Credential Vault.
+								{:else if authType === 'api_key'}
+									API key and header configuration stored in the Credential Vault.
+								{:else if authType === 'basic'}
+									Basic auth username/password stored in the Credential Vault.
+								{:else if authType === 'bearer'}
+									Bearer token stored in the Credential Vault.
+								{:else if authType === 'mutual_tls'}
+									TLS certificate and key stored in the Credential Vault.
+								{/if}
+							</span>
 						</label>
 					{/if}
-
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-text-secondary">Credential <span class="text-danger">*</span></span>
-						{#if credentials.length > 0}
-							<select
-								bind:value={credentialId}
-								class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-							>
-								<option value="" disabled>Select a credential...</option>
-								{#each credentials as cred}
-									<option value={cred.id}>{cred.name} ({cred.credential_type})</option>
-								{/each}
-							</select>
-						{:else}
-							<input
-								type="text"
-								bind:value={credentialId}
-								required
-								placeholder="Credential ID"
-								class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-							/>
-						{/if}
-						<span class="text-xs text-text-secondary">
-							{#if authType === 'oauth2'}
-								OAuth2 client credentials stored in the Credential Vault.
-							{:else if authType === 'api_key'}
-								API key and header configuration stored in the Credential Vault.
-							{:else if authType === 'basic'}
-								Basic auth username/password stored in the Credential Vault.
-							{:else if authType === 'bearer'}
-								Bearer token stored in the Credential Vault.
-							{:else if authType === 'mutual_tls'}
-								TLS certificate and key stored in the Credential Vault.
-							{/if}
-						</span>
-					</label>
 				</div>
 
 			<!-- Step 3: Agent Access -->
@@ -599,15 +614,20 @@
 								<div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
 									<span class="text-text-secondary">Auth Type:</span>
 									<span class="text-text-primary">{authTypeLabel(authType)}</span>
-									<span class="text-text-secondary">Credential:</span>
-									<span class="font-mono text-xs text-text-primary">{credentialId}</span>
-									{#if authType === 'oauth2' && tokenUrl}
-										<span class="text-text-secondary">Token URL:</span>
-										<span class="font-mono text-xs text-text-primary">{tokenUrl}</span>
-									{/if}
-									{#if authType === 'oauth2' && scopes.trim()}
-										<span class="text-text-secondary">Scopes:</span>
-										<span class="text-text-primary">{scopes}</span>
+									{#if authType === 'none'}
+										<span class="text-text-secondary">Credentials:</span>
+										<span class="text-xs text-text-secondary italic">None required</span>
+									{:else}
+										<span class="text-text-secondary">Credential:</span>
+										<span class="font-mono text-xs text-text-primary">{credentialId}</span>
+										{#if authType === 'oauth2' && tokenUrl}
+											<span class="text-text-secondary">Token URL:</span>
+											<span class="font-mono text-xs text-text-primary">{tokenUrl}</span>
+										{/if}
+										{#if authType === 'oauth2' && scopes.trim()}
+											<span class="text-text-secondary">Scopes:</span>
+											<span class="text-text-primary">{scopes}</span>
+										{/if}
 									{/if}
 								</div>
 							</div>
