@@ -1,8 +1,8 @@
 <!--
   KnowledgeAddDocument.svelte - Multi-method document ingestion form.
 
-  Provides four sub-tabs for adding documents to the knowledge base:
-  Text input, File upload, URL import, and OpenAPI import.
+  Provides five sub-tabs for adding documents to the knowledge base:
+  Text input, File upload, URL import, OpenAPI import, and GitHub import.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -13,6 +13,7 @@
 		Upload,
 		Globe,
 		Code2,
+		Github,
 		Loader2,
 		Save,
 		X,
@@ -20,6 +21,7 @@
 		AlertCircle
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch, getToken } from '$lib/services/api.js';
+	import KnowledgeGitHubImporter from './KnowledgeGitHubImporter.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -35,7 +37,7 @@
 	// Types
 	// -----------------------------------------------------------------------
 
-	type SubTab = 'text' | 'file' | 'url' | 'openapi';
+	type SubTab = 'text' | 'file' | 'url' | 'openapi' | 'github';
 
 	interface DocumentType {
 		value: string;
@@ -107,7 +109,8 @@
 		{ id: 'text', label: 'Text', icon: FileText },
 		{ id: 'file', label: 'File Upload', icon: Upload },
 		{ id: 'url', label: 'URL Import', icon: Globe },
-		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 }
+		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 },
+		{ id: 'github', label: 'GitHub Import', icon: Github }
 	];
 
 	// -----------------------------------------------------------------------
@@ -707,5 +710,16 @@
 				</button>
 			</div>
 		</form>
+
+	<!-- ================================================================= -->
+	<!-- GitHub Import Tab                                                  -->
+	<!-- ================================================================= -->
+	{:else if activeSubTab === 'github'}
+		<KnowledgeGitHubImporter
+			onsuccess={() => {
+				success = 'Files imported successfully.';
+				onDocumentAdded?.();
+			}}
+		/>
 	{/if}
 </div>
