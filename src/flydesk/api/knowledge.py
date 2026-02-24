@@ -452,6 +452,38 @@ async def create_entity(body: EntityCreate, graph: Graph) -> EntityResponse:
     return EntityResponse(**asdict(entity))
 
 
+class EntityUpdate(BaseModel):
+    """Request body for updating a graph entity."""
+
+    entity_type: str | None = None
+    name: str | None = None
+    properties: dict[str, Any] | None = None
+    source_system: str | None = None
+    confidence: float | None = None
+
+
+@router.patch("/graph/entities/{entity_id}", dependencies=[KnowledgeWrite])
+async def update_entity(entity_id: str, body: EntityUpdate, graph: Graph) -> EntityResponse:
+    """Update a knowledge graph entity."""
+    existing = await graph.get_entity(entity_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=404, detail=f"Entity {entity_id} not found"
+        )
+    if body.entity_type is not None:
+        existing.entity_type = body.entity_type
+    if body.name is not None:
+        existing.name = body.name
+    if body.properties is not None:
+        existing.properties = body.properties
+    if body.source_system is not None:
+        existing.source_system = body.source_system
+    if body.confidence is not None:
+        existing.confidence = body.confidence
+    await graph.upsert_entity(existing)
+    return EntityResponse(**asdict(existing))
+
+
 @router.delete(
     "/graph/entities/{entity_id}", status_code=204, dependencies=[KnowledgeDelete]
 )

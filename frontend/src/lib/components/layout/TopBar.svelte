@@ -14,10 +14,8 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import Logo from '$lib/components/layout/Logo.svelte';
-	import EmberAvatar from '$lib/components/chat/EmberAvatar.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
-	import { agentSettings, loadAgentSettings } from '$lib/stores/agent.js';
 
 	interface TopBarProps {
 		title?: string;
@@ -32,11 +30,6 @@
 		onToggleSidebar,
 		sidebarOpen = true
 	}: TopBarProps = $props();
-
-	// Fetch agent settings on mount so the header reflects the configured identity.
-	$effect(() => {
-		loadAgentSettings();
-	});
 
 	let dropdownOpen = $state(false);
 
@@ -112,24 +105,6 @@
 			</button>
 		{/if}
 		<Logo class="h-7 text-text-primary" />
-
-		<!-- Agent identity badge -->
-		{#if $agentSettings.display_name}
-			<div class="flex items-center gap-1.5 rounded-md bg-surface-secondary/60 px-2 py-1">
-				<div class="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full">
-					{#if $agentSettings.avatar_url}
-						<img
-							src={$agentSettings.avatar_url}
-							alt={$agentSettings.display_name}
-							class="h-5 w-5 rounded-full object-cover"
-						/>
-					{:else}
-						<EmberAvatar size={14} />
-					{/if}
-				</div>
-				<span class="text-xs font-medium text-text-secondary">{$agentSettings.display_name}</span>
-			</div>
-		{/if}
 	</div>
 
 	<!-- Spacer -->

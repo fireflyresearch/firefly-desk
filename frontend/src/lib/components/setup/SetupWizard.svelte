@@ -135,7 +135,7 @@
 				class="hidden w-56 shrink-0 border-r border-border bg-surface-secondary p-6 sm:block"
 				aria-label="Setup progress"
 			>
-				<Logo class="h-5 mb-4" />
+				<Logo class="h-8 mb-4" />
 				<h2 class="mb-6 text-xs font-semibold tracking-wider text-text-secondary uppercase">
 					Setup
 				</h2>
@@ -210,7 +210,8 @@
 		</div>
 
 		<footer class="border-t border-border px-6 py-3 text-center text-xs text-text-secondary">
-			&copy; 2026 Firefly Software Solutions Inc.
+			&copy; 2026 Firefly Software Solutions Inc. &mdash; Licensed under the
+			<a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener" class="underline hover:text-text-primary">Apache License 2.0</a>
 		</footer>
 	</div>
 </div>

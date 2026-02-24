@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from flydesk.knowledge.indexer import KnowledgeIndexer
     from flydesk.skills.repository import SkillRepository
 
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

@@ -53,14 +53,6 @@
 	];
 
 	let currentPath = $derived($page.url.pathname);
-
-	let currentPageLabel = $derived(
-		navItems.find((item) =>
-			item.exact
-				? currentPath === item.href
-				: currentPath.startsWith(item.href) && item.href !== '/admin'
-		)?.label ?? ''
-	);
 </script>
 
 {#if $isAdmin}
@@ -68,16 +60,7 @@
 		<!-- Sidebar -->
 		<nav class="flex w-56 shrink-0 flex-col border-r border-border/50 bg-surface-secondary">
 			<div class="border-b border-border/50 px-4 py-3">
-				<nav class="flex items-center gap-1.5 text-xs text-text-secondary" aria-label="Breadcrumb">
-					<a href="/" class="transition-colors hover:text-text-primary">Chat</a>
-					<span class="text-text-secondary/40">›</span>
-					<span class="font-medium text-text-primary">Admin</span>
-					{#if currentPageLabel}
-						<span class="text-text-secondary/40">›</span>
-						<span class="text-text-secondary">{currentPageLabel}</span>
-					{/if}
-				</nav>
-				<h2 class="mt-1 text-sm font-semibold text-text-primary">Administration</h2>
+				<h2 class="text-sm font-semibold text-text-primary">Administration</h2>
 			</div>
 
 			<ul class="flex flex-col gap-0.5 p-2">
