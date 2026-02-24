@@ -2,15 +2,16 @@
   SampleDataStep.svelte -- Optionally seed demo data for the instance.
 
   Offers checkboxes for different data categories: Systems & APIs,
-  Knowledge Base docs, Skills (coming soon), and Knowledge Graph entities
-  (coming soon). Shows a progress bar during seeding.
+  Knowledge Base docs, Skills, Knowledge Graph entities, and Business
+  Processes. Shows a real-time progress bar via SSE during seeding.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { ArrowLeft, ArrowRight, CheckCircle, Loader2, Lock } from 'lucide-svelte';
+	import { ArrowLeft, ArrowRight, CheckCircle, Loader2 } from 'lucide-svelte';
 	import { apiFetch } from '$lib/services/api.js';
+	import { parseSSEStream } from '$lib/services/sse.js';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -32,44 +33,38 @@
 		label: string;
 		description: string;
 		defaultOn: boolean;
-		disabled: boolean;
-		comingSoon: boolean;
 	}
 
 	const categories: SeedCategory[] = [
 		{
 			id: 'systems',
 			label: 'Systems & APIs',
-			description:
-				'Banking systems with 5 systems, 16 API endpoints, and integration metadata.',
-			defaultOn: true,
-			disabled: false,
-			comingSoon: false
+			description: '5 banking systems, 16 API endpoints, and integration metadata.',
+			defaultOn: true
 		},
 		{
 			id: 'knowledge',
 			label: 'Knowledge Base',
-			description:
-				'5 knowledge documents covering banking policies, procedures, and FAQs.',
-			defaultOn: true,
-			disabled: false,
-			comingSoon: false
+			description: '5 knowledge documents covering banking policies, procedures, and FAQs.',
+			defaultOn: true
 		},
 		{
 			id: 'skills',
 			label: 'Skills',
 			description: 'Banking domain skills for automated task handling.',
-			defaultOn: false,
-			disabled: true,
-			comingSoon: true
+			defaultOn: true
 		},
 		{
 			id: 'knowledge_graph',
 			label: 'Knowledge Graph',
-			description: 'Entity and relationship data for semantic exploration.',
-			defaultOn: false,
-			disabled: true,
-			comingSoon: true
+			description: 'Entity and relationship data extracted via LLM analysis.',
+			defaultOn: true
+		},
+		{
+			id: 'processes',
+			label: 'Business Processes',
+			description: 'Auto-discovered business processes from catalog and knowledge.',
+			defaultOn: true
 		}
 	];
 
@@ -84,12 +79,13 @@
 	let seeded = $state(false);
 	let error = $state('');
 	let progress = $state(0);
+	let currentPhase = $state('');
+	let currentPhaseLabel = $state('');
+	let currentMessage = $state('');
+	let phaseErrors = $state<string[]>([]);
 
 	let anythingSelected = $derived(
-		Object.entries(selected).some(([id, on]) => {
-			const cat = categories.find((c) => c.id === id);
-			return on && cat && !cat.disabled;
-		})
+		Object.values(selected).some((on) => on)
 	);
 
 	// -----------------------------------------------------------------------
@@ -105,35 +101,68 @@
 		seeding = true;
 		error = '';
 		progress = 0;
+		currentPhase = '';
+		currentPhaseLabel = '';
+		currentMessage = '';
+		phaseErrors = [];
 
 		try {
-			// Seed banking catalog (systems + knowledge in one call)
-			if (selected.systems || selected.knowledge) {
-				progress = 20;
-				await apiFetch('/setup/seed', {
-					method: 'POST',
-					body: JSON.stringify({ domain: 'banking' })
-				});
-				progress = 70;
-			}
+			const response = await apiFetch('/setup/seed', {
+				method: 'POST',
+				body: JSON.stringify({
+					domain: 'banking',
+					include_systems: selected.systems ?? true,
+					include_knowledge: selected.knowledge ?? true,
+					include_skills: selected.skills ?? true,
+					include_kg: selected.knowledge_graph ?? true,
+					include_discovery: selected.processes ?? true
+				})
+			});
 
-			// Seed platform docs as a bonus
-			try {
-				await apiFetch('/setup/seed', {
-					method: 'POST',
-					body: JSON.stringify({ domain: 'platform-docs' })
-				});
-			} catch {
-				// Non-fatal: platform docs are a bonus
-			}
+			const contentType = response.headers.get('Content-Type') ?? '';
 
-			progress = 100;
-			seeded = true;
-			onNext({ sample_data: true });
+			if (contentType.includes('text/event-stream')) {
+				await parseSSEStream(
+					response,
+					(msg) => {
+						if (msg.event === 'seed_progress') {
+							currentPhase = (msg.data.phase as string) ?? '';
+							currentPhaseLabel = (msg.data.phase_label as string) ?? '';
+							currentMessage = (msg.data.message as string) ?? '';
+							progress = (msg.data.overall_progress as number) ?? 0;
+							if (msg.data.error) {
+								phaseErrors = [...phaseErrors, `${msg.data.phase_label}: ${msg.data.error}`];
+							}
+						} else if (msg.event === 'done') {
+							progress = 100;
+							seeded = true;
+						}
+					},
+					(err) => {
+						error = err.message;
+					},
+					() => {
+						seeding = false;
+						if (seeded) {
+							onNext({ sample_data: true });
+						}
+					}
+				);
+			} else {
+				// Fallback: non-streaming response (e.g. unseed or error)
+				const result = await response.json();
+				if (result.success) {
+					progress = 100;
+					seeded = true;
+					onNext({ sample_data: true });
+				} else {
+					error = result.message || 'Seeding failed.';
+				}
+				seeding = false;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to seed sample data.';
 			progress = 0;
-		} finally {
 			seeding = false;
 		}
 	}
@@ -149,35 +178,23 @@
 		{#each categories as category}
 			<label
 				class="flex cursor-pointer items-start gap-4 rounded-lg border px-5 py-4 transition-all
-					{category.disabled
-					? 'cursor-not-allowed border-border opacity-60'
-					: selected[category.id]
-						? 'border-ember bg-ember/5'
-						: 'border-border hover:border-text-secondary/40'}"
+					{selected[category.id]
+					? 'border-ember bg-ember/5'
+					: 'border-border hover:border-text-secondary/40'}"
 			>
 				<input
 					type="checkbox"
 					checked={selected[category.id]}
-					disabled={category.disabled || seeded}
+					disabled={seeded}
 					onchange={() => {
-						if (!category.disabled) {
-							selected = { ...selected, [category.id]: !selected[category.id] };
-						}
+						selected = { ...selected, [category.id]: !selected[category.id] };
 					}}
 					class="mt-0.5 accent-amber-500"
 				/>
 				<div class="flex-1">
 					<div class="flex items-center gap-2">
 						<span class="text-sm font-semibold text-text-primary">{category.label}</span>
-						{#if category.comingSoon}
-							<span
-								class="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] font-medium text-text-secondary"
-							>
-								<Lock size={10} />
-								Coming soon
-							</span>
-						{/if}
-						{#if seeded && selected[category.id] && !category.disabled}
+						{#if seeded && selected[category.id]}
 							<CheckCircle size={16} class="text-success" />
 						{/if}
 					</div>
@@ -192,14 +209,18 @@
 		<div class="mt-5">
 			<div class="mb-2 flex items-center gap-2 text-sm text-text-secondary">
 				<Loader2 size={16} class="animate-spin" />
-				<span>Seeding data...</span>
+				<span>{currentPhaseLabel || 'Preparing...'}</span>
 			</div>
+			{#if currentMessage}
+				<p class="mb-2 truncate text-xs text-text-secondary/70">{currentMessage}</p>
+			{/if}
 			<div class="h-2 w-full overflow-hidden rounded-full bg-surface-hover">
 				<div
 					class="h-full rounded-full bg-ember transition-all duration-500"
 					style="width: {progress}%"
 				></div>
 			</div>
+			<p class="mt-1 text-right text-xs text-text-secondary">{progress}%</p>
 		</div>
 	{/if}
 
@@ -209,6 +230,15 @@
 			class="mt-4 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger"
 		>
 			{error}
+		</div>
+	{/if}
+
+	<!-- Phase warnings -->
+	{#if phaseErrors.length > 0}
+		<div class="mt-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-warning">
+			{#each phaseErrors as warning}
+				<p>{warning}</p>
+			{/each}
 		</div>
 	{/if}
 
