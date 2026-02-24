@@ -17,6 +17,15 @@ class SystemStatus(StrEnum):
     DEGRADED = "degraded"
 
 
+VALID_TRANSITIONS: dict[SystemStatus, set[SystemStatus]] = {
+    SystemStatus.DRAFT: {SystemStatus.ACTIVE},
+    SystemStatus.ACTIVE: {SystemStatus.DISABLED, SystemStatus.DEPRECATED, SystemStatus.DEGRADED},
+    SystemStatus.DISABLED: {SystemStatus.ACTIVE, SystemStatus.DEPRECATED},
+    SystemStatus.DEPRECATED: set(),  # terminal state
+    SystemStatus.DEGRADED: {SystemStatus.ACTIVE, SystemStatus.DISABLED},
+}
+
+
 class AuthType(StrEnum):
     NONE = "none"
     OAUTH2 = "oauth2"

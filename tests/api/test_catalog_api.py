@@ -240,6 +240,79 @@ class TestDeleteSystem:
 
 
 # ---------------------------------------------------------------------------
+# Update System Status (state machine)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateSystemStatus:
+    """Tests for PUT /systems/{system_id}/status state machine endpoint."""
+
+    async def test_valid_transition_draft_to_active(self, admin_client, mock_repo):
+        system = _sample_system()
+        system.status = SystemStatus.DRAFT
+        mock_repo.get_system.return_value = system
+
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1/status", json={"status": "active"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "active"
+        assert data["id"] == "sys-1"
+        mock_repo.update_system.assert_awaited_once()
+
+    async def test_invalid_transition_draft_to_disabled(self, admin_client, mock_repo):
+        system = _sample_system()
+        system.status = SystemStatus.DRAFT
+        mock_repo.get_system.return_value = system
+
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1/status", json={"status": "disabled"}
+        )
+
+        assert response.status_code == 409
+        assert "cannot transition" in response.json()["detail"].lower()
+
+    async def test_terminal_state_deprecated_to_active(self, admin_client, mock_repo):
+        system = _sample_system()
+        system.status = SystemStatus.DEPRECATED
+        mock_repo.get_system.return_value = system
+
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1/status", json={"status": "active"}
+        )
+
+        assert response.status_code == 409
+        assert "terminal state" in response.json()["detail"].lower()
+
+    async def test_missing_system_returns_404(self, admin_client, mock_repo):
+        mock_repo.get_system.return_value = None
+
+        response = await admin_client.put(
+            "/api/catalog/systems/no-such/status", json={"status": "active"}
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    async def test_invalid_status_value_returns_400(self, admin_client, mock_repo):
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1/status", json={"status": "bogus"}
+        )
+
+        assert response.status_code == 400
+        assert "invalid status" in response.json()["detail"].lower()
+
+    async def test_missing_status_field_returns_422(self, admin_client, mock_repo):
+        response = await admin_client.put(
+            "/api/catalog/systems/sys-1/status", json={}
+        )
+
+        assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Endpoints CRUD
 # ---------------------------------------------------------------------------
 

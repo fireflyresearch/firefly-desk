@@ -13,20 +13,13 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 
-from flydesk.catalog.enums import SystemStatus
+from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
 from flydesk.triggers.auto_trigger import AutoTriggerService
-
-VALID_TRANSITIONS: dict[str, set[str]] = {
-    "draft": {"active"},
-    "active": {"disabled", "deprecated", "degraded"},
-    "disabled": {"active", "deprecated"},
-    "deprecated": set(),  # terminal state
-    "degraded": {"active", "disabled"},
-}
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -115,27 +108,32 @@ async def delete_system(system_id: str, repo: Repo) -> Response:
     return Response(status_code=204)
 
 
+class StatusTransitionRequest(BaseModel):
+    status: str
+
+
 @router.put("/systems/{system_id}/status", dependencies=[CatalogWrite])
-async def update_system_status(system_id: str, body: dict, repo: Repo) -> dict:
+async def update_system_status(
+    system_id: str, body: StatusTransitionRequest, repo: Repo
+) -> dict:
     """Transition a system's status according to the state machine."""
-    new_status = body.get("status")
-    if not new_status:
-        raise HTTPException(status_code=400, detail="status is required")
     try:
-        target = SystemStatus(new_status)
+        target = SystemStatus(body.status)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid status '{new_status}'")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid status '{body.status}'"
+        )
 
     system = await repo.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail="System not found")
 
-    current = system.status.value if hasattr(system.status, "value") else str(system.status)
+    current = system.status
     allowed = VALID_TRANSITIONS.get(current, set())
-    if target.value not in allowed:
+    if target not in allowed:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot transition from '{current}' to '{target.value}'. "
+            detail=f"Cannot transition from '{current}' to '{target}'. "
             f"Allowed: {', '.join(sorted(allowed)) or 'none (terminal state)'}",
         )
 
