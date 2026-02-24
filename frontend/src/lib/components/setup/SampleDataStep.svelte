@@ -2,7 +2,7 @@
   SampleDataStep.svelte -- Optionally seed demo data for the instance.
 
   Offers checkboxes for different data categories: Systems & APIs,
-  Knowledge Base docs, Skills, Knowledge Graph entities, and Business
+  Knowledge Base docs, Knowledge Graph entities, and Business
   Processes. Shows a real-time progress bar via SSE during seeding.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
@@ -46,12 +46,6 @@
 			id: 'knowledge',
 			label: 'Knowledge Base',
 			description: '5 knowledge documents covering banking policies, procedures, and FAQs.',
-			defaultOn: true
-		},
-		{
-			id: 'skills',
-			label: 'Skills',
-			description: 'Banking domain skills for automated task handling.',
 			defaultOn: true
 		},
 		{
@@ -113,7 +107,6 @@
 					domain: 'banking',
 					include_systems: selected.systems ?? true,
 					include_knowledge: selected.knowledge ?? true,
-					include_skills: selected.skills ?? true,
 					include_kg: selected.knowledge_graph ?? true,
 					include_discovery: selected.processes ?? true
 				})

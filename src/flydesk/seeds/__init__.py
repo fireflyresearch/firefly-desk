@@ -18,7 +18,6 @@ from flydesk.seeds.banking import (
     seed_banking_catalog,
     seed_banking_documents,
     seed_banking_endpoints,
-    seed_banking_skills,
     seed_banking_systems,
     unseed_banking_catalog,
 )
@@ -27,7 +26,6 @@ __all__ = [
     "seed_banking_catalog",
     "seed_banking_documents",
     "seed_banking_endpoints",
-    "seed_banking_skills",
     "seed_banking_systems",
     "unseed_banking_catalog",
 ]
