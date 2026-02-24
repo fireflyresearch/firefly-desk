@@ -14,13 +14,18 @@ allows seeding and configuring the instance from the web UI.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
+
+from flydesk.api.events import SSEEvent, SSEEventType
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -96,6 +101,11 @@ class SeedRequest(BaseModel):
 
     domain: str = "banking"
     remove: bool = False
+    include_systems: bool = True
+    include_knowledge: bool = True
+    include_skills: bool = True
+    include_kg: bool = True
+    include_discovery: bool = True
 
 
 class SeedResult(BaseModel):
@@ -721,22 +731,296 @@ async def check_first_run(request: Request) -> dict:
         return {"is_first_run": True}
 
 
+def _seed_event(
+    phase: str,
+    phase_label: str,
+    progress: int,
+    message: str,
+    overall_progress: int,
+    error: str | None = None,
+) -> str:
+    """Build a SEED_PROGRESS SSE event string."""
+    data: dict = {
+        "phase": phase,
+        "phase_label": phase_label,
+        "progress": progress,
+        "message": message,
+        "overall_progress": overall_progress,
+    }
+    if error:
+        data["error"] = error
+    return SSEEvent(event=SSEEventType.SEED_PROGRESS, data=data).to_sse()
+
+
+async def _run_with_progress_bridge(
+    coro_factory,
+    phase: str,
+    phase_label: str,
+    start_pct: int,
+    span_pct: int,
+) -> AsyncGenerator[str, None]:
+    """Run a coroutine that reports progress via callback, yielding SSE events.
+
+    *coro_factory* is an async callable accepting a single ``on_progress``
+    callback argument.  Progress events are bridged through an
+    :class:`asyncio.Queue` so that the generator can yield them as they
+    arrive.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    sentinel = object()
+
+    async def on_progress(pct: int, msg: str) -> None:
+        await queue.put((pct, msg))
+
+    async def runner():
+        try:
+            result = await coro_factory(on_progress)
+            await queue.put(sentinel)
+            return result
+        except Exception as exc:
+            await queue.put(exc)
+            return None
+
+    task = asyncio.create_task(runner())
+    while True:
+        item = await queue.get()
+        if item is sentinel:
+            break
+        if isinstance(item, Exception):
+            yield _seed_event(
+                phase, phase_label, 100,
+                f"Error: {item}", start_pct + span_pct, error=str(item),
+            )
+            break
+        pct, msg = item
+        overall = start_pct + int(pct / 100 * span_pct)
+        yield _seed_event(phase, phase_label, pct, msg, overall)
+    await task
+
+
+async def _stream_seed_banking(  # noqa: C901 – orchestration complexity
+    body: SeedRequest,
+    *,
+    session_factory,
+    indexer,
+    catalog_repo,
+    skill_repo,
+    knowledge_graph,
+    kg_extractor,
+    discovery_engine,
+) -> AsyncGenerator[str, None]:
+    """Async generator that orchestrates all seed phases and yields SSE events."""
+
+    completed_phases: list[str] = []
+    skipped_phases: list[str] = []
+    failed_phases: list[str] = []
+
+    # ------------------------------------------------------------------
+    # Phase 1 — Catalog (systems + endpoints)  0-10%
+    # ------------------------------------------------------------------
+    if body.include_systems:
+        yield _seed_event("catalog", "Seeding Systems & Endpoints", 0, "Starting catalog seed", 0)
+        try:
+            from flydesk.seeds.banking import seed_banking_endpoints, seed_banking_systems
+
+            sys_count = await seed_banking_systems(catalog_repo)
+            yield _seed_event("catalog", "Seeding Systems & Endpoints", 50,
+                              f"Seeded {sys_count} systems", 5)
+
+            ep_count = await seed_banking_endpoints(catalog_repo)
+            yield _seed_event("catalog", "Seeding Systems & Endpoints", 100,
+                              f"Seeded {ep_count} endpoints", 10)
+            completed_phases.append("catalog")
+        except Exception as exc:
+            logger.error("Catalog seed failed: %s", exc, exc_info=True)
+            yield _seed_event("catalog", "Seeding Systems & Endpoints", 100,
+                              f"Fatal error: {exc}", 10, error=str(exc))
+            failed_phases.append("catalog")
+            # Catalog is fatal — emit done and return
+            yield SSEEvent(event=SSEEventType.DONE, data={
+                "phases_completed": completed_phases,
+                "phases_skipped": skipped_phases,
+                "phases_failed": failed_phases,
+            }).to_sse()
+            return
+    else:
+        skipped_phases.append("catalog")
+        yield _seed_event("catalog", "Seeding Systems & Endpoints", 100, "Skipped", 10)
+
+    # ------------------------------------------------------------------
+    # Phase 2 — Knowledge documents  10-40%
+    # ------------------------------------------------------------------
+    if body.include_knowledge:
+        yield _seed_event("indexing", "Indexing Knowledge Documents", 0,
+                          "Starting document indexing", 10)
+        try:
+            from flydesk.seeds.banking import KNOWLEDGE_DOCUMENTS
+
+            total_docs = len(KNOWLEDGE_DOCUMENTS)
+            doc_count = 0
+
+            for idx, document in enumerate(KNOWLEDGE_DOCUMENTS):
+                try:
+                    await indexer.index_document(document)
+                    doc_count += 1
+                except Exception as doc_exc:
+                    logger.warning("Failed to index document %s: %s",
+                                   document.title, doc_exc)
+                pct = int((idx + 1) / total_docs * 100) if total_docs else 100
+                overall = 10 + int(pct / 100 * 30)
+                yield _seed_event("indexing", "Indexing Knowledge Documents", pct,
+                                  f"Indexed {idx + 1}/{total_docs}: {document.title}",
+                                  overall)
+
+            yield _seed_event("indexing", "Indexing Knowledge Documents", 100,
+                              f"Indexed {doc_count} documents", 40)
+            completed_phases.append("indexing")
+        except Exception as exc:
+            logger.error("Document indexing failed: %s", exc, exc_info=True)
+            yield _seed_event("indexing", "Indexing Knowledge Documents", 100,
+                              f"Error: {exc}", 40, error=str(exc))
+            failed_phases.append("indexing")
+    else:
+        skipped_phases.append("indexing")
+        yield _seed_event("indexing", "Indexing Knowledge Documents", 100, "Skipped", 40)
+
+    # ------------------------------------------------------------------
+    # Phase 3 — Skills  40-45%
+    # ------------------------------------------------------------------
+    if body.include_skills:
+        yield _seed_event("skills", "Seeding Skills", 0, "Starting skill seed", 40)
+        try:
+            from flydesk.seeds.banking import seed_banking_skills
+
+            skill_count = await seed_banking_skills(skill_repo)
+            yield _seed_event("skills", "Seeding Skills", 100,
+                              f"Seeded {skill_count} skills", 45)
+            completed_phases.append("skills")
+        except Exception as exc:
+            logger.warning("Skill seeding failed (non-fatal): %s", exc, exc_info=True)
+            yield _seed_event("skills", "Seeding Skills", 100,
+                              f"Warning: {exc}", 45, error=str(exc))
+            failed_phases.append("skills")
+    else:
+        skipped_phases.append("skills")
+        yield _seed_event("skills", "Seeding Skills", 100, "Skipped", 45)
+
+    # ------------------------------------------------------------------
+    # Phase 4 — Platform documentation  45-55%
+    # ------------------------------------------------------------------
+    if body.include_knowledge:
+        yield _seed_event("platform_docs", "Indexing Platform Documentation", 0,
+                          "Starting platform docs", 45)
+        try:
+            from flydesk.seeds.platform_docs import seed_platform_docs
+
+            await seed_platform_docs(indexer)
+            yield _seed_event("platform_docs", "Indexing Platform Documentation", 100,
+                              "Platform documentation indexed", 55)
+            completed_phases.append("platform_docs")
+        except Exception as exc:
+            logger.warning("Platform docs seeding failed (non-fatal): %s",
+                           exc, exc_info=True)
+            yield _seed_event("platform_docs", "Indexing Platform Documentation", 100,
+                              f"Warning: {exc}", 55, error=str(exc))
+            failed_phases.append("platform_docs")
+    else:
+        skipped_phases.append("platform_docs")
+        yield _seed_event("platform_docs", "Indexing Platform Documentation", 100,
+                          "Skipped", 55)
+
+    # ------------------------------------------------------------------
+    # Phase 5 — KG recompute  55-85%
+    # ------------------------------------------------------------------
+    if body.include_kg and knowledge_graph is not None and kg_extractor is not None:
+        yield _seed_event("kg", "Building Knowledge Graph", 0,
+                          "Starting knowledge graph recompute", 55)
+        try:
+            from flydesk.jobs.handlers import KGRecomputeHandler
+
+            handler = KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor)
+
+            async def _kg_coro(on_progress):
+                return await handler.execute(
+                    job_id="seed-kg", payload={}, on_progress=on_progress,
+                )
+
+            async for event in _run_with_progress_bridge(
+                _kg_coro, "kg", "Building Knowledge Graph", 55, 30,
+            ):
+                yield event
+
+            completed_phases.append("kg")
+        except Exception as exc:
+            logger.warning("KG recompute failed (non-fatal): %s", exc, exc_info=True)
+            yield _seed_event("kg", "Building Knowledge Graph", 100,
+                              f"Error: {exc}", 85, error=str(exc))
+            failed_phases.append("kg")
+    else:
+        skipped_phases.append("kg")
+        yield _seed_event("kg", "Building Knowledge Graph", 100, "Skipped", 85)
+
+    # ------------------------------------------------------------------
+    # Phase 6 — Process discovery  85-100%
+    # ------------------------------------------------------------------
+    if body.include_discovery and discovery_engine is not None:
+        yield _seed_event("discovery", "Discovering Business Processes", 0,
+                          "Starting process discovery", 85)
+        try:
+            async def _discovery_coro(on_progress):
+                return await discovery_engine._analyze(
+                    job_id="seed-discovery",
+                    payload={"trigger": "seed"},
+                    on_progress=on_progress,
+                )
+
+            async for event in _run_with_progress_bridge(
+                _discovery_coro, "discovery", "Discovering Business Processes", 85, 15,
+            ):
+                yield event
+
+            completed_phases.append("discovery")
+        except Exception as exc:
+            logger.warning("Process discovery failed (non-fatal): %s",
+                           exc, exc_info=True)
+            yield _seed_event("discovery", "Discovering Business Processes", 100,
+                              f"Error: {exc}", 100, error=str(exc))
+            failed_phases.append("discovery")
+    else:
+        skipped_phases.append("discovery")
+        yield _seed_event("discovery", "Discovering Business Processes", 100,
+                          "Skipped", 100)
+
+    # ------------------------------------------------------------------
+    # Done
+    # ------------------------------------------------------------------
+    yield SSEEvent(event=SSEEventType.DONE, data={
+        "phases_completed": completed_phases,
+        "phases_skipped": skipped_phases,
+        "phases_failed": failed_phases,
+    }).to_sse()
+
+
 @router.post("/seed")
-async def run_seed(body: SeedRequest, request: Request) -> SeedResult:
-    """Seed or unseed example data for a domain."""
+async def run_seed(body: SeedRequest, request: Request) -> SeedResult | StreamingResponse:
+    """Seed or unseed example data for a domain.
+
+    When *remove* is ``True`` the endpoint returns a synchronous
+    :class:`SeedResult`.  Otherwise it returns a ``StreamingResponse``
+    with SSE events reporting real-time progress through all pipeline
+    phases.
+    """
     session_factory = getattr(request.app.state, "session_factory", None)
     if not session_factory:
         return SeedResult(success=False, message="Database not initialised")
 
     if body.domain == "banking":
+        from flydesk.api.knowledge import get_knowledge_indexer
         from flydesk.catalog.repository import CatalogRepository
         from flydesk.skills.repository import SkillRepository
 
-        repo = CatalogRepository(session_factory)
+        catalog_repo = CatalogRepository(session_factory)
         skill_repo = SkillRepository(session_factory)
-
-        # Get the knowledge indexer so banking docs get chunked and indexed
-        from flydesk.api.knowledge import get_knowledge_indexer
 
         indexer_fn = request.app.dependency_overrides.get(
             get_knowledge_indexer, get_knowledge_indexer
@@ -746,19 +1030,45 @@ async def run_seed(body: SeedRequest, request: Request) -> SeedResult:
         if body.remove:
             from flydesk.seeds.banking import unseed_banking_catalog
 
-            await unseed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
+            await unseed_banking_catalog(
+                catalog_repo, knowledge_indexer=indexer, skill_repo=skill_repo,
+            )
             return SeedResult(success=True, message="Banking seed data removed.")
-        else:
-            from flydesk.seeds.banking import seed_banking_catalog
 
-            await seed_banking_catalog(repo, knowledge_indexer=indexer, skill_repo=skill_repo)
-            return SeedResult(success=True, message="Banking seed data loaded successfully.")
+        # ---- Streaming seed path ----
+
+        # Resolve optional KG / discovery dependencies eagerly (before
+        # the generator starts) so that FastAPI dependency injection
+        # values captured from `request` remain valid.
+        from flydesk.api.knowledge import get_knowledge_graph
+
+        kg_fn = request.app.dependency_overrides.get(get_knowledge_graph, None)
+        knowledge_graph = kg_fn() if kg_fn else None
+        kg_extractor = getattr(request.app.state, "kg_extractor", None)
+        discovery_engine = getattr(request.app.state, "discovery_engine", None)
+
+        return StreamingResponse(
+            _stream_seed_banking(
+                body,
+                session_factory=session_factory,
+                indexer=indexer,
+                catalog_repo=catalog_repo,
+                skill_repo=skill_repo,
+                knowledge_graph=knowledge_graph,
+                kg_extractor=kg_extractor,
+                discovery_engine=discovery_engine,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     elif body.domain == "platform-docs":
         from flydesk.api.knowledge import get_knowledge_indexer
         from flydesk.seeds.platform_docs import seed_platform_docs, unseed_platform_docs
 
-        indexer = request.app.dependency_overrides.get(get_knowledge_indexer, get_knowledge_indexer)()
+        indexer = request.app.dependency_overrides.get(
+            get_knowledge_indexer, get_knowledge_indexer,
+        )()
         if body.remove:
             await unseed_platform_docs(indexer)
             return SeedResult(success=True, message="Platform documentation removed.")
