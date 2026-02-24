@@ -457,6 +457,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     oidc_repo = OIDCProviderRepository(session_factory, config.credential_encryption_key)
     app.dependency_overrides[auth_get_oidc_repo] = lambda: oidc_repo
     app.dependency_overrides[admin_get_oidc_repo] = lambda: oidc_repo
+    app.state.oidc_repo = oidc_repo
 
     # Provide a default OIDCClient from config (may be overridden per-request)
     if config.oidc_issuer_url:
