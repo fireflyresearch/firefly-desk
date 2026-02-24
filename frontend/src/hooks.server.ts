@@ -80,6 +80,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			// `initCurrentUser()` which calls `/api/profile` and lets the
 			// backend resolve claims for any configured OIDC provider.
 			const realmAccess = claims['realm_access'] as { roles?: string[] } | undefined;
+			const flatRoles = claims['roles'] as string[] | undefined;
 			const resourceAccess = claims['resource_access'] as
 				| Record<string, { roles?: string[] }>
 				| undefined;
@@ -102,7 +103,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 					(claims['preferred_username'] as string) ??
 					(claims['email'] as string) ??
 					'',
-				roles: Array.isArray(realmAccess?.roles) ? realmAccess.roles : [],
+				roles: Array.isArray(realmAccess?.roles)
+					? realmAccess.roles
+					: Array.isArray(flatRoles)
+						? flatRoles
+						: [],
 				permissions,
 				pictureUrl: (claims['picture'] as string) ?? undefined,
 				department: (claims['department'] as string) ?? undefined,
