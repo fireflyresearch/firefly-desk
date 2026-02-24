@@ -87,6 +87,16 @@ class DeskConfig(BaseSettings):
 
     # -- Security --
     credential_encryption_key: str = ""
+    kms_provider: Literal["fernet", "aws", "gcp", "azure", "vault", "noop"] = "fernet"
+    aws_kms_key_arn: str = ""
+    aws_kms_region: str = ""
+    gcp_kms_key_name: str = ""
+    azure_vault_url: str = ""
+    azure_key_name: str = ""
+    vault_url: str = ""
+    vault_token: str = ""
+    vault_transit_key: str = "flydesk"
+    vault_mount_point: str = "transit"
     jwt_secret_key: str = ""
     audit_retention_days: int = 365
     rate_limit_per_user: int = 60

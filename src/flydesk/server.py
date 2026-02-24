@@ -181,10 +181,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_export_storage] = lambda: file_storage
 
     # KMS provider for credential encryption
-    from flydesk.security.kms import FernetKMSProvider
+    from flydesk.security.kms import FernetKMSProvider, create_kms_provider
 
-    kms = FernetKMSProvider(config.credential_encryption_key)
-    if kms.is_dev_key:
+    kms = create_kms_provider(config)
+    if isinstance(kms, FernetKMSProvider) and kms.is_dev_key:
         logger.warning(
             "Using dev encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY "
             "for production."

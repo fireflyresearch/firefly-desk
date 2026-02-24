@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import base64 as _b64
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -90,3 +90,49 @@ class NoOpKMSProvider:
 
     def decrypt(self, ciphertext: str) -> str:
         return ciphertext
+
+
+def create_kms_provider(config: Any) -> KMSProvider:
+    """Create the appropriate KMS provider based on configuration.
+
+    Reads ``config.kms_provider`` and returns the matching implementation.
+    Falls back to :class:`FernetKMSProvider` for unknown values.
+    """
+    provider_type = getattr(config, "kms_provider", "fernet")
+
+    if provider_type == "noop":
+        return NoOpKMSProvider()
+
+    if provider_type == "aws":
+        from flydesk.security.aws_kms import AWSKMSProvider
+
+        return AWSKMSProvider(
+            key_arn=config.aws_kms_key_arn,
+            region=config.aws_kms_region,
+        )
+
+    if provider_type == "gcp":
+        from flydesk.security.gcp_kms import GCPKMSProvider
+
+        return GCPKMSProvider(key_name=config.gcp_kms_key_name)
+
+    if provider_type == "azure":
+        from flydesk.security.azure_kv import AzureKeyVaultProvider
+
+        return AzureKeyVaultProvider(
+            vault_url=config.azure_vault_url,
+            key_name=config.azure_key_name,
+        )
+
+    if provider_type == "vault":
+        from flydesk.security.vault_kms import VaultKMSProvider
+
+        return VaultKMSProvider(
+            url=config.vault_url,
+            token=config.vault_token,
+            transit_key=config.vault_transit_key,
+            mount_point=config.vault_mount_point,
+        )
+
+    # Default: Fernet
+    return FernetKMSProvider(config.credential_encryption_key)
