@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from fireflyframework_genai.prompts import PromptRegistry
 
@@ -34,6 +35,7 @@ class PromptContext:
     behavior_rules: list[str] = field(default_factory=list)
     greeting: str = ""
     tone: str = ""
+    process_context: list[Any] = field(default_factory=list)
     custom_instructions: str = ""
     language: str = "en"
 
@@ -77,6 +79,12 @@ class SystemPromptBuilder:
             sections.append(
                 self._registry.get("file_context").render(
                     file_context=context.file_context,
+                )
+            )
+        if context.process_context:
+            sections.append(
+                self._registry.get("relevant_processes").render(
+                    processes=context.process_context,
                 )
             )
         if context.conversation_summary:
