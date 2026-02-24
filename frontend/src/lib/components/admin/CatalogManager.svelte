@@ -14,11 +14,13 @@
 		Trash2,
 		ChevronDown,
 		ChevronRight,
-		Loader2
+		Loader2,
+		FileUp
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
+	import OpenAPIImportWizard from './OpenAPIImportWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -79,6 +81,9 @@
 	let showForm = $state(false);
 	let saving = $state(false);
 	let editingSystemFull = $state<SystemFull | null>(null);
+
+	// OpenAPI Import Wizard state
+	let showImportWizard = $state(false);
 
 	// Endpoint Wizard state
 	let showEndpointWizard = $state(false);
@@ -309,14 +314,24 @@
 			<h1 class="text-lg font-semibold text-text-primary">System Catalog</h1>
 			<p class="text-sm text-text-secondary">Manage external systems and their endpoints</p>
 		</div>
-		<button
-			type="button"
-			onclick={openAddForm}
-			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			<Plus size={16} />
-			Add System
-		</button>
+		<div class="flex items-center gap-2">
+			<button
+				type="button"
+				onclick={() => showImportWizard = true}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
+			>
+				<FileUp size={16} />
+				Import from OpenAPI
+			</button>
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add System
+			</button>
+		</div>
 	</div>
 
 	<!-- Error banner -->
@@ -342,6 +357,14 @@
 			editingEndpoint={editingEndpoint}
 			onClose={closeEndpointWizard}
 			onSaved={onEndpointSaved}
+		/>
+	{/if}
+
+	<!-- OpenAPI Import Wizard modal -->
+	{#if showImportWizard}
+		<OpenAPIImportWizard
+			onClose={() => showImportWizard = false}
+			onImported={() => { showImportWizard = false; loadSystems(); }}
 		/>
 	{/if}
 
