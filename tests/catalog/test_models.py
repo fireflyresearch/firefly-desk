@@ -25,7 +25,7 @@ class TestExternalSystem:
             tags=["crm", "customers"],
         )
         assert system.id == "crm-salesforce"
-        assert system.status == SystemStatus.ACTIVE
+        assert system.status == SystemStatus.DRAFT
         assert system.auth_config.auth_type == AuthType.OAUTH2
 
     def test_system_defaults(self):
@@ -36,7 +36,7 @@ class TestExternalSystem:
             base_url="https://test.example.com",
             auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="c1"),
         )
-        assert system.status == SystemStatus.ACTIVE
+        assert system.status == SystemStatus.DRAFT
         assert system.tags == []
         assert system.health_check_path is None
         assert system.metadata == {}
@@ -110,3 +110,21 @@ class TestNoneAuthType:
         )
         assert system.auth_config.auth_type == AuthType.NONE
         assert system.auth_config.credential_id is None
+
+
+class TestSystemStatusStateMachine:
+    def test_all_statuses_exist(self):
+        from flydesk.catalog.enums import SystemStatus
+        assert SystemStatus.DRAFT == "draft"
+        assert SystemStatus.ACTIVE == "active"
+        assert SystemStatus.DISABLED == "disabled"
+        assert SystemStatus.DEPRECATED == "deprecated"
+        assert SystemStatus.DEGRADED == "degraded"
+
+    def test_new_system_defaults_to_draft(self):
+        from flydesk.catalog.enums import SystemStatus
+        from flydesk.catalog.models import ExternalSystem
+        system = ExternalSystem(
+            id="new-sys", name="New", description="New system", base_url="http://localhost",
+        )
+        assert system.status == SystemStatus.DRAFT

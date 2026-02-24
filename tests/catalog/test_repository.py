@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.models.base import Base
@@ -39,6 +39,7 @@ def sample_system() -> ExternalSystem:
         base_url="https://api.test.com",
         auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="cred-1"),
         tags=["crm"],
+        status=SystemStatus.ACTIVE,
     )
 
 
