@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from flydesk.knowledge.graph import KnowledgeGraph
@@ -587,3 +587,26 @@ async def get_graph_stats(graph: Graph) -> GraphStatsResponse:
     """Get knowledge graph statistics."""
     stats = await graph.get_stats()
     return GraphStatsResponse(**stats)
+
+
+@router.post("/graph/recompute", dependencies=[KnowledgeWrite])
+async def trigger_kg_recompute(request: Request) -> dict:
+    """Trigger a background knowledge graph recompute job.
+
+    Extracts entities and relations from all indexed documents using
+    the configured LLM.  Returns a job ID for progress tracking.
+    """
+    job_runner = getattr(request.app.state, "job_runner", None)
+    if job_runner is None:
+        raise HTTPException(status_code=503, detail="Job runner not available")
+    kg_extractor = getattr(request.app.state, "kg_extractor", None)
+    if kg_extractor is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KG extractor not available — ensure an LLM provider is configured",
+        )
+    try:
+        job = await job_runner.submit("kg_recompute", {})
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"job_id": job.id, "status": job.status.value}

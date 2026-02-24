@@ -1093,14 +1093,14 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
             repo = LLMProviderRepository(session_factory, encryption_key)
 
             models_list = []
-            default_model = body.llm_provider.model_id
-            if body.llm_provider.model_id:
+            default_model = body.llm_provider.model_id.strip() if body.llm_provider.model_id else ""
+            if default_model:
                 from flydesk.llm.models import LLMModel
 
                 models_list = [
                     LLMModel(
-                        id=body.llm_provider.model_id,
-                        name=body.llm_provider.model_name or body.llm_provider.model_id,
+                        id=default_model,
+                        name=(body.llm_provider.model_name or default_model).strip(),
                     )
                 ]
 
