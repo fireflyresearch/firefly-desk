@@ -12,6 +12,7 @@ realistic retail-banking support desk.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
@@ -1458,7 +1459,83 @@ KNOWLEDGE_DOCUMENTS: list[KnowledgeDocument] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Seed function
+# Granular seed helpers (one per phase)
+# ---------------------------------------------------------------------------
+
+
+async def seed_banking_systems(catalog_repo: CatalogRepository) -> int:
+    """Seed banking external systems.
+
+    Returns
+    -------
+    int
+        Number of systems created.
+    """
+    for system in SYSTEMS:
+        await catalog_repo.create_system(system)
+        logger.info("Seeded system: %s", system.name)
+    return len(SYSTEMS)
+
+
+async def seed_banking_endpoints(catalog_repo: CatalogRepository) -> int:
+    """Seed banking service endpoints.
+
+    Returns
+    -------
+    int
+        Number of endpoints created.
+    """
+    for endpoint in ENDPOINTS:
+        await catalog_repo.create_endpoint(endpoint)
+        logger.info("Seeded endpoint: %s", endpoint.name)
+    return len(ENDPOINTS)
+
+
+async def seed_banking_documents(
+    knowledge_indexer: KnowledgeIndexer,
+    on_progress: Callable[[int, str], Awaitable[None]] | None = None,
+) -> int:
+    """Index banking knowledge documents.
+
+    Parameters
+    ----------
+    knowledge_indexer:
+        Indexer used to chunk and embed each document.
+    on_progress:
+        Optional async callback invoked after each document is indexed.
+        Receives ``(current_index, document_title)``.
+
+    Returns
+    -------
+    int
+        Number of documents indexed.
+    """
+    for idx, document in enumerate(KNOWLEDGE_DOCUMENTS):
+        await knowledge_indexer.index_document(document)
+        logger.info("Indexed knowledge document: %s", document.title)
+        if on_progress is not None:
+            await on_progress(idx, document.title)
+    return len(KNOWLEDGE_DOCUMENTS)
+
+
+async def seed_banking_skills(skill_repo: SkillRepository) -> int:
+    """Seed banking pre-configured skills.
+
+    Returns
+    -------
+    int
+        Number of skills created.
+    """
+    from flydesk.seeds.skills import SKILLS
+
+    for skill in SKILLS:
+        await skill_repo.create_skill(skill)
+        logger.info("Seeded skill: %s", skill.name)
+    return len(SKILLS)
+
+
+# ---------------------------------------------------------------------------
+# Composite seed function (backward-compatible wrapper)
 # ---------------------------------------------------------------------------
 
 
@@ -1484,38 +1561,23 @@ async def seed_banking_catalog(
         If provided, banking skills are created.
         When ``None`` the skills are skipped silently.
     """
-    # 1. Systems
-    for system in SYSTEMS:
-        await catalog_repo.create_system(system)
-        logger.info("Seeded system: %s", system.name)
+    systems_count = await seed_banking_systems(catalog_repo)
+    endpoints_count = await seed_banking_endpoints(catalog_repo)
 
-    # 2. Endpoints
-    for endpoint in ENDPOINTS:
-        await catalog_repo.create_endpoint(endpoint)
-        logger.info("Seeded endpoint: %s", endpoint.name)
-
-    # 3. Knowledge documents (optional)
+    documents_count = 0
     if knowledge_indexer is not None:
-        for document in KNOWLEDGE_DOCUMENTS:
-            await knowledge_indexer.index_document(document)
-            logger.info("Indexed knowledge document: %s", document.title)
+        documents_count = await seed_banking_documents(knowledge_indexer)
 
-    # 4. Skills (optional)
-    skills_seeded = 0
+    skills_count = 0
     if skill_repo is not None:
-        from flydesk.seeds.skills import SKILLS
-
-        for skill in SKILLS:
-            await skill_repo.create_skill(skill)
-            logger.info("Seeded skill: %s", skill.name)
-        skills_seeded = len(SKILLS)
+        skills_count = await seed_banking_skills(skill_repo)
 
     logger.info(
         "Banking seed complete: %d systems, %d endpoints, %d documents, %d skills",
-        len(SYSTEMS),
-        len(ENDPOINTS),
-        len(KNOWLEDGE_DOCUMENTS) if knowledge_indexer is not None else 0,
-        skills_seeded,
+        systems_count,
+        endpoints_count,
+        documents_count,
+        skills_count,
     )
 
 
