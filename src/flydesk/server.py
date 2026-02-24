@@ -218,9 +218,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)
 
-        async def update_document(self, document_id, *, title=None, document_type=None, tags=None):
+        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None):
             return await catalog_repo.update_knowledge_document(
-                document_id, title=title, document_type=document_type, tags=tags
+                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status
             )
 
     doc_store = _LiveDocStore()
