@@ -53,6 +53,12 @@
 		path: string;
 	}
 
+	interface SystemInfo {
+		id: string;
+		name: string;
+		agent_enabled: boolean;
+	}
+
 	interface AvailableDocument {
 		id: string;
 		title: string;
@@ -112,6 +118,7 @@
 	// State - reference data
 	// -----------------------------------------------------------------------
 
+	let systems = $state<SystemInfo[]>([]);
 	let availableEndpoints = $state<AvailableEndpoint[]>([]);
 	let availableDocuments = $state<AvailableDocument[]>([]);
 
@@ -235,9 +242,10 @@
 
 	async function loadReferenceData() {
 		try {
-			const systems = await apiJson<{ id: string; name: string }[]>('/catalog/systems');
+			const loadedSystems = await apiJson<SystemInfo[]>('/catalog/systems');
+			systems = loadedSystems;
 			const allEndpoints: AvailableEndpoint[] = [];
-			for (const sys of systems) {
+			for (const sys of loadedSystems) {
 				try {
 					const eps = await apiJson<AvailableEndpoint[]>(
 						`/catalog/systems/${sys.id}/endpoints`
@@ -366,6 +374,50 @@
 	// -----------------------------------------------------------------------
 
 	const isValid = $derived(name.trim() !== '');
+
+	// -----------------------------------------------------------------------
+	// Endpoint warnings
+	// -----------------------------------------------------------------------
+
+	let endpointWarnings = $derived.by(() => {
+		const warnings: string[] = [];
+		const allEndpointIds = new Set(availableEndpoints.map((e) => e.id));
+		const disabledSystemIds = new Set(
+			systems.filter((s) => !s.agent_enabled).map((s) => s.id)
+		);
+
+		// Check referenced endpoints
+		for (const epId of referencedEndpoints) {
+			if (!allEndpointIds.has(epId)) {
+				warnings.push(`Endpoint "${epId}" not found in catalog`);
+			} else {
+				const ep = availableEndpoints.find((e) => e.id === epId);
+				if (ep && disabledSystemIds.has(ep.system_id)) {
+					const sys = systems.find((s) => s.id === ep.system_id);
+					warnings.push(
+						`Endpoint "${epId}" belongs to "${sys?.name || ep.system_id}" which has agent access disabled`
+					);
+				}
+			}
+		}
+
+		// Check step endpoints
+		for (const step of steps) {
+			if (step.endpointId && !allEndpointIds.has(step.endpointId)) {
+				warnings.push(`Step endpoint "${step.endpointId}" not found in catalog`);
+			} else if (step.endpointId) {
+				const ep = availableEndpoints.find((e) => e.id === step.endpointId);
+				if (ep && disabledSystemIds.has(ep.system_id)) {
+					const sys = systems.find((s) => s.id === ep.system_id);
+					warnings.push(
+						`Step endpoint "${step.endpointId}" belongs to "${sys?.name || ep.system_id}" which has agent access disabled`
+					);
+				}
+			}
+		}
+
+		return warnings;
+	});
 
 	// -----------------------------------------------------------------------
 	// Submit
@@ -807,6 +859,20 @@
 							</p>
 						{/if}
 					</div>
+
+					<!-- Endpoint warnings -->
+					{#if endpointWarnings.length > 0}
+						<hr class="my-4 border-border" />
+						<div class="rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+							<p class="mb-1 flex items-center gap-1.5 text-xs font-medium text-warning">
+								<AlertTriangle size={12} />
+								Endpoint Warnings
+							</p>
+							{#each endpointWarnings as warning}
+								<p class="text-xs text-warning/80">&bull; {warning}</p>
+							{/each}
+						</div>
+					{/if}
 
 				{:else}
 					<!-- Raw mode -->
