@@ -16,6 +16,7 @@ class SystemStatus(StrEnum):
 
 
 class AuthType(StrEnum):
+    NONE = "none"
     OAUTH2 = "oauth2"
     API_KEY = "api_key"
     BASIC = "basic"

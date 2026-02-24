@@ -43,7 +43,7 @@ class AuthConfig(BaseModel):
     """Authentication configuration for an external system."""
 
     auth_type: AuthType
-    credential_id: str
+    credential_id: str | None = None
     token_url: str | None = None
     scopes: list[str] | None = None
     auth_headers: dict[str, str] | None = None
@@ -57,7 +57,7 @@ class ExternalSystem(BaseModel):
     name: str
     description: str
     base_url: str
-    auth_config: AuthConfig
+    auth_config: AuthConfig | None = None
     health_check_path: str | None = None
     tags: list[str] = Field(default_factory=list)
     status: SystemStatus = SystemStatus.ACTIVE

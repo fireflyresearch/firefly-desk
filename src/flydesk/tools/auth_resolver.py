@@ -113,6 +113,20 @@ class AuthResolver:
         APIs can identify the originating user.
         """
         auth_config = system.auth_config
+
+        # No authentication required.
+        if auth_config is None or auth_config.auth_type == AuthType.NONE:
+            headers: dict[str, str] = {}
+            if user_session and sso_mappings:
+                from flydesk.auth.sso_mapping import SSOAttributeMappingResolver
+
+                resolver = SSOAttributeMappingResolver()
+                sso_headers = resolver.resolve_headers(
+                    sso_mappings, user_session.raw_claims, system.id,
+                )
+                headers.update(sso_headers)
+            return headers
+
         auth_type = auth_config.auth_type
 
         credential = await self._credential_store.get_credential(
