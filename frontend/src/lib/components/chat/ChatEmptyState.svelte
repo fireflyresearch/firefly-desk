@@ -21,7 +21,9 @@
 		HeartPulse,
 		Settings,
 		Cpu,
-		ListChecks
+		ListChecks,
+		GitBranch,
+		Zap
 	} from 'lucide-svelte';
 	import { currentUser } from '$lib/stores/user.js';
 	import { apiJson } from '$lib/services/api.js';
@@ -34,26 +36,71 @@
 	let { onSuggestionClick }: ChatEmptyStateProps = $props();
 
 	// -----------------------------------------------------------------------
-	// Dynamic counts & animation state
+	// Icon name → Lucide component mapping
 	// -----------------------------------------------------------------------
+
+	type LucideIcon = typeof Search;
+
+	const iconMap: Record<string, LucideIcon> = {
+		'search': Search,
+		'activity': Activity,
+		'book-open': BookOpen,
+		'shield': Shield,
+		'database': Database,
+		'help-circle': HelpCircle,
+		'heart-pulse': HeartPulse,
+		'settings': Settings,
+		'cpu': Cpu,
+		'list-checks': ListChecks,
+		'git-branch': GitBranch,
+		'zap': Zap,
+	};
+
+	// -----------------------------------------------------------------------
+	// Dynamic counts, suggestions & animation state
+	// -----------------------------------------------------------------------
+
+	interface APISuggestion {
+		icon: string;
+		title: string;
+		description: string;
+		text: string;
+	}
+
+	interface Suggestion {
+		icon: LucideIcon;
+		title: string;
+		description: string;
+		text: string;
+	}
 
 	let systemCount = $state(0);
 	let docCount = $state(0);
 	let mounted = $state(false);
+	let apiSuggestions = $state<Suggestion[]>([]);
 
 	$effect(() => {
 		(async () => {
-			try {
-				const stats = await apiJson<{
-					system_count?: number;
-					knowledge_doc_count?: number;
-				}>('/admin/dashboard/stats');
-				systemCount = stats.system_count ?? 0;
-				docCount = stats.knowledge_doc_count ?? 0;
-			} catch {
-				// Dashboard stats may not be available yet -- that is fine.
+			// Fetch dashboard stats and suggestions in parallel
+			const [statsResult, suggestionsResult] = await Promise.allSettled([
+				apiJson<{ system_count?: number; knowledge_doc_count?: number }>('/admin/dashboard/stats'),
+				apiJson<{ suggestions: APISuggestion[] }>('/chat/suggestions'),
+			]);
+
+			if (statsResult.status === 'fulfilled') {
+				systemCount = statsResult.value.system_count ?? 0;
+				docCount = statsResult.value.knowledge_doc_count ?? 0;
 			}
-			// Stagger animation trigger after a brief delay so the layout paints first
+
+			if (suggestionsResult.status === 'fulfilled') {
+				apiSuggestions = suggestionsResult.value.suggestions.map((s) => ({
+					icon: iconMap[s.icon] ?? HelpCircle,
+					title: s.title,
+					description: s.description,
+					text: s.text,
+				}));
+			}
+
 			setTimeout(() => {
 				mounted = true;
 			}, 100);
@@ -80,142 +127,16 @@
 	});
 
 	// -----------------------------------------------------------------------
-	// Role-based suggestion sets (title + description for two-line layout)
+	// Suggestions: use API response, fall back to static defaults
 	// -----------------------------------------------------------------------
 
-	/** Use a concrete Lucide icon type to avoid Component<{}> vs Component<IconProps> mismatch. */
-	type LucideIcon = typeof Search;
-
-	interface Suggestion {
-		icon: LucideIcon;
-		title: string;
-		description: string;
-		text: string;
-	}
-
-	const adminSuggestions: Suggestion[] = [
-		{
-			icon: HeartPulse,
-			title: 'System Health',
-			description: 'Review current status of all systems',
-			text: 'Review system health'
-		},
-		{
-			icon: Shield,
-			title: 'Audit Events',
-			description: 'Check recent security and activity logs',
-			text: 'Check recent audit events'
-		},
-		{
-			icon: Settings,
-			title: 'LLM Configuration',
-			description: 'Manage AI model providers',
-			text: 'Manage LLM providers'
-		},
-		{
-			icon: Activity,
-			title: 'Active Sessions',
-			description: 'Monitor current agent activity',
-			text: 'Show active agent sessions'
-		},
-		{
-			icon: Cpu,
-			title: 'Resources',
-			description: 'Check running resources and usage',
-			text: 'What resources are running?'
-		},
-		{
-			icon: HelpCircle,
-			title: 'Capabilities',
-			description: 'Learn what I can do for you',
-			text: 'What can you help me with?'
-		}
+	const fallbackSuggestions: Suggestion[] = [
+		{ icon: Search, title: 'Explore Systems', description: 'View all registered systems and services', text: 'Show me all registered systems' },
+		{ icon: BookOpen, title: 'Knowledge Base', description: 'Search organizational knowledge', text: 'What information is available in the knowledge base?' },
+		{ icon: HelpCircle, title: 'Capabilities', description: 'Learn what I can do for you', text: 'What can you help me with?' },
 	];
 
-	const operatorSuggestions: Suggestion[] = [
-		{
-			icon: Search,
-			title: 'Explore Systems',
-			description: 'View all registered systems and services',
-			text: 'Show me all registered systems'
-		},
-		{
-			icon: Activity,
-			title: 'Service Status',
-			description: 'Check health of a specific service',
-			text: 'What is the status of the payment service?'
-		},
-		{
-			icon: ListChecks,
-			title: 'Endpoints',
-			description: 'List available service endpoints',
-			text: 'List available endpoints'
-		},
-		{
-			icon: Database,
-			title: 'Deployments',
-			description: 'Review recent deployment activity',
-			text: 'Show recent deployments'
-		},
-		{
-			icon: BookOpen,
-			title: 'Knowledge Base',
-			description: 'Search organizational knowledge',
-			text: 'How does the knowledge base work?'
-		},
-		{
-			icon: HelpCircle,
-			title: 'Get Help',
-			description: 'Learn what I can do for you',
-			text: 'What can you help me with?'
-		}
-	];
-
-	const defaultSuggestions: Suggestion[] = [
-		{
-			icon: Search,
-			title: 'Explore Systems',
-			description: 'View all registered systems and services',
-			text: 'Show me all registered systems'
-		},
-		{
-			icon: Activity,
-			title: 'Service Status',
-			description: 'Check the health of your services',
-			text: 'What is the status of all services?'
-		},
-		{
-			icon: BookOpen,
-			title: 'Knowledge Base',
-			description: 'Search organizational knowledge',
-			text: 'How does the knowledge base work?'
-		},
-		{
-			icon: Shield,
-			title: 'Audit Logs',
-			description: 'Review recent audit events',
-			text: 'Review recent audit events'
-		},
-		{
-			icon: Database,
-			title: 'Endpoints',
-			description: 'List available service endpoints',
-			text: 'List available service endpoints'
-		},
-		{
-			icon: HelpCircle,
-			title: 'Get Help',
-			description: 'Learn what I can do for you',
-			text: 'What can you help me with?'
-		}
-	];
-
-	let suggestions = $derived.by(() => {
-		const roles = $currentUser?.roles ?? [];
-		if (roles.includes('admin')) return adminSuggestions;
-		if (roles.includes('operator')) return operatorSuggestions;
-		return defaultSuggestions;
-	});
+	let suggestions = $derived(apiSuggestions.length > 0 ? apiSuggestions : fallbackSuggestions);
 </script>
 
 <div

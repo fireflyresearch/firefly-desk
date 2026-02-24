@@ -125,7 +125,18 @@ async def stream_job_progress(
     The stream emits ``job_progress`` events until the job reaches a terminal
     state (completed, failed, or cancelled), then sends a final ``done`` event.
     """
-    job = await repo.get(job_id)
+    # Allow a brief grace period for the job to appear in the DB after
+    # creation.  The submit() call commits to the database before returning
+    # the job ID to the caller, but the frontend may reach this endpoint
+    # before the DB commit is fully visible (e.g. WAL mode lag, read
+    # replica delay).  Three quick retries cover this edge case.
+    job: Job | None = None
+    for attempt in range(3):
+        job = await repo.get(job_id)
+        if job is not None:
+            break
+        await asyncio.sleep(0.15 * (attempt + 1))
+
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 

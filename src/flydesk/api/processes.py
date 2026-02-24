@@ -219,7 +219,7 @@ async def trigger_discovery(request: Request, body: DiscoverRequest | None = Non
 
     trigger = body.trigger if body else ""
     job = await engine.discover(trigger, job_runner)
-    return {"job_id": job.id, "status": job.status.value}
+    return {"job_id": job.id, "status": job.status.value, "progress_pct": job.progress_pct}
 
 
 @router.put("/{process_id}/steps/{step_id}", dependencies=[ProcessWrite])

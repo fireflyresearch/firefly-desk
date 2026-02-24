@@ -233,6 +233,7 @@ class TestDeskAgentFactory:
             default_middleware=False,
             memory=None,
             middleware=None,
+            model_settings={"max_tokens": 4096},
         )
         assert result is mock_agent_cls.return_value
 
