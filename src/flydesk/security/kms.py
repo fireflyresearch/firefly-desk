@@ -8,10 +8,17 @@
 
 """Key Management Service abstraction for encrypting and decrypting secrets.
 
-Provides a :class:`KMSProvider` protocol and two implementations:
+Provides a :class:`KMSProvider` protocol and several implementations:
 
 * :class:`FernetKMSProvider` -- local Fernet encryption (default)
 * :class:`NoOpKMSProvider` -- passthrough for dev/testing
+* :class:`~flydesk.security.aws_kms.AWSKMSProvider` -- AWS KMS
+* :class:`~flydesk.security.gcp_kms.GCPKMSProvider` -- Google Cloud KMS
+* :class:`~flydesk.security.azure_kv.AzureKeyVaultProvider` -- Azure Key Vault
+* :class:`~flydesk.security.vault_kms.VaultKMSProvider` -- HashiCorp Vault Transit
+
+Use :func:`create_kms_provider` to instantiate the appropriate provider based
+on application configuration.
 """
 
 from __future__ import annotations
@@ -104,35 +111,69 @@ def create_kms_provider(config: Any) -> KMSProvider:
         return NoOpKMSProvider()
 
     if provider_type == "aws":
-        from flydesk.security.aws_kms import AWSKMSProvider
-
+        if not getattr(config, "aws_kms_key_arn", ""):
+            raise ValueError("FLYDESK_AWS_KMS_KEY_ARN must be set when kms_provider=aws")
+        try:
+            from flydesk.security.aws_kms import AWSKMSProvider
+        except ImportError as exc:
+            raise ImportError(
+                "AWS KMS provider requires boto3. Install with: pip install flydesk[aws-kms]"
+            ) from exc
         return AWSKMSProvider(
             key_arn=config.aws_kms_key_arn,
-            region=config.aws_kms_region,
+            region=getattr(config, "aws_kms_region", ""),
         )
 
     if provider_type == "gcp":
-        from flydesk.security.gcp_kms import GCPKMSProvider
-
+        if not getattr(config, "gcp_kms_key_name", ""):
+            raise ValueError("FLYDESK_GCP_KMS_KEY_NAME must be set when kms_provider=gcp")
+        try:
+            from flydesk.security.gcp_kms import GCPKMSProvider
+        except ImportError as exc:
+            raise ImportError(
+                "GCP KMS provider requires google-cloud-kms. "
+                "Install with: pip install flydesk[gcp-kms]"
+            ) from exc
         return GCPKMSProvider(key_name=config.gcp_kms_key_name)
 
     if provider_type == "azure":
-        from flydesk.security.azure_kv import AzureKeyVaultProvider
-
+        if not getattr(config, "azure_vault_url", "") or not getattr(config, "azure_key_name", ""):
+            raise ValueError(
+                "FLYDESK_AZURE_VAULT_URL and FLYDESK_AZURE_KEY_NAME must be set "
+                "when kms_provider=azure"
+            )
+        try:
+            from flydesk.security.azure_kv import AzureKeyVaultProvider
+        except ImportError as exc:
+            raise ImportError(
+                "Azure KMS provider requires azure-keyvault-keys and azure-identity. "
+                "Install with: pip install flydesk[azure-kms]"
+            ) from exc
         return AzureKeyVaultProvider(
             vault_url=config.azure_vault_url,
             key_name=config.azure_key_name,
         )
 
     if provider_type == "vault":
-        from flydesk.security.vault_kms import VaultKMSProvider
-
+        if not getattr(config, "vault_url", "") or not getattr(config, "vault_token", ""):
+            raise ValueError(
+                "FLYDESK_VAULT_URL and FLYDESK_VAULT_TOKEN must be set "
+                "when kms_provider=vault"
+            )
+        try:
+            from flydesk.security.vault_kms import VaultKMSProvider
+        except ImportError as exc:
+            raise ImportError(
+                "Vault KMS provider requires hvac. Install with: pip install flydesk[vault]"
+            ) from exc
         return VaultKMSProvider(
             url=config.vault_url,
             token=config.vault_token,
-            transit_key=config.vault_transit_key,
-            mount_point=config.vault_mount_point,
+            transit_key=getattr(config, "vault_transit_key", "flydesk"),
+            mount_point=getattr(config, "vault_mount_point", "transit"),
         )
 
     # Default: Fernet
+    if provider_type != "fernet":
+        logger.warning("Unknown kms_provider=%r; falling back to Fernet.", provider_type)
     return FernetKMSProvider(config.credential_encryption_key)

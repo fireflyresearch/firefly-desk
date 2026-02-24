@@ -32,14 +32,24 @@ class AWSKMSProvider:
         self._key_arn = key_arn
 
     def encrypt(self, plaintext: str) -> str:
-        resp = self._client.encrypt(
-            KeyId=self._key_arn,
-            Plaintext=plaintext.encode("utf-8"),
-        )
-        return base64.b64encode(resp["CiphertextBlob"]).decode("ascii")
+        try:
+            resp = self._client.encrypt(
+                KeyId=self._key_arn,
+                Plaintext=plaintext.encode("utf-8"),
+            )
+            return base64.b64encode(resp["CiphertextBlob"]).decode("ascii")
+        except Exception as exc:
+            logger.error("AWS KMS encryption failed: %s", exc)
+            raise ValueError(f"AWS KMS encryption failed: {exc}") from exc
 
     def decrypt(self, ciphertext: str) -> str:
-        resp = self._client.decrypt(
-            CiphertextBlob=base64.b64decode(ciphertext),
-        )
-        return resp["Plaintext"].decode("utf-8")
+        try:
+            resp = self._client.decrypt(
+                CiphertextBlob=base64.b64decode(ciphertext),
+            )
+            return resp["Plaintext"].decode("utf-8")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.error("AWS KMS decryption failed: %s", exc)
+            raise ValueError(f"AWS KMS decryption failed: {exc}") from exc
