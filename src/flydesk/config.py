@@ -101,6 +101,10 @@ class DeskConfig(BaseSettings):
     audit_retention_days: int = 365
     rate_limit_per_user: int = 60
 
+    # -- GitHub Integration --
+    github_client_id: str = ""
+    github_client_secret: str = ""
+
     _cached_jwt_secret: ClassVar[str | None] = None
 
     # -- Analysis --
