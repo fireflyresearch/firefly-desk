@@ -10,8 +10,10 @@ from enum import StrEnum
 
 
 class SystemStatus(StrEnum):
+    DRAFT = "draft"
     ACTIVE = "active"
-    INACTIVE = "inactive"
+    DISABLED = "disabled"
+    DEPRECATED = "deprecated"
     DEGRADED = "degraded"
 
 

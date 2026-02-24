@@ -14,10 +14,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from flydesk.catalog.enums import SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
 from flydesk.triggers.auto_trigger import AutoTriggerService
+
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "draft": {"active"},
+    "active": {"disabled", "deprecated", "degraded"},
+    "disabled": {"active", "deprecated"},
+    "deprecated": set(),  # terminal state
+    "degraded": {"active", "disabled"},
+}
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -104,6 +113,39 @@ async def delete_system(system_id: str, repo: Repo) -> Response:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
     await repo.delete_system(system_id)
     return Response(status_code=204)
+
+
+@router.put("/systems/{system_id}/status", dependencies=[CatalogWrite])
+async def update_system_status(system_id: str, body: dict, repo: Repo) -> dict:
+    """Transition a system's status according to the state machine."""
+    new_status = body.get("status")
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status is required")
+    try:
+        target = SystemStatus(new_status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{new_status}'")
+
+    system = await repo.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    current = system.status.value if hasattr(system.status, "value") else str(system.status)
+    allowed = VALID_TRANSITIONS.get(current, set())
+    if target.value not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition from '{current}' to '{target.value}'. "
+            f"Allowed: {', '.join(sorted(allowed)) or 'none (terminal state)'}",
+        )
+
+    updated = system.model_copy(update={"status": target})
+    await repo.update_system(updated)
+    return {
+        "id": updated.id,
+        "name": updated.name,
+        "status": updated.status.value,
+    }
 
 
 # ---------------------------------------------------------------------------
