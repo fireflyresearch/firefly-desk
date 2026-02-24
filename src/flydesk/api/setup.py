@@ -37,6 +37,9 @@ class SetupStatus(BaseModel):
     setup_completed: bool
     llm_configured: bool
     has_admin_user: bool
+    has_sso_configured: bool
+    fqdn: str
+    locale_language: str
     app_title: str
     app_version: str
     agent_name: str
@@ -52,6 +55,40 @@ class CreateAdminRequest(BaseModel):
     email: str
     display_name: str
     password: str
+
+
+class SetupSSORequest(BaseModel):
+    """Request body for configuring an SSO/OIDC provider during setup."""
+
+    provider_type: str
+    display_name: str
+    issuer_url: str
+    client_id: str
+    client_secret: str | None = None
+    tenant_id: str | None = None
+    scopes: list[str] | None = None
+    allowed_email_domains: list[str] | None = None
+
+
+class TestSSORequest(BaseModel):
+    """Request body for testing SSO issuer connectivity."""
+
+    issuer_url: str
+
+
+class SetupFQDNRequest(BaseModel):
+    """Request body for configuring the FQDN during setup."""
+
+    fqdn: str  # e.g., "myapp.example.com" or "localhost:5173"
+    protocol: str = "https"  # "http" for dev
+
+
+class SetupLocaleRequest(BaseModel):
+    """Request body for configuring locale during setup."""
+
+    language: str  # e.g., "en-US"
+    timezone: str  # e.g., "America/New_York"
+    country: str = ""  # e.g., "US" (ISO 3166-1 alpha-2)
 
 
 class SeedRequest(BaseModel):
@@ -417,6 +454,9 @@ async def get_setup_status(request: Request) -> SetupStatus:
     setup_completed = False
     llm_configured = False
     has_admin_user = False
+    has_sso_configured = False
+    fqdn = ""
+    locale_language = ""
     session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory:
         from flydesk.catalog.repository import CatalogRepository
@@ -449,6 +489,20 @@ async def get_setup_status(request: Request) -> SetupStatus:
         except Exception:
             logger.debug("Failed to check for admin user.", exc_info=True)
 
+        # Check whether an SSO/OIDC provider is configured
+        try:
+            from flydesk.auth.repository import OIDCProviderRepository
+
+            oidc_repo = OIDCProviderRepository(session_factory, encryption_key)
+            active_provider = await oidc_repo.get_active_provider()
+            has_sso_configured = active_provider is not None
+        except Exception:
+            logger.debug("Failed to check for SSO provider.", exc_info=True)
+
+        # Load FQDN and locale settings
+        fqdn = await settings_repo.get_app_setting("fqdn") or ""
+        locale_language = await settings_repo.get_app_setting("locale_language") or ""
+
     # Load agent customization for display name / avatar
     agent_display_name = config.agent_name
     agent_avatar_url = ""
@@ -468,6 +522,9 @@ async def get_setup_status(request: Request) -> SetupStatus:
         setup_completed=setup_completed,
         llm_configured=llm_configured,
         has_admin_user=has_admin_user,
+        has_sso_configured=has_sso_configured,
+        fqdn=fqdn,
+        locale_language=locale_language,
         app_title=config.app_title,
         app_version=__version__,
         agent_name=config.agent_name,
@@ -521,6 +578,121 @@ async def create_admin_user(body: CreateAdminRequest, request: Request) -> dict:
         role="admin",
     )
     return {"success": True, "user_id": user.id}
+
+
+@router.post("/configure-sso")
+async def configure_sso(body: SetupSSORequest, request: Request) -> dict:
+    """Configure an SSO/OIDC provider during first-time setup.
+
+    This endpoint is only available before setup is marked as completed.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    from flydesk.settings.repository import SettingsRepository
+
+    settings_repo = SettingsRepository(session_factory)
+    setup_done = await settings_repo.get_app_setting("setup_completed")
+    if setup_done == "true":
+        raise HTTPException(status_code=403, detail="Setup already completed")
+
+    from flydesk.auth.repository import OIDCProviderRepository
+    from flydesk.config import get_config
+
+    config = get_config()
+    oidc_repo = OIDCProviderRepository(session_factory, config.credential_encryption_key)
+
+    provider = await oidc_repo.create_provider(
+        provider_type=body.provider_type,
+        display_name=body.display_name,
+        issuer_url=body.issuer_url,
+        client_id=body.client_id,
+        client_secret=body.client_secret,
+        tenant_id=body.tenant_id,
+        scopes=body.scopes,
+        allowed_email_domains=body.allowed_email_domains,
+        is_active=True,
+    )
+    return {"success": True, "provider_id": provider.id}
+
+
+@router.post("/test-sso")
+async def test_sso_connectivity(body: TestSSORequest, request: Request) -> dict:
+    """Test SSO issuer connectivity by fetching the OIDC discovery document.
+
+    This endpoint is only available before setup is marked as completed.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    from flydesk.settings.repository import SettingsRepository
+
+    settings_repo = SettingsRepository(session_factory)
+    setup_done = await settings_repo.get_app_setting("setup_completed")
+    if setup_done == "true":
+        raise HTTPException(status_code=403, detail="Setup already completed")
+
+    from flydesk.auth.oidc import OIDCClient
+
+    client = OIDCClient(issuer_url=body.issuer_url, client_id="test", client_secret="")
+    try:
+        discovery = await client.discover()
+        return {
+            "reachable": True,
+            "issuer": discovery.issuer,
+            "authorization_endpoint": discovery.authorization_endpoint,
+            "token_endpoint": discovery.token_endpoint,
+        }
+    except Exception as exc:
+        return {"reachable": False, "error": str(exc)}
+
+
+@router.post("/configure-fqdn")
+async def configure_fqdn(body: SetupFQDNRequest, request: Request) -> dict:
+    """Configure the Fully Qualified Domain Name during first-time setup.
+
+    This endpoint is only available before setup is marked as completed.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    from flydesk.settings.repository import SettingsRepository
+
+    settings_repo = SettingsRepository(session_factory)
+    setup_done = await settings_repo.get_app_setting("setup_completed")
+    if setup_done == "true":
+        raise HTTPException(status_code=403, detail="Setup already completed")
+
+    await settings_repo.set_app_setting("fqdn", body.fqdn, category="deployment")
+    await settings_repo.set_app_setting("protocol", body.protocol, category="deployment")
+    return {"success": True, "base_url": f"{body.protocol}://{body.fqdn}"}
+
+
+@router.post("/configure-locale")
+async def configure_locale(body: SetupLocaleRequest, request: Request) -> dict:
+    """Configure locale settings during first-time setup.
+
+    This endpoint is only available before setup is marked as completed.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if not session_factory:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    from flydesk.settings.repository import SettingsRepository
+
+    settings_repo = SettingsRepository(session_factory)
+    setup_done = await settings_repo.get_app_setting("setup_completed")
+    if setup_done == "true":
+        raise HTTPException(status_code=403, detail="Setup already completed")
+
+    await settings_repo.set_app_setting("locale_language", body.language, category="locale")
+    await settings_repo.set_app_setting("locale_timezone", body.timezone, category="locale")
+    if body.country:
+        await settings_repo.set_app_setting("locale_country", body.country, category="locale")
+    return {"success": True}
 
 
 @router.get("/first-run")
