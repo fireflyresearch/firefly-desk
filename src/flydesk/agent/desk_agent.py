@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.files.repository import FileUploadRepository
+    from flydesk.settings.repository import SettingsRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 
 _logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class DeskAgent:
         agent_factory: DeskAgentFactory | None = None,
         catalog_repo: CatalogRepository | None = None,
         customization_service: AgentCustomizationService | None = None,
+        settings_repo: SettingsRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -111,6 +113,7 @@ class DeskAgent:
         self._agent_factory = agent_factory
         self._catalog_repo = catalog_repo
         self._customization_service = customization_service
+        self._settings_repo = settings_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -678,11 +681,24 @@ class DeskAgent:
             # Catalog-derived tools (external system endpoints)
             if self._catalog_repo is not None:
                 try:
-                    endpoints = await self._catalog_repo.list_endpoints()
+                    endpoints = await self._catalog_repo.list_active_endpoints()
+
+                    # Build agent_enabled map for whitelist filtering
+                    agent_enabled_map: dict[str, bool] | None = None
+                    tool_access_mode = "whitelist"
+                    if self._settings_repo is not None:
+                        mode = await self._settings_repo.get_app_setting("tool_access_mode")
+                        if mode is not None:
+                            tool_access_mode = mode
+                        systems = await self._catalog_repo.list_systems()
+                        agent_enabled_map = {s.id: s.agent_enabled for s in systems}
+
                     tools = self._tool_factory.build_tool_definitions(
                         endpoints,
                         list(session.permissions),
                         access_scopes=None if admin_user else scopes,
+                        tool_access_mode=tool_access_mode,
+                        agent_enabled_map=agent_enabled_map,
                     )
                     _logger.debug("Loaded %d catalog tools for user %s", len(tools), session.user_id)
                 except Exception:
