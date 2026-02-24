@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import secrets
 from functools import lru_cache
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -87,8 +87,11 @@ class DeskConfig(BaseSettings):
 
     # -- Security --
     credential_encryption_key: str = ""
+    jwt_secret_key: str = ""
     audit_retention_days: int = 365
     rate_limit_per_user: int = 60
+
+    _cached_jwt_secret: ClassVar[str | None] = None
 
     # -- Analysis --
     auto_analyze: bool = False
@@ -115,6 +118,19 @@ class DeskConfig(BaseSettings):
     app_title: str = "Firefly Desk"
     app_logo_url: str | None = None
     accent_color: str = "#2563EB"
+
+    @property
+    def effective_jwt_secret(self) -> str:
+        """Return the JWT signing secret, generating one if not configured.
+
+        Unlike ``effective_encryption_key``, this value is cached so that all
+        tokens issued during the process lifetime can be verified.
+        """
+        if self.jwt_secret_key:
+            return self.jwt_secret_key
+        if self._cached_jwt_secret is None:
+            object.__setattr__(self, "_cached_jwt_secret", secrets.token_urlsafe(32))
+        return self._cached_jwt_secret  # type: ignore[return-value]
 
     @property
     def effective_encryption_key(self) -> str:
