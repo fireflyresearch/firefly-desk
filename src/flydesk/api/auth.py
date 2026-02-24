@@ -2,7 +2,7 @@
 #
 # Licensed under the Apache License, Version 2.0
 
-"""Auth API -- OIDC login flow, logout, and provider listing."""
+"""Auth API -- OIDC login flow, local login, logout, and provider listing."""
 
 from __future__ import annotations
 
@@ -60,9 +60,34 @@ class UserInfoResponse(BaseModel):
     claims: dict[str, Any]
 
 
+class LocalLoginRequest(BaseModel):
+    """Credentials for local (username + password) authentication."""
+
+    username: str
+    password: str
+
+
+class LocalLoginResponse(BaseModel):
+    """Response after successful local login."""
+
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int = 86400
+
+
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
+
+
+def get_local_user_repo():
+    """Provide a LocalUserRepository instance.
+
+    In production this is wired in the lifespan.
+    """
+    raise NotImplementedError(
+        "get_local_user_repo must be overridden via app.dependency_overrides"
+    )
 
 
 def get_oidc_repo() -> OIDCProviderRepository:
@@ -281,6 +306,47 @@ async def auth_callback(
         expires_in=expires_in,
         user_info=user_info,
     )
+
+
+@router.post("/login", response_model=LocalLoginResponse)
+async def local_login(
+    body: LocalLoginRequest,
+    response: Response,
+    local_user_repo=Depends(get_local_user_repo),
+) -> LocalLoginResponse:
+    """Authenticate with a local username and password.
+
+    On success, issues a locally-signed JWT and sets a session cookie.
+    """
+    from flydesk.auth.jwt_local import create_local_jwt
+    from flydesk.auth.password import verify_password
+
+    user = await local_user_repo.get_by_username(body.username)
+    if not user or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    config = get_config()
+    token = create_local_jwt(
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        roles=[user.role],
+        secret_key=config.effective_jwt_secret,
+    )
+
+    response.set_cookie(
+        key="flydesk_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=86400,
+        path="/",
+    )
+
+    return LocalLoginResponse(access_token=token)
 
 
 @router.post("/logout")
