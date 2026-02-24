@@ -9,9 +9,9 @@
 -->
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { fade } from 'svelte/transition';
 	import {
 		ArrowLeft,
-		ArrowLeftRight,
 		MessageSquare,
 		LayoutDashboard,
 		Database,
@@ -44,8 +44,7 @@
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
-		{ href: '/admin/sso', label: 'SSO', icon: Shield },
-		{ href: '/admin/sso-mappings', label: 'SSO Mappings', icon: ArrowLeftRight }
+		{ href: '/admin/sso', label: 'Single Sign-On', icon: Shield }
 	];
 
 	let currentPath = $derived($page.url.pathname);
@@ -94,7 +93,11 @@
 
 		<!-- Content area -->
 		<div class="flex-1 overflow-y-auto">
-			{@render children()}
+			{#key currentPath}
+				<div in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
+					{@render children()}
+				</div>
+			{/key}
 		</div>
 	</div>
 {:else}
