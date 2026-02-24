@@ -57,6 +57,7 @@ CUSTOMER_SERVICE = ExternalSystem(
     health_check_path="/health",
     tags=["core", "customers", "accounts"],
     status=SystemStatus.ACTIVE,
+    agent_enabled=True,
     metadata={"owner": "retail-platform-team", "tier": "1"},
 )
 
@@ -77,6 +78,7 @@ PRODUCT_CATALOG = ExternalSystem(
     health_check_path="/health",
     tags=["products", "eligibility"],
     status=SystemStatus.ACTIVE,
+    agent_enabled=True,
     metadata={"owner": "product-team", "tier": "2"},
 )
 
@@ -98,6 +100,7 @@ TRANSACTION_LEDGER = ExternalSystem(
     health_check_path="/health",
     tags=["transactions", "ledger", "statements"],
     status=SystemStatus.ACTIVE,
+    agent_enabled=True,
     metadata={"owner": "core-banking-team", "tier": "1"},
 )
 
@@ -117,6 +120,7 @@ SUPPORT_TICKETS = ExternalSystem(
     health_check_path="/health",
     tags=["support", "tickets"],
     status=SystemStatus.ACTIVE,
+    agent_enabled=True,
     metadata={"owner": "support-engineering", "tier": "2"},
 )
 
@@ -137,6 +141,7 @@ NOTIFICATIONS = ExternalSystem(
     health_check_path="/health",
     tags=["notifications", "email", "sms"],
     status=SystemStatus.ACTIVE,
+    agent_enabled=True,
     metadata={"owner": "messaging-team", "tier": "2"},
 )
 
