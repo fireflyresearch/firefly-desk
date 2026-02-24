@@ -129,6 +129,39 @@ class TestLocalUserRepository:
         )
         assert await repo.count_users() == 2
 
+    async def test_get_by_email(self, repo: LocalUserRepository):
+        """get_by_email() retrieves the correct user."""
+        await repo.create_user(
+            username="admin",
+            email="admin@example.com",
+            display_name="Admin",
+            password_hash=hash_password("pass"),
+        )
+        result = await repo.get_by_email("admin@example.com")
+        assert result is not None
+        assert result.username == "admin"
+
+    async def test_get_by_email_case_insensitive(self, repo: LocalUserRepository):
+        """get_by_email() performs case-insensitive matching."""
+        await repo.create_user(
+            username="admin",
+            email="Admin@Example.COM",
+            display_name="Admin",
+            password_hash=hash_password("pass"),
+        )
+        result = await repo.get_by_email("admin@example.com")
+        assert result is not None
+        assert result.username == "admin"
+
+        result_upper = await repo.get_by_email("ADMIN@EXAMPLE.COM")
+        assert result_upper is not None
+        assert result_upper.username == "admin"
+
+    async def test_get_by_email_not_found(self, repo: LocalUserRepository):
+        """get_by_email() returns None for a nonexistent email."""
+        result = await repo.get_by_email("nobody@example.com")
+        assert result is None
+
     async def test_unique_username_constraint(self, repo: LocalUserRepository):
         """Creating two users with the same username raises an error."""
         await repo.create_user(
