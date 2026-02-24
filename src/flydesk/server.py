@@ -30,6 +30,8 @@ from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
 from flydesk.api.custom_tools import router as custom_tools_router
+from flydesk.api.openapi_import import get_catalog_repo as openapi_get_catalog
+from flydesk.api.openapi_import import router as openapi_import_router
 from flydesk.api.chat import router as chat_router
 from flydesk.api.conversations import get_conversation_repo
 from flydesk.api.conversations import router as conversations_router
@@ -144,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[tools_get_catalog] = lambda: catalog_repo
+    app.dependency_overrides[openapi_get_catalog] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
     app.dependency_overrides[feedback_get_audit] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
@@ -662,5 +665,6 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(processes_router)
     app.include_router(custom_tools_router)
+    app.include_router(openapi_import_router)
 
     return app
