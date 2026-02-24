@@ -28,6 +28,8 @@ from flydesk.api.auth import router as auth_router
 from flydesk.api.catalog import get_auto_trigger as catalog_get_auto_trigger
 from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
+from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
+from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.chat import router as chat_router
 from flydesk.api.conversations import get_conversation_repo
 from flydesk.api.conversations import router as conversations_router
@@ -138,6 +140,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     skill_repo = SkillRepository(session_factory)
     app.dependency_overrides[get_skill_repo] = lambda: skill_repo
+
+    # Custom tools repository and sandbox executor
+    from flydesk.tools.custom_repository import CustomToolRepository
+    from flydesk.tools.sandbox import SandboxExecutor
+
+    custom_tool_repo = CustomToolRepository(session_factory)
+    sandbox_executor = SandboxExecutor()
+    app.dependency_overrides[get_custom_tool_repo] = lambda: custom_tool_repo
+    app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[tools_get_catalog] = lambda: catalog_repo
@@ -656,5 +667,6 @@ def create_app() -> FastAPI:
     app.include_router(sso_mappings_router)
     app.include_router(jobs_router)
     app.include_router(processes_router)
+    app.include_router(custom_tools_router)
 
     return app
