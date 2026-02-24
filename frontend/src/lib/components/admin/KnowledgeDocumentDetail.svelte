@@ -23,6 +23,7 @@
 		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -343,14 +344,16 @@
 						/>
 					</label>
 
-					<label class="flex flex-col gap-1">
+					<div class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Content</span>
-						<textarea
-							bind:value={editForm.content}
-							rows={12}
-							class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-						></textarea>
-					</label>
+						<RichEditor
+							value={editForm.content}
+							placeholder="Enter document content..."
+							mode="full"
+							minHeight="300px"
+							onchange={(md) => (editForm.content = md)}
+						/>
+					</div>
 
 					<div class="flex justify-end gap-2 pt-1">
 						<button
@@ -441,13 +444,13 @@
 					{#if doc.content}
 						<div class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Content Preview</span>
-							<div
-								class="max-h-64 overflow-y-auto rounded-md border border-border bg-surface-secondary p-3 font-mono text-xs text-text-primary"
-							>
-								<pre class="whitespace-pre-wrap">{doc.content.slice(0, 5000)}{doc.content
-										.length > 5000
-										? '\n\n... (truncated)'
-										: ''}</pre>
+							<div class="max-h-96 overflow-y-auto">
+								<RichEditor
+									value={doc.content}
+									readonly={true}
+									mode="full"
+									minHeight="100px"
+								/>
 							</div>
 						</div>
 					{/if}
