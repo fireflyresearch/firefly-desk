@@ -42,12 +42,25 @@ class ToolFactory:
         endpoints: list[ServiceEndpoint],
         user_permissions: list[str],
         access_scopes: AccessScopes | None = None,
+        tool_access_mode: str = "whitelist",
+        agent_enabled_map: dict[str, bool] | None = None,
     ) -> list[ToolDefinition]:
         """Build tools the user is permitted to use.
 
         When *access_scopes* is provided, endpoints are additionally filtered
         so only tools belonging to allowed systems are included.  Admin users
         (wildcard permission) bypass scope checks.
+
+        *tool_access_mode* controls how *agent_enabled_map* is applied:
+
+        - ``"whitelist"`` (default) -- only endpoints whose ``system_id``
+          appears in *agent_enabled_map* with a ``True`` value are included.
+        - ``"all_enabled"`` -- every endpoint that passes permission and scope
+          checks is included, regardless of the map.
+
+        When *agent_enabled_map* is ``None`` the whitelist check is skipped
+        entirely, preserving backward compatibility for callers that do not
+        supply the map.
         """
         return [
             self._to_definition(ep)
@@ -57,6 +70,11 @@ class ToolFactory:
                 access_scopes is None
                 or "*" in user_permissions
                 or access_scopes.can_access_system(ep.system_id)
+            )
+            and (
+                agent_enabled_map is None
+                or tool_access_mode != "whitelist"
+                or agent_enabled_map.get(ep.system_id, False)
             )
         ]
 
