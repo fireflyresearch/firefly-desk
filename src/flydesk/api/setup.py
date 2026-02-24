@@ -342,6 +342,7 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
                 llm_repo=None,  # type: ignore[arg-type]
                 api_key=body.api_key or None,
                 base_url=body.base_url or None,
+                raise_on_error=True,
             )
 
             start = time.monotonic()
@@ -350,14 +351,14 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
 
             vec = vectors[0]
             if all(v == 0.0 for v in vec):
+                hint = "the API key is missing or invalid"
+                if not body.api_key and body.provider != "ollama":
+                    hint = "no API key was provided"
                 return TestEmbeddingResult(
                     success=False,
                     dimensions=0,
                     duration_ms=elapsed_ms,
-                    error=(
-                        "Embedding returned empty results. This usually means "
-                        "the API key is missing or invalid for the selected provider."
-                    ),
+                    error=f"Embedding returned zero vectors. Check that {hint} for the selected provider.",
                 )
 
             return TestEmbeddingResult(

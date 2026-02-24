@@ -52,6 +52,7 @@ _ENV_KEYS: dict[str, str] = {
 # Map embedding provider names to LLM ProviderType values for key reuse
 _LLM_PROVIDER_MAP: dict[str, str] = {
     "openai": "openai",
+    "voyage": "voyage",
     "google": "google",
     "ollama": "ollama",
     "azure": "azure_openai",
@@ -73,6 +74,7 @@ class LLMEmbeddingProvider:
         llm_repo: LLMProviderRepository,
         api_key: str | None = None,
         base_url: str | None = None,
+        raise_on_error: bool = False,
     ) -> None:
         parts = embedding_model.split(":", 1)
         if len(parts) != 2:
@@ -87,6 +89,7 @@ class LLMEmbeddingProvider:
         self._llm_repo = llm_repo
         self._explicit_key = api_key
         self._base_url_override = base_url
+        self._raise_on_error = raise_on_error
         self._resolved_key: str | None = None
         self._key_resolved = False
 
@@ -171,6 +174,8 @@ class LLMEmbeddingProvider:
                 self._provider,
                 exc.response.text[:200],
             )
+            if self._raise_on_error:
+                raise
             return [[0.0] * self._dimensions for _ in texts]
         except Exception:
             _logger.error(
@@ -178,6 +183,8 @@ class LLMEmbeddingProvider:
                 self._provider,
                 exc_info=True,
             )
+            if self._raise_on_error:
+                raise
             return [[0.0] * self._dimensions for _ in texts]
 
     # ------------------------------------------------------------------
@@ -197,7 +204,10 @@ class LLMEmbeddingProvider:
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            if self._provider == "azure":
+                headers["api-key"] = api_key
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
 
         all_embeddings: list[list[float]] = []
         batch_size = 96  # safe batch size for all providers
@@ -208,9 +218,10 @@ class LLMEmbeddingProvider:
                 "input": batch,
                 "model": self._model,
             }
-            # OpenAI and Voyage support the dimensions parameter
-            if self._provider in ("openai", "voyage") and self._dimensions:
+            if self._provider in ("openai", "azure") and self._dimensions:
                 payload["dimensions"] = self._dimensions
+            elif self._provider == "voyage" and self._dimensions:
+                payload["output_dimension"] = self._dimensions
 
             resp = await self._http_client.post(
                 url, json=payload, headers=headers, timeout=30.0
@@ -237,13 +248,15 @@ class LLMEmbeddingProvider:
 
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            requests_list = [
-                {
+            requests_list = []
+            for t in batch:
+                req: dict = {
                     "model": f"models/{self._model}",
                     "content": {"parts": [{"text": t}]},
                 }
-                for t in batch
-            ]
+                if self._dimensions:
+                    req["outputDimensionality"] = self._dimensions
+                requests_list.append(req)
 
             resp = await self._http_client.post(
                 url,

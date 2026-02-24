@@ -10,7 +10,6 @@
 
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
-import { conversations } from './chat.js';
 
 const STORAGE_KEY = 'firefly_sidebar_open';
 
@@ -31,12 +30,13 @@ sidebarOpen.subscribe((value) => {
 });
 
 /**
- * Effective sidebar visibility — auto-hides when there are no conversations
- * since showing an empty sidebar wastes space.
+ * Effective sidebar visibility — tracks whether the user wants the sidebar open.
+ * The sidebar always renders when open (even with 0 conversations) so users
+ * can start a new conversation.
  */
 export const effectiveSidebarOpen = derived(
-	[sidebarOpen, conversations],
-	([$sidebarOpen, $conversations]) => $sidebarOpen && $conversations.length > 0
+	sidebarOpen,
+	($sidebarOpen) => $sidebarOpen
 );
 
 /** Toggle the sidebar open/closed state. */
