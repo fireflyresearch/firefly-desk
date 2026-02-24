@@ -36,18 +36,28 @@ class VaultKMSProvider:
         self._mount = mount_point
 
     def encrypt(self, plaintext: str) -> str:
-        b64 = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
-        result = self._client.secrets.transit.encrypt_data(
-            name=self._key,
-            plaintext=b64,
-            mount_point=self._mount,
-        )
-        return result["data"]["ciphertext"]
+        try:
+            b64 = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+            result = self._client.secrets.transit.encrypt_data(
+                name=self._key,
+                plaintext=b64,
+                mount_point=self._mount,
+            )
+            return result["data"]["ciphertext"]
+        except Exception as exc:
+            logger.error("Vault Transit encryption failed: %s", exc)
+            raise ValueError(f"Vault Transit encryption failed: {exc}") from exc
 
     def decrypt(self, ciphertext: str) -> str:
-        result = self._client.secrets.transit.decrypt_data(
-            name=self._key,
-            ciphertext=ciphertext,
-            mount_point=self._mount,
-        )
-        return base64.b64decode(result["data"]["plaintext"]).decode("utf-8")
+        try:
+            result = self._client.secrets.transit.decrypt_data(
+                name=self._key,
+                ciphertext=ciphertext,
+                mount_point=self._mount,
+            )
+            return base64.b64decode(result["data"]["plaintext"]).decode("utf-8")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.error("Vault Transit decryption failed: %s", exc)
+            raise ValueError(f"Vault Transit decryption failed: {exc}") from exc

@@ -35,9 +35,19 @@ class AzureKeyVaultProvider:
         self._algorithm = EncryptionAlgorithm.rsa_oaep_256
 
     def encrypt(self, plaintext: str) -> str:
-        result = self._crypto.encrypt(self._algorithm, plaintext.encode("utf-8"))
-        return base64.b64encode(result.ciphertext).decode("ascii")
+        try:
+            result = self._crypto.encrypt(self._algorithm, plaintext.encode("utf-8"))
+            return base64.b64encode(result.ciphertext).decode("ascii")
+        except Exception as exc:
+            logger.error("Azure Key Vault encryption failed: %s", exc)
+            raise ValueError(f"Azure Key Vault encryption failed: {exc}") from exc
 
     def decrypt(self, ciphertext: str) -> str:
-        result = self._crypto.decrypt(self._algorithm, base64.b64decode(ciphertext))
-        return result.plaintext.decode("utf-8")
+        try:
+            result = self._crypto.decrypt(self._algorithm, base64.b64decode(ciphertext))
+            return result.plaintext.decode("utf-8")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.error("Azure Key Vault decryption failed: %s", exc)
+            raise ValueError(f"Azure Key Vault decryption failed: {exc}") from exc

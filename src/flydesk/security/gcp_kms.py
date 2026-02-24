@@ -29,13 +29,23 @@ class GCPKMSProvider:
         self._key_name = key_name
 
     def encrypt(self, plaintext: str) -> str:
-        response = self._client.encrypt(
-            request={"name": self._key_name, "plaintext": plaintext.encode("utf-8")},
-        )
-        return base64.b64encode(response.ciphertext).decode("ascii")
+        try:
+            response = self._client.encrypt(
+                request={"name": self._key_name, "plaintext": plaintext.encode("utf-8")},
+            )
+            return base64.b64encode(response.ciphertext).decode("ascii")
+        except Exception as exc:
+            logger.error("GCP KMS encryption failed: %s", exc)
+            raise ValueError(f"GCP KMS encryption failed: {exc}") from exc
 
     def decrypt(self, ciphertext: str) -> str:
-        response = self._client.decrypt(
-            request={"name": self._key_name, "ciphertext": base64.b64decode(ciphertext)},
-        )
-        return response.plaintext.decode("utf-8")
+        try:
+            response = self._client.decrypt(
+                request={"name": self._key_name, "ciphertext": base64.b64decode(ciphertext)},
+            )
+            return response.plaintext.decode("utf-8")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.error("GCP KMS decryption failed: %s", exc)
+            raise ValueError(f"GCP KMS decryption failed: {exc}") from exc

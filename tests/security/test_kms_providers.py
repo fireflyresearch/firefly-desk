@@ -375,3 +375,247 @@ class TestCreateKmsProvider:
             from flydesk.security.vault_kms import VaultKMSProvider
 
             assert isinstance(kms, VaultKMSProvider)
+
+    def test_unknown_provider_logs_warning(self):
+        config = SimpleNamespace(kms_provider="unknown-xyz", credential_encryption_key="")
+        with patch("flydesk.security.kms.logger") as mock_logger:
+            kms = create_kms_provider(config)
+            assert isinstance(kms, FernetKMSProvider)
+            mock_logger.warning.assert_called_once_with(
+                "Unknown kms_provider=%r; falling back to Fernet.", "unknown-xyz"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Error handling: SDK errors wrapped as ValueError
+# ---------------------------------------------------------------------------
+
+
+class TestProviderErrorHandling:
+    """Verify SDK exceptions are wrapped in ValueError."""
+
+    def test_aws_encrypt_error_raises_valueerror(self):
+        with patch.dict("sys.modules", {"boto3": MagicMock()}):
+            from flydesk.security.aws_kms import AWSKMSProvider
+
+            provider = AWSKMSProvider.__new__(AWSKMSProvider)
+            provider._client = MagicMock()
+            provider._key_arn = "arn:test"
+            provider._client.encrypt.side_effect = RuntimeError("AWS SDK error")
+
+            with pytest.raises(ValueError, match="AWS KMS encryption failed"):
+                provider.encrypt("secret")
+
+    def test_aws_decrypt_error_raises_valueerror(self):
+        with patch.dict("sys.modules", {"boto3": MagicMock()}):
+            from flydesk.security.aws_kms import AWSKMSProvider
+
+            provider = AWSKMSProvider.__new__(AWSKMSProvider)
+            provider._client = MagicMock()
+            provider._key_arn = "arn:test"
+            provider._client.decrypt.side_effect = RuntimeError("AWS SDK error")
+
+            with pytest.raises(ValueError, match="AWS KMS decryption failed"):
+                provider.decrypt(base64.b64encode(b"data").decode())
+
+    def test_aws_decrypt_reraises_valueerror(self):
+        """ValueError from our own wrapping should not be double-wrapped."""
+        with patch.dict("sys.modules", {"boto3": MagicMock()}):
+            from flydesk.security.aws_kms import AWSKMSProvider
+
+            provider = AWSKMSProvider.__new__(AWSKMSProvider)
+            provider._client = MagicMock()
+            provider._key_arn = "arn:test"
+            provider._client.decrypt.side_effect = ValueError("original error")
+
+            with pytest.raises(ValueError, match="original error"):
+                provider.decrypt(base64.b64encode(b"data").decode())
+
+    def test_gcp_encrypt_error_raises_valueerror(self):
+        from flydesk.security.gcp_kms import GCPKMSProvider
+
+        provider = GCPKMSProvider.__new__(GCPKMSProvider)
+        provider._client = MagicMock()
+        provider._key_name = "projects/p/locations/l/keyRings/kr/cryptoKeys/ck"
+        provider._client.encrypt.side_effect = RuntimeError("GCP error")
+
+        with pytest.raises(ValueError, match="GCP KMS encryption failed"):
+            provider.encrypt("secret")
+
+    def test_gcp_decrypt_error_raises_valueerror(self):
+        from flydesk.security.gcp_kms import GCPKMSProvider
+
+        provider = GCPKMSProvider.__new__(GCPKMSProvider)
+        provider._client = MagicMock()
+        provider._key_name = "projects/p/locations/l/keyRings/kr/cryptoKeys/ck"
+        provider._client.decrypt.side_effect = RuntimeError("GCP error")
+
+        with pytest.raises(ValueError, match="GCP KMS decryption failed"):
+            provider.decrypt(base64.b64encode(b"data").decode())
+
+    def test_azure_encrypt_error_raises_valueerror(self):
+        from flydesk.security.azure_kv import AzureKeyVaultProvider
+
+        provider = AzureKeyVaultProvider.__new__(AzureKeyVaultProvider)
+        provider._crypto = MagicMock()
+        provider._algorithm = "RSA-OAEP-256"
+        provider._crypto.encrypt.side_effect = RuntimeError("Azure error")
+
+        with pytest.raises(ValueError, match="Azure Key Vault encryption failed"):
+            provider.encrypt("secret")
+
+    def test_azure_decrypt_error_raises_valueerror(self):
+        from flydesk.security.azure_kv import AzureKeyVaultProvider
+
+        provider = AzureKeyVaultProvider.__new__(AzureKeyVaultProvider)
+        provider._crypto = MagicMock()
+        provider._algorithm = "RSA-OAEP-256"
+        provider._crypto.decrypt.side_effect = RuntimeError("Azure error")
+
+        with pytest.raises(ValueError, match="Azure Key Vault decryption failed"):
+            provider.decrypt(base64.b64encode(b"data").decode())
+
+    def test_vault_encrypt_error_raises_valueerror(self):
+        from flydesk.security.vault_kms import VaultKMSProvider
+
+        provider = VaultKMSProvider.__new__(VaultKMSProvider)
+        provider._client = MagicMock()
+        provider._key = "flydesk"
+        provider._mount = "transit"
+        provider._client.secrets.transit.encrypt_data.side_effect = RuntimeError("Vault error")
+
+        with pytest.raises(ValueError, match="Vault Transit encryption failed"):
+            provider.encrypt("secret")
+
+    def test_vault_decrypt_error_raises_valueerror(self):
+        from flydesk.security.vault_kms import VaultKMSProvider
+
+        provider = VaultKMSProvider.__new__(VaultKMSProvider)
+        provider._client = MagicMock()
+        provider._key = "flydesk"
+        provider._mount = "transit"
+        provider._client.secrets.transit.decrypt_data.side_effect = RuntimeError("Vault error")
+
+        with pytest.raises(ValueError, match="Vault Transit decryption failed"):
+            provider.decrypt("vault:v1:something")
+
+
+# ---------------------------------------------------------------------------
+# Config validation in create_kms_provider
+# ---------------------------------------------------------------------------
+
+
+class TestCreateKmsProviderConfigValidation:
+    """Verify missing config fields raise ValueError."""
+
+    def test_aws_missing_key_arn(self):
+        config = SimpleNamespace(kms_provider="aws", aws_kms_key_arn="")
+        with pytest.raises(ValueError, match="FLYDESK_AWS_KMS_KEY_ARN must be set"):
+            create_kms_provider(config)
+
+    def test_aws_missing_key_arn_attr(self):
+        config = SimpleNamespace(kms_provider="aws")
+        with pytest.raises(ValueError, match="FLYDESK_AWS_KMS_KEY_ARN must be set"):
+            create_kms_provider(config)
+
+    def test_gcp_missing_key_name(self):
+        config = SimpleNamespace(kms_provider="gcp", gcp_kms_key_name="")
+        with pytest.raises(ValueError, match="FLYDESK_GCP_KMS_KEY_NAME must be set"):
+            create_kms_provider(config)
+
+    def test_azure_missing_vault_url(self):
+        config = SimpleNamespace(kms_provider="azure", azure_vault_url="", azure_key_name="key")
+        with pytest.raises(ValueError, match="FLYDESK_AZURE_VAULT_URL and FLYDESK_AZURE_KEY_NAME"):
+            create_kms_provider(config)
+
+    def test_azure_missing_key_name(self):
+        config = SimpleNamespace(
+            kms_provider="azure", azure_vault_url="https://vault.azure.net", azure_key_name=""
+        )
+        with pytest.raises(ValueError, match="FLYDESK_AZURE_VAULT_URL and FLYDESK_AZURE_KEY_NAME"):
+            create_kms_provider(config)
+
+    def test_vault_missing_url(self):
+        config = SimpleNamespace(kms_provider="vault", vault_url="", vault_token="tok")
+        with pytest.raises(ValueError, match="FLYDESK_VAULT_URL and FLYDESK_VAULT_TOKEN"):
+            create_kms_provider(config)
+
+    def test_vault_missing_token(self):
+        config = SimpleNamespace(kms_provider="vault", vault_url="http://vault:8200", vault_token="")
+        with pytest.raises(ValueError, match="FLYDESK_VAULT_URL and FLYDESK_VAULT_TOKEN"):
+            create_kms_provider(config)
+
+
+# ---------------------------------------------------------------------------
+# ImportError handling in create_kms_provider
+# ---------------------------------------------------------------------------
+
+
+class TestCreateKmsProviderImportErrors:
+    """Verify missing SDK packages raise ImportError with install instructions."""
+
+    def test_aws_missing_sdk(self):
+        config = SimpleNamespace(
+            kms_provider="aws",
+            aws_kms_key_arn="arn:aws:kms:us-east-1:000:key/abc",
+            aws_kms_region="us-east-1",
+        )
+        # Block both the SDK and the provider module so the factory import fails
+        with patch.dict(
+            "sys.modules",
+            {"boto3": None, "flydesk.security.aws_kms": None},
+        ):
+            with pytest.raises(ImportError, match="pip install flydesk\\[aws-kms\\]"):
+                create_kms_provider(config)
+
+    def test_gcp_missing_sdk(self):
+        config = SimpleNamespace(
+            kms_provider="gcp",
+            gcp_kms_key_name="projects/p/locations/l/keyRings/kr/cryptoKeys/ck",
+        )
+        with patch.dict(
+            "sys.modules",
+            {
+                "google": None,
+                "google.cloud": None,
+                "google.cloud.kms": None,
+                "flydesk.security.gcp_kms": None,
+            },
+        ):
+            with pytest.raises(ImportError, match="pip install flydesk\\[gcp-kms\\]"):
+                create_kms_provider(config)
+
+    def test_azure_missing_sdk(self):
+        config = SimpleNamespace(
+            kms_provider="azure",
+            azure_vault_url="https://myvault.vault.azure.net",
+            azure_key_name="my-key",
+        )
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure": None,
+                "azure.identity": None,
+                "azure.keyvault": None,
+                "azure.keyvault.keys": None,
+                "azure.keyvault.keys.crypto": None,
+                "flydesk.security.azure_kv": None,
+            },
+        ):
+            with pytest.raises(ImportError, match="pip install flydesk\\[azure-kms\\]"):
+                create_kms_provider(config)
+
+    def test_vault_missing_sdk(self):
+        config = SimpleNamespace(
+            kms_provider="vault",
+            vault_url="http://vault:8200",
+            vault_token="s.mytoken",
+            vault_transit_key="flydesk",
+            vault_mount_point="transit",
+        )
+        with patch.dict(
+            "sys.modules",
+            {"hvac": None, "flydesk.security.vault_kms": None},
+        ):
+            with pytest.raises(ImportError, match="pip install flydesk\\[vault\\]"):
+                create_kms_provider(config)
