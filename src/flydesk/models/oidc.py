@@ -35,6 +35,7 @@ class OIDCProviderRow(Base):
     client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     tenant_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     scopes: Mapped[list | None] = mapped_column(_JSON, nullable=True)
+    allowed_email_domains: Mapped[list | None] = mapped_column(_JSON, nullable=True)
     roles_claim: Mapped[str | None] = mapped_column(String(255), nullable=True)
     permissions_claim: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
