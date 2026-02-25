@@ -28,6 +28,7 @@ class EnrichedContext:
     knowledge_snippets: list[RetrievalResult] = field(default_factory=list)
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     relevant_processes: list[Any] = field(default_factory=list)
+    user_memories: list[Any] = field(default_factory=list)
 
 
 class ContextEnricher:
@@ -43,12 +44,14 @@ class ContextEnricher:
         knowledge_graph: KnowledgeGraph,
         retriever: KnowledgeRetriever,
         process_repo: ProcessRepository | None = None,
+        memory_repo: Any | None = None,
         entity_limit: int = 5,
         retrieval_top_k: int = 3,
     ) -> None:
         self._knowledge_graph = knowledge_graph
         self._retriever = retriever
         self._process_repo = process_repo
+        self._memory_repo = memory_repo
         self._entity_limit = entity_limit
         self._retrieval_top_k = retrieval_top_k
 
@@ -58,6 +61,7 @@ class ContextEnricher:
         *,
         conversation_history: list[dict[str, str]] | None = None,
         knowledge_tag_filter: list[str] | None = None,
+        user_id: str | None = None,
     ) -> EnrichedContext:
         """Build an enriched context for the given user message.
 
@@ -70,13 +74,15 @@ class ContextEnricher:
                 be fetched automatically; for now callers may pass it in.
             knowledge_tag_filter: When set, only retrieval results from
                 documents whose tags overlap with this list are included.
+            user_id: When set, user memories matching the message are
+                included in the enriched context.
 
         Returns:
             A fully populated ``EnrichedContext``.
         """
         try:
             async with asyncio.timeout(10):
-                entities, snippets, processes = await asyncio.gather(
+                entities, snippets, processes, memories = await asyncio.gather(
                     self._knowledge_graph.find_relevant_entities(
                         message, limit=self._entity_limit
                     ),
@@ -86,6 +92,7 @@ class ContextEnricher:
                         tag_filter=knowledge_tag_filter,
                     ),
                     self._search_processes(message),
+                    self._search_memories(message, user_id),
                 )
         except (TimeoutError, Exception):
             # Context enrichment is non-fatal; return empty context rather
@@ -93,12 +100,14 @@ class ContextEnricher:
             entities = []
             snippets = []
             processes = []
+            memories = []
 
         return EnrichedContext(
             relevant_entities=entities,
             knowledge_snippets=snippets,
             conversation_history=conversation_history or [],
             relevant_processes=processes,
+            user_memories=memories,
         )
 
     async def _search_processes(self, message: str) -> list[Any]:
@@ -132,3 +141,12 @@ class ContextEnricher:
 
         matches.sort(key=lambda x: x[0], reverse=True)
         return [proc for _score, proc in matches[:3]]
+
+    async def _search_memories(self, message: str, user_id: str | None) -> list[Any]:
+        """Search user memories matching the message."""
+        if self._memory_repo is None or user_id is None:
+            return []
+        try:
+            return await self._memory_repo.search(user_id, message)
+        except Exception:
+            return []

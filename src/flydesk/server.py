@@ -65,6 +65,8 @@ from flydesk.api.knowledge import (
     get_knowledge_indexer,
 )
 from flydesk.api.knowledge import router as knowledge_router
+from flydesk.api.memory import get_memory_repo
+from flydesk.api.memory import router as memory_router
 from flydesk.api.llm_providers import get_llm_repo
 from flydesk.api.llm_providers import router as llm_providers_router
 from flydesk.api.llm_status import get_llm_repo as llm_status_get_llm_repo
@@ -142,6 +144,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[prompts_get_settings] = lambda: settings_repo
     app.dependency_overrides[tools_get_settings] = lambda: settings_repo
     app.dependency_overrides[sso_mappings_get_settings] = lambda: settings_repo
+
+    # User memory repository
+    from flydesk.memory.repository import MemoryRepository
+
+    memory_repo = MemoryRepository(session_factory)
+    app.dependency_overrides[get_memory_repo] = lambda: memory_repo
+    app.state.memory_repo = memory_repo
 
     # Custom tools repository and sandbox executor
     from flydesk.tools.custom_repository import CustomToolRepository
@@ -336,6 +345,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     context_enricher = ContextEnricher(
         knowledge_graph=knowledge_graph,
         retriever=retriever,
+        memory_repo=memory_repo,
         entity_limit=config.kg_max_entities_in_context,
         retrieval_top_k=config.rag_top_k,
     )
@@ -378,6 +388,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audit_logger=audit_logger,
         knowledge_retriever=retriever,
         process_repo=process_repo,
+        memory_repo=memory_repo,
     )
 
     # Wire document tool executor into built-in tools
@@ -718,5 +729,6 @@ def create_app() -> FastAPI:
     app.include_router(git_import_router)
     app.include_router(git_providers_router)
     app.include_router(help_docs_router)
+    app.include_router(memory_router)
 
     return app

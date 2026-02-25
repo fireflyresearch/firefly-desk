@@ -113,11 +113,13 @@ class TestBuiltinToolRegistry:
         assert "search_processes" in names
 
     def test_viewer_gets_platform_status_and_transform_tools(self):
-        """User with no special permissions gets platform status + transform tools."""
+        """User with no special permissions gets platform status + memory + transform tools."""
         tools = BuiltinToolRegistry.get_tool_definitions([])
         names = {t.name for t in tools}
         assert names == {
             "get_platform_status",
+            "save_memory",
+            "recall_memories",
             "grep_result",
             "parse_json",
             "filter_rows",

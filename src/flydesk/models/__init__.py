@@ -26,6 +26,7 @@ from flydesk.models.oidc import OIDCProviderRow
 from flydesk.models.role import RoleRow
 from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.models.user_role import UserRoleRow
+from flydesk.models.user_memory import UserMemoryRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
 
 __all__ = [
@@ -55,6 +56,7 @@ __all__ = [
     "RoleRow",
     "ServiceEndpointRow",
     "SSOIdentityRow",
+    "UserMemoryRow",
     "UserRoleRow",
     "UserSettingRow",
 ]
