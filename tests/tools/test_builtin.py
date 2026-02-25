@@ -60,6 +60,7 @@ def catalog_repo() -> MagicMock:
     mock = MagicMock()
     mock.list_systems = AsyncMock(return_value=[_make_system()])
     mock.list_endpoints = AsyncMock(return_value=[_make_endpoint()])
+    mock.list_active_endpoints = AsyncMock(return_value=[_make_endpoint()])
     return mock
 
 
@@ -205,13 +206,16 @@ class TestListEndpoints:
         assert result["count"] == 1
         assert result["endpoints"][0]["name"] == "Get Orders"
         assert result["endpoints"][0]["method"] == "GET"
+        catalog_repo.list_endpoints.assert_awaited_once_with("sys-1")
 
     async def test_filters_by_system_id(self, executor, catalog_repo):
-        """Endpoints from other systems are not returned."""
+        """Filtering is done at the DB level via system_id argument."""
+        catalog_repo.list_endpoints.return_value = []
         result = await executor.execute(
             "list_system_endpoints", {"system_id": "sys-other"}
         )
         assert result["count"] == 0
+        catalog_repo.list_endpoints.assert_awaited_once_with("sys-other")
 
     async def test_missing_system_id_returns_error(self, executor):
         result = await executor.execute("list_system_endpoints", {})
@@ -271,6 +275,7 @@ class TestPlatformStatus:
         assert result["endpoints_count"] == 1
         assert len(result["systems"]) == 1
         assert result["systems"][0]["name"] == "System sys-1"
+        catalog_repo.list_active_endpoints.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

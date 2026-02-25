@@ -274,19 +274,25 @@ class BuiltinToolRegistry:
         if has_all or "audit:read" in user_permissions:
             tools.append(_query_audit_log_tool())
 
-        # Document tools (require knowledge:read or *)
+        # Document read tools (require knowledge:read or *)
         if has_all or "knowledge:read" in user_permissions:
             from flydesk.tools.document_tools import (
                 document_convert_tool,
-                document_create_tool,
-                document_modify_tool,
                 document_read_tool,
             )
 
             tools.append(document_read_tool())
+            tools.append(document_convert_tool())
+
+        # Document write tools (require knowledge:write or *)
+        if has_all or "knowledge:write" in user_permissions:
+            from flydesk.tools.document_tools import (
+                document_create_tool,
+                document_modify_tool,
+            )
+
             tools.append(document_create_tool())
             tools.append(document_modify_tool())
-            tools.append(document_convert_tool())
 
         # Transform tools (always available — no permission requirement)
         from flydesk.tools.transform_tools import (
@@ -427,8 +433,7 @@ class BuiltinToolExecutor:
         if not system_id:
             return {"error": "system_id is required"}
 
-        endpoints = await self._catalog_repo.list_endpoints()
-        filtered = [e for e in endpoints if e.system_id == system_id]
+        endpoints = await self._catalog_repo.list_endpoints(system_id)
 
         return {
             "system_id": system_id,
@@ -442,9 +447,9 @@ class BuiltinToolExecutor:
                     "risk_level": e.risk_level.value,
                     "protocol": getattr(e, "protocol_type", "rest"),
                 }
-                for e in filtered
+                for e in endpoints
             ],
-            "count": len(filtered),
+            "count": len(endpoints),
         }
 
     async def _create_catalog_system(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -628,7 +633,7 @@ class BuiltinToolExecutor:
 
     async def _platform_status(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         systems = await self._catalog_repo.list_systems()
-        endpoints = await self._catalog_repo.list_endpoints()
+        endpoints = await self._catalog_repo.list_active_endpoints()
 
         return {
             "systems_count": len(systems),
