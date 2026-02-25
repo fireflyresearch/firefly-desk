@@ -42,6 +42,7 @@ class Permission(StrEnum):
     ADMIN_SSO = "admin:sso"
     ADMIN_LLM = "admin:llm"
     ADMIN_DASHBOARD = "admin:dashboard"
+    ADMIN_GIT_PROVIDERS = "admin:git_providers"
 
 
 BUILTIN_ROLES: list[Role] = [
