@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.knowledge.retriever import KnowledgeRetriever
     from flydesk.processes.repository import ProcessRepository
+    from flydesk.tools.document_tools import DocumentToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,20 @@ class BuiltinToolRegistry:
         if has_all or "audit:read" in user_permissions:
             tools.append(_query_audit_log_tool())
 
+        # Document tools (require knowledge:read or *)
+        if has_all or "knowledge:read" in user_permissions:
+            from flydesk.tools.document_tools import (
+                document_convert_tool,
+                document_create_tool,
+                document_modify_tool,
+                document_read_tool,
+            )
+
+            tools.append(document_read_tool())
+            tools.append(document_create_tool())
+            tools.append(document_modify_tool())
+            tools.append(document_convert_tool())
+
         return tools
 
 
@@ -217,9 +232,18 @@ class BuiltinToolExecutor:
         self._audit_logger = audit_logger
         self._knowledge_retriever = knowledge_retriever
         self._process_repo = process_repo
+        self._doc_executor: DocumentToolExecutor | None = None
+
+    def set_document_executor(self, executor: DocumentToolExecutor) -> None:
+        """Attach a :class:`DocumentToolExecutor` for document operations."""
+        self._doc_executor = executor
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a built-in tool and return a result dict."""
+        # Delegate document_* tools to the dedicated executor
+        if tool_name.startswith("document_") and self._doc_executor is not None:
+            return await self._doc_executor.execute(tool_name, arguments)
+
         handlers = {
             "search_knowledge": self._search_knowledge,
             "list_catalog_systems": self._list_systems,
