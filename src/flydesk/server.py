@@ -67,6 +67,8 @@ from flydesk.api.knowledge import (
 from flydesk.api.knowledge import router as knowledge_router
 from flydesk.api.memory import get_memory_repo
 from flydesk.api.memory import router as memory_router
+from flydesk.api.workspaces import get_workspace_repo
+from flydesk.api.workspaces import router as workspace_router
 from flydesk.api.llm_providers import get_llm_repo
 from flydesk.api.llm_providers import router as llm_providers_router
 from flydesk.api.llm_status import get_llm_repo as llm_status_get_llm_repo
@@ -135,6 +137,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     catalog_repo = CatalogRepository(session_factory)
     audit_logger = AuditLogger(session_factory)
     conversation_repo = ConversationRepository(session_factory)
+
+    # Workspace repository
+    from flydesk.workspaces.repository import WorkspaceRepository
+
+    workspace_repo = WorkspaceRepository(session_factory)
+    app.dependency_overrides[get_workspace_repo] = lambda: workspace_repo
 
     # Settings repository
     from flydesk.settings.repository import SettingsRepository
@@ -730,5 +738,6 @@ def create_app() -> FastAPI:
     app.include_router(git_providers_router)
     app.include_router(help_docs_router)
     app.include_router(memory_router)
+    app.include_router(workspace_router)
 
     return app

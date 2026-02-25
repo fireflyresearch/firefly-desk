@@ -28,6 +28,7 @@ from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.models.user_role import UserRoleRow
 from flydesk.models.user_memory import UserMemoryRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
+from flydesk.models.workspace import WorkspaceRoleRow, WorkspaceRow, WorkspaceUserRow
 
 __all__ = [
     "AppSettingRow",
@@ -59,4 +60,7 @@ __all__ = [
     "UserMemoryRow",
     "UserRoleRow",
     "UserSettingRow",
+    "WorkspaceRoleRow",
+    "WorkspaceRow",
+    "WorkspaceUserRow",
 ]
