@@ -457,6 +457,7 @@ async def send_message(
                 agent_factory=getattr(request.app.state, "agent_factory", None),
                 llm_repo=getattr(request.app.state, "llm_repo", None),
                 settings_repo=getattr(request.app.state, "settings_repo", None),
+                memory_repo=getattr(request.app.state, "memory_repo", None),
             )
             # Persist user command + response
             await _persist_messages(request, conversation_id, body.message, result)
