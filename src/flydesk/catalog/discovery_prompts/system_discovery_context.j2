@@ -1,0 +1,50 @@
+Analyze the following enterprise context to discover external systems and applications
+that are NOT yet in the service catalog:
+
+{% if systems %}
+## Systems Already in Catalog (DO NOT report these)
+
+{% for system in systems %}
+- {{ system.name }}{% if system.description %}: {{ system.description }}{% endif %}
+{% endfor %}
+
+{% else %}
+No external systems are currently registered in the catalog.
+{% endif %}
+
+{% if entities %}
+## Knowledge Graph Entities and Relations
+
+{% for entity in entities %}
+- {{ entity.name }} (type: {{ entity.entity_type }}, confidence: {{ entity.confidence }})
+  {% if entity.properties %}Properties: {{ entity.properties }}{% endif %}
+
+{% endfor %}
+
+{% if relations %}
+### Relations
+{% for rel in relations %}
+- {{ rel.source_id }} --[{{ rel.relation_type }}]--> {{ rel.target_id }}
+  {% if rel.properties %}Properties: {{ rel.properties }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% else %}
+No knowledge graph entities are currently available.
+{% endif %}
+
+{% if documents %}
+## Knowledge Base Documents
+
+{% for doc in documents %}
+### {{ doc.title }} (type: {{ doc.document_type }})
+{% if doc.tags %}Tags: {{ doc.tags | join(', ') }}{% endif %}
+
+{{ doc.content[:500] }}{% if doc.content | length > 500 %}...{% endif %}
+
+{% endfor %}
+{% else %}
+No knowledge base documents are currently available.
+{% endif %}
+
+Based on the above context, identify all external systems, platforms, and applications that are referenced but NOT already in the catalog. Return the result as structured JSON.
