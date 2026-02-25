@@ -450,6 +450,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.auto_trigger = auto_trigger
     app.dependency_overrides[knowledge_get_auto_trigger] = lambda: auto_trigger
     app.dependency_overrides[catalog_get_auto_trigger] = lambda: auto_trigger
+    builtin_executor.set_auto_trigger(auto_trigger)
 
     # Agent customization service
     from flydesk.agent.customization import AgentCustomizationService

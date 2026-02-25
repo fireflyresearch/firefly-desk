@@ -16,9 +16,11 @@ an external HTTP round-trip.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
-from flydesk.catalog.enums import HttpMethod, RiskLevel
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
 from flydesk.tools.factory import ToolDefinition
 
 if TYPE_CHECKING:
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
     from flydesk.processes.repository import ProcessRepository
     from flydesk.tools.document_tools import DocumentToolExecutor
     from flydesk.tools.transform_tools import TransformToolExecutor
+    from flydesk.triggers.auto_trigger import AutoTriggerService
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +160,79 @@ def _search_processes_tool() -> ToolDefinition:
     )
 
 
+def _create_catalog_system_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__create_catalog_system",
+        name="create_catalog_system",
+        description=(
+            "Register a new external system in the service catalog. "
+            "The system is created in DRAFT status and must be activated manually. "
+            "Use when: you discover or are told about a new backend system that "
+            "should be registered for the agent to interact with."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/catalog/systems",
+        parameters={
+            "name": {"type": "string", "description": "System name", "required": True},
+            "description": {"type": "string", "description": "System description", "required": False},
+            "base_url": {"type": "string", "description": "Base URL for the system API", "required": False},
+            "tags": {"type": "string", "description": "Comma-separated tags (e.g. 'crm,sales,api')", "required": False},
+            "auth_type": {"type": "string", "description": "Authentication type: none, oauth2, api_key, basic, bearer, mutual_tls (default: none)", "required": False},
+        },
+    )
+
+
+def _update_catalog_system_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__update_catalog_system",
+        name="update_catalog_system",
+        description=(
+            "Update an existing external system in the service catalog. "
+            "Only the fields you provide will be changed; others stay the same. "
+            "Use when: you need to correct or enrich a system's name, description, "
+            "URL, or tags."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.PATCH.value,
+        path="/__builtin__/catalog/systems/{system_id}",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the system to update", "required": True},
+            "name": {"type": "string", "description": "New system name", "required": False},
+            "description": {"type": "string", "description": "New system description", "required": False},
+            "base_url": {"type": "string", "description": "New base URL", "required": False},
+            "tags": {"type": "string", "description": "Comma-separated tags (replaces existing tags)", "required": False},
+        },
+    )
+
+
+def _create_system_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__create_system_endpoint",
+        name="create_system_endpoint",
+        description=(
+            "Add a new endpoint (operation) to an existing system in the catalog. "
+            "Use when: you discover or are told about an API endpoint that the agent "
+            "should be able to call on a registered system."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/catalog/systems/{system_id}/endpoints",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the parent system", "required": True},
+            "name": {"type": "string", "description": "Endpoint name", "required": True},
+            "method": {"type": "string", "description": "HTTP method: GET, POST, PUT, PATCH, DELETE", "required": True},
+            "path": {"type": "string", "description": "URL path (e.g. '/users/{id}')", "required": True},
+            "description": {"type": "string", "description": "What this endpoint does", "required": False},
+            "when_to_use": {"type": "string", "description": "When the agent should use this endpoint", "required": False},
+            "risk_level": {"type": "string", "description": "Risk level: read, low_write, high_write, destructive (default: read)", "required": False},
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -183,6 +259,12 @@ class BuiltinToolRegistry:
         if has_all or "catalog:read" in user_permissions:
             tools.append(_list_catalog_systems_tool())
             tools.append(_list_system_endpoints_tool())
+
+        # Catalog write tools (require catalog:write or *)
+        if has_all or "catalog:write" in user_permissions:
+            tools.append(_create_catalog_system_tool())
+            tools.append(_update_catalog_system_tool())
+            tools.append(_create_system_endpoint_tool())
 
         # Process tools (require processes:read or *)
         if has_all or "processes:read" in user_permissions:
@@ -247,6 +329,7 @@ class BuiltinToolExecutor:
         self._knowledge_retriever = knowledge_retriever
         self._process_repo = process_repo
         self._doc_executor: DocumentToolExecutor | None = None
+        self._auto_trigger: AutoTriggerService | None = None
 
         from flydesk.tools.transform_tools import (
             TransformToolExecutor as _TransformExec,
@@ -257,6 +340,10 @@ class BuiltinToolExecutor:
     def set_document_executor(self, executor: DocumentToolExecutor) -> None:
         """Attach a :class:`DocumentToolExecutor` for document operations."""
         self._doc_executor = executor
+
+    def set_auto_trigger(self, auto_trigger: AutoTriggerService) -> None:
+        """Attach an :class:`AutoTriggerService` for catalog change notifications."""
+        self._auto_trigger = auto_trigger
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a built-in tool and return a result dict."""
@@ -272,6 +359,9 @@ class BuiltinToolExecutor:
             "search_knowledge": self._search_knowledge,
             "list_catalog_systems": self._list_systems,
             "list_system_endpoints": self._list_endpoints,
+            "create_catalog_system": self._create_catalog_system,
+            "update_catalog_system": self._update_catalog_system,
+            "create_system_endpoint": self._create_system_endpoint,
             "query_audit_log": self._query_audit,
             "get_platform_status": self._platform_status,
             "search_processes": self._search_processes,
@@ -355,6 +445,161 @@ class BuiltinToolExecutor:
                 for e in filtered
             ],
             "count": len(filtered),
+        }
+
+    async def _create_catalog_system(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        name = arguments.get("name", "").strip()
+        if not name:
+            return {"error": "name is required"}
+
+        description = arguments.get("description", "")
+        base_url = arguments.get("base_url", "")
+        tags_raw = arguments.get("tags", "")
+        auth_type_raw = arguments.get("auth_type", "none")
+
+        # Parse comma-separated tags
+        tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+
+        # Validate auth_type
+        try:
+            auth_type = AuthType(auth_type_raw)
+        except ValueError:
+            valid = ", ".join(a.value for a in AuthType)
+            return {"error": f"Invalid auth_type '{auth_type_raw}'. Valid values: {valid}"}
+
+        system_id = str(uuid.uuid4())
+        system = ExternalSystem(
+            id=system_id,
+            name=name,
+            description=description,
+            base_url=base_url,
+            auth_config=AuthConfig(auth_type=auth_type),
+            tags=tags,
+            status=SystemStatus.DRAFT,
+            metadata={"source": "agent_tool"},
+            agent_enabled=False,
+        )
+
+        await self._catalog_repo.create_system(system)
+
+        if self._auto_trigger is not None:
+            await self._auto_trigger.on_catalog_updated(system_id)
+
+        return {
+            "system_id": system_id,
+            "name": name,
+            "status": SystemStatus.DRAFT.value,
+            "message": f"System '{name}' created in DRAFT status.",
+        }
+
+    async def _update_catalog_system(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        system_id = arguments.get("system_id", "").strip()
+        if not system_id:
+            return {"error": "system_id is required"}
+
+        existing = await self._catalog_repo.get_system(system_id)
+        if existing is None:
+            return {"error": f"System '{system_id}' not found"}
+
+        # Patch only the fields that were provided
+        name = arguments.get("name")
+        description = arguments.get("description")
+        base_url = arguments.get("base_url")
+        tags_raw = arguments.get("tags")
+
+        updated = existing.model_copy(
+            update={
+                k: v
+                for k, v in {
+                    "name": name.strip() if name is not None else None,
+                    "description": description if description is not None else None,
+                    "base_url": base_url if base_url is not None else None,
+                    "tags": (
+                        [t.strip() for t in tags_raw.split(",") if t.strip()]
+                        if tags_raw is not None
+                        else None
+                    ),
+                }.items()
+                if v is not None
+            }
+        )
+
+        await self._catalog_repo.update_system(updated)
+
+        if self._auto_trigger is not None:
+            await self._auto_trigger.on_catalog_updated(system_id)
+
+        return {
+            "system_id": system_id,
+            "name": updated.name,
+            "message": f"System '{updated.name}' updated.",
+        }
+
+    async def _create_system_endpoint(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        system_id = arguments.get("system_id", "").strip()
+        if not system_id:
+            return {"error": "system_id is required"}
+
+        name = arguments.get("name", "").strip()
+        if not name:
+            return {"error": "name is required"}
+
+        method_raw = arguments.get("method", "").strip().upper()
+        if not method_raw:
+            return {"error": "method is required"}
+
+        path = arguments.get("path", "").strip()
+        if not path:
+            return {"error": "path is required"}
+
+        # Validate parent system exists
+        existing_system = await self._catalog_repo.get_system(system_id)
+        if existing_system is None:
+            return {"error": f"System '{system_id}' not found"}
+
+        # Validate HTTP method
+        try:
+            method = HttpMethod(method_raw)
+        except ValueError:
+            valid = ", ".join(m.value for m in HttpMethod)
+            return {"error": f"Invalid method '{method_raw}'. Valid values: {valid}"}
+
+        # Validate risk level
+        risk_level_raw = arguments.get("risk_level", "read")
+        try:
+            risk_level = RiskLevel(risk_level_raw)
+        except ValueError:
+            valid = ", ".join(r.value for r in RiskLevel)
+            return {"error": f"Invalid risk_level '{risk_level_raw}'. Valid values: {valid}"}
+
+        description = arguments.get("description", "")
+        when_to_use = arguments.get("when_to_use", "")
+
+        endpoint_id = str(uuid.uuid4())
+        endpoint = ServiceEndpoint(
+            id=endpoint_id,
+            system_id=system_id,
+            name=name,
+            description=description,
+            method=method,
+            path=path,
+            when_to_use=when_to_use,
+            risk_level=risk_level,
+            required_permissions=[],
+        )
+
+        await self._catalog_repo.create_endpoint(endpoint)
+
+        if self._auto_trigger is not None:
+            await self._auto_trigger.on_catalog_updated(system_id)
+
+        return {
+            "endpoint_id": endpoint_id,
+            "system_id": system_id,
+            "name": name,
+            "method": method.value,
+            "path": path,
+            "message": f"Endpoint '{name}' ({method.value} {path}) created.",
         }
 
     async def _query_audit(self, arguments: dict[str, Any]) -> dict[str, Any]:
