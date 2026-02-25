@@ -54,16 +54,12 @@
 	<div class="flex h-full">
 		<!-- Sidebar -->
 		<nav class="flex w-56 shrink-0 flex-col border-r border-border/50 bg-surface-secondary">
-			<div class="border-b border-border/50 px-4 py-3">
-				<h2 class="text-sm font-semibold text-text-primary">Administration</h2>
-			</div>
-
-			<ul class="flex flex-col gap-0.5 p-2">
+			<ul class="flex flex-col gap-0.5 p-2 pt-2">
 				<!-- Back to Chat -->
 				<li>
 					<a
 						href="/"
-						class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-text-secondary transition-all hover:bg-ember/5 hover:text-ember"
+						class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-text-secondary transition-all hover:bg-ember/5 hover:text-ember"
 					>
 						<ArrowLeft size={16} />
 						<MessageSquare size={14} />
@@ -78,7 +74,7 @@
 					<li>
 						<a
 							href={item.href}
-							class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors
+							class="flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors
 								{active
 								? 'bg-ember/10 font-medium text-ember'
 								: 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
