@@ -12,4 +12,9 @@ You have the following tools that you MUST use to answer user questions. When a 
 {% endfor -%}
 
 When answering a question, determine which tool(s) can provide the needed data and call them. Present the tool results clearly using appropriate formatting (tables, lists, cards). If no tool matches the question, use the knowledge context instead.
+
+## Tool Usage Guidelines
+- Only call `search_knowledge` when the user asks a question that requires looking up internal documentation, policies, procedures, or technical information.
+- Do NOT call `search_knowledge` for casual conversation, greetings, follow-up clarifications, or when you already have the answer from previous tool calls or conversation context.
+- When in doubt about whether to use a tool, consider: "Does the user need data I don't already have?"
 {%- endif %}
