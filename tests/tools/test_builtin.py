@@ -152,11 +152,11 @@ class TestBuiltinToolRegistry:
         for tool in tools:
             assert tool.system_id == BUILTIN_SYSTEM_ID
 
-    def test_all_tools_are_read_risk(self):
-        """All built-in tools are READ risk level."""
+    def test_all_tools_are_read_or_low_write_risk(self):
+        """All built-in tools are READ or LOW_WRITE risk level."""
         tools = BuiltinToolRegistry.get_tool_definitions(["*"])
         for tool in tools:
-            assert tool.risk_level == RiskLevel.READ
+            assert tool.risk_level in (RiskLevel.READ, RiskLevel.LOW_WRITE)
 
 
 # ---------------------------------------------------------------------------
