@@ -189,7 +189,7 @@
 	async function deleteSystem(id: string) {
 		error = '';
 		try {
-			await apiJson(`/catalog/systems/${id}`, { method: 'DELETE' });
+			await apiFetch(`/catalog/systems/${id}`, { method: 'DELETE' });
 			await loadSystems();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete system';
@@ -228,7 +228,7 @@
 	async function deleteEndpoint(endpointId: string, systemId: string) {
 		error = '';
 		try {
-			await apiJson(`/catalog/endpoints/${endpointId}`, { method: 'DELETE' });
+			await apiFetch(`/catalog/endpoints/${endpointId}`, { method: 'DELETE' });
 			// Invalidate cache for this system
 			delete endpointCache[systemId];
 			endpointCache = { ...endpointCache };
