@@ -10,14 +10,18 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from jinja2 import BaseLoader, Environment, TemplateSyntaxError, Undefined, UndefinedError
 from pydantic import BaseModel
 
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.repository import SettingsRepository
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["prompts"])
 
@@ -70,6 +74,93 @@ class UpdateTemplateRequest(BaseModel):
     """Body for PUT /api/admin/prompts/templates/{name}."""
 
     source: str
+
+
+class PreviewTemplateRequest(BaseModel):
+    """Body for POST /api/admin/prompts/templates/{name}/preview."""
+
+    source: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Sample context for template preview rendering
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CONTEXT: dict[str, object] = {
+    # identity_custom
+    "agent_name": "Ember",
+    "company_name": "Acme Corporation",
+    "personality": "warm, professional, knowledgeable",
+    "tone": "friendly yet precise",
+    "behavior_rules": [
+        "Never share internal credentials or API keys with users.",
+        "Always confirm destructive operations before executing them.",
+        "Escalate requests outside your scope to a human operator.",
+    ],
+    "custom_instructions": "Focus on operational efficiency. Prioritize actionable answers over lengthy explanations.",
+    "language": "en",
+    # user_context
+    "user_name": "Jane Doe",
+    "user_roles": ["admin", "operator"],
+    "user_department": "Engineering",
+    "user_title": "Platform Engineer",
+    # available_tools
+    "tool_summaries": [
+        {"name": "search_knowledge", "risk_level": "read", "description": "Search the knowledge base for documents and articles."},
+        {"name": "list_catalog_systems", "risk_level": "read", "description": "List all registered systems in the service catalog."},
+        {"name": "list_system_endpoints", "risk_level": "read", "description": "List API endpoints for a given system."},
+        {"name": "query_audit_log", "risk_level": "read", "description": "Query the audit log for recent events and changes."},
+        {"name": "get_platform_status", "risk_level": "read", "description": "Get current platform health and component status."},
+        {"name": "create_ticket", "risk_level": "low_write", "description": "Create a support ticket in the ticketing system."},
+        {"name": "delete_user_account", "risk_level": "destructive", "description": "Permanently delete a user account and all associated data."},
+    ],
+    # knowledge_context
+    "knowledge_context": (
+        "## Employee Handbook - Leave Policy\n"
+        "Employees are entitled to 20 days of annual leave per calendar year. "
+        "Unused leave may be carried over up to a maximum of 5 days.\n\n"
+        "## IT Security Policy\n"
+        "All production access requires MFA. SSH keys must be rotated every 90 days."
+    ),
+    # file_context
+    "file_context": "report_q4_2025.pdf (45 KB) — Quarterly financial report\narchitecture_diagram.png (120 KB) — System architecture overview",
+    # conversation_history
+    "conversation_summary": "The user asked about the company leave policy and then inquired about available API endpoints for the CRM system.",
+    # relevant_processes
+    "processes": [
+        {
+            "name": "Employee Onboarding",
+            "description": "Standard process for onboarding new employees into company systems.",
+            "steps": [
+                {"description": "Create user account in IAM", "endpoint_id": "iam_create_user"},
+                {"description": "Assign default role permissions", "endpoint_id": "iam_assign_roles"},
+                {"description": "Send welcome email with credentials", "endpoint_id": None},
+            ],
+        },
+        {
+            "name": "Incident Response",
+            "description": "Steps to handle a production incident.",
+            "steps": [
+                {"description": "Acknowledge the alert and assess severity", "endpoint_id": None},
+                {"description": "Query audit log for recent changes", "endpoint_id": "query_audit_log"},
+                {"description": "Notify on-call team via Slack", "endpoint_id": "slack_notify"},
+            ],
+        },
+    ],
+}
+
+# Jinja2 environment for preview rendering (string-based, no file loader).
+# PreviewUndefined renders missing variables as «name» instead of raising.
+_PreviewUndefined = type(
+    "PreviewUndefined",
+    (Undefined,),
+    {
+        "__str__": lambda self: f"\u00ab{self._undefined_name}\u00bb",
+        "__iter__": lambda self: iter([]),
+        "__bool__": lambda self: False,
+    },
+)
+_jinja_env = Environment(loader=BaseLoader(), undefined=_PreviewUndefined)
 
 
 # ---------------------------------------------------------------------------
@@ -174,4 +265,59 @@ async def delete_template_override(name: str, repo: Repo) -> dict:
         "name": name,
         "source": source,
         "has_override": False,
+    }
+
+
+@router.post("/api/admin/prompts/templates/{name}/preview", dependencies=[AdminSettings])
+async def preview_template(name: str, body: PreviewTemplateRequest, repo: Repo) -> dict:
+    """Render a Jinja2 template with sample context data for preview.
+
+    If ``body.source`` is provided, renders that source string directly.
+    Otherwise, renders the saved template (override or default file).
+    """
+    template_file = _TEMPLATES_DIR / f"{name}.j2"
+    if not template_file.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Template '{name}' not found"
+        )
+
+    # Determine the source to render
+    if body.source is not None:
+        source = body.source
+    else:
+        override_key = f"prompt:{name}"
+        override = await repo.get_app_setting(override_key)
+        if override is not None and override != "":
+            source = override
+        else:
+            source = template_file.read_text(encoding="utf-8")
+
+    # Render with sample context
+    try:
+        template = _jinja_env.from_string(source)
+        rendered = template.render(**_SAMPLE_CONTEXT)
+    except TemplateSyntaxError as exc:
+        return {
+            "name": name,
+            "rendered": "",
+            "error": f"Jinja2 syntax error at line {exc.lineno}: {exc.message}",
+        }
+    except UndefinedError as exc:
+        return {
+            "name": name,
+            "rendered": "",
+            "error": f"Undefined variable: {exc}",
+        }
+    except Exception as exc:
+        _logger.warning("Template preview render failed for %s: %s", name, exc)
+        return {
+            "name": name,
+            "rendered": "",
+            "error": f"Render error: {exc}",
+        }
+
+    return {
+        "name": name,
+        "rendered": rendered,
+        "error": None,
     }

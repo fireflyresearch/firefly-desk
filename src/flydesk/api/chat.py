@@ -443,6 +443,39 @@ async def send_message(
             request, body, conversation_id, confirmation_service, user_session,
         )
 
+    # Handle slash commands (e.g. /help, /status, /context, /memory)
+    from flydesk.agent.slash_commands import is_slash_command, handle_slash_command
+
+    if is_slash_command(body.message):
+        async def slash_stream():
+            result = await handle_slash_command(
+                body.message,
+                conversation_id=conversation_id,
+                session=user_session,
+                conversation_repo=repo,
+                context_enricher=getattr(request.app.state, "context_enricher", None),
+                agent_factory=getattr(request.app.state, "agent_factory", None),
+                llm_repo=getattr(request.app.state, "llm_repo", None),
+                settings_repo=getattr(request.app.state, "settings_repo", None),
+            )
+            # Persist user command + response
+            await _persist_messages(request, conversation_id, body.message, result)
+            # Stream the result as token events
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={"content": result},
+            ).to_sse()
+            yield SSEEvent(
+                event=SSEEventType.DONE,
+                data={"conversation_id": conversation_id},
+            ).to_sse()
+
+        return StreamingResponse(
+            slash_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+
     if desk_agent and user_session:
         async def agent_stream():
             collected: list[str] = []

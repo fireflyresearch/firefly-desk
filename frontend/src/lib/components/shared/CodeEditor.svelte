@@ -77,6 +77,7 @@
 					cm.basicSetup,
 					cmTheme.oneDark,
 					langExtension,
+					cmView.EditorView.lineWrapping,
 					cmView.keymap.of([cmCommands.indentWithTab]),
 					cmView.EditorView.updateListener.of((update) => {
 						if (update.docChanged) {
@@ -124,6 +125,6 @@
 
 <div
 	bind:this={container}
-	class="overflow-hidden rounded-md border border-border [&_.cm-editor]:!outline-none"
+	class="min-w-0 overflow-hidden rounded-md border border-border [&_.cm-editor]:!outline-none [&_.cm-editor]:max-w-full [&_.cm-scroller]:!overflow-auto"
 	style="min-height: {minHeight}"
 ></div>

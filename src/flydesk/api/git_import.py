@@ -88,13 +88,26 @@ def _ensure_adapters_loaded(provider_type: str) -> None:
 async def _make_provider(
     repo: GitProviderRepository, provider_id: str, token: str
 ) -> GitProvider:
-    """Look up a Git provider from DB and instantiate the adapter."""
+    """Look up a Git provider from DB and instantiate the adapter.
+
+    When ``token`` is the sentinel ``"stored"``, the encrypted PAT stored
+    on the provider row is decrypted and used instead.
+    """
     row = await repo.get_provider(provider_id)
     if row is None or not row.is_active:
         raise HTTPException(404, "Git provider not found or inactive")
+
+    # Resolve stored PAT when sentinel value is passed
+    effective_token = token
+    if token == "stored" and row.auth_method == "pat":
+        decrypted = repo.decrypt_secret(row)
+        if not decrypted:
+            raise HTTPException(400, "No stored token found for this provider")
+        effective_token = decrypted
+
     # Ensure the adapter module is imported so factory knows the type
     _ensure_adapters_loaded(row.provider_type)
-    return GitProviderFactory.create(row.provider_type, token=token, base_url=row.base_url)
+    return GitProviderFactory.create(row.provider_type, token=effective_token, base_url=row.base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +124,9 @@ async def list_git_providers(repo: Repo) -> list[dict]:
             "id": r.id,
             "provider_type": r.provider_type,
             "display_name": r.display_name,
+            "base_url": r.base_url,
+            "auth_method": r.auth_method or "oauth",
+            "has_client_secret": r.client_secret_encrypted is not None,
             "is_active": r.is_active,
         }
         for r in rows

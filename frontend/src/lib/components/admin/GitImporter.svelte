@@ -50,6 +50,8 @@
 		provider_type: string;
 		display_name: string;
 		base_url: string;
+		auth_method: string;
+		has_client_secret: boolean;
 		is_active: boolean;
 	}
 
@@ -162,6 +164,10 @@
 
 	let selectedProvider = $derived(providers.find((p) => p.id === selectedProviderId));
 
+	let hasStoredPat = $derived(
+		selectedProvider?.auth_method === 'pat' && selectedProvider?.has_client_secret
+	);
+
 	let totalCartFiles = $derived(cart.reduce((sum, item) => sum + item.paths.length, 0));
 
 	let selectedCount = $derived(selectedPaths.size);
@@ -206,15 +212,21 @@
 	// -----------------------------------------------------------------------
 
 	async function connect() {
-		if (!selectedProviderId || !token.trim()) return;
+		if (!selectedProviderId || (!token.trim() && !hasStoredPat)) return;
 		connecting = true;
 		error = '';
 		try {
+			// If provider has a stored PAT, the server retrieves it — pass 'stored' as sentinel
+			const tokenParam = hasStoredPat && !token.trim() ? 'stored' : token;
 			accounts = await apiJson<Account[]>(
-				`/git/${encodeURIComponent(selectedProviderId)}/accounts?token=${encodeURIComponent(token)}`
+				`/git/${encodeURIComponent(selectedProviderId)}/accounts?token=${encodeURIComponent(tokenParam)}`
 			);
 			connected = true;
 			step = 'browse';
+			// Keep token in sync for subsequent API calls
+			if (hasStoredPat && !token.trim()) {
+				token = 'stored';
+			}
 			// Auto-load personal repos
 			await loadRepos();
 		} catch (e) {
@@ -597,25 +609,19 @@
 					</select>
 				</label>
 
-				<!-- Token input -->
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Personal Access Token</span>
-					<div class="flex gap-2">
-						<input
-							type="password"
-							bind:value={token}
-							placeholder="Enter your access token..."
-							class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-							onkeydown={(e) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									connect();
-								}
-							}}
-						/>
+				{#if hasStoredPat}
+					<!-- Provider has stored PAT — auto-connect option -->
+					<div class="flex items-center gap-3 rounded-lg border border-success/30 bg-success/5 p-3">
+						<CheckCircle2 size={16} class="text-success" />
+						<div class="flex-1">
+							<p class="text-sm font-medium text-text-primary">Token configured</p>
+							<p class="text-xs text-text-secondary">
+								This provider has a stored access token. Click Connect to use it, or enter a different token below.
+							</p>
+						</div>
 						<button
 							type="button"
-							disabled={!selectedProviderId || !token.trim() || connecting}
+							disabled={connecting}
 							onclick={connect}
 							class="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
 						>
@@ -627,7 +633,59 @@
 							Connect
 						</button>
 					</div>
-				</label>
+
+					<!-- Optional override token input -->
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">
+							Override Token
+							<span class="text-text-secondary/60">(optional — leave blank to use stored token)</span>
+						</span>
+						<input
+							type="password"
+							bind:value={token}
+							placeholder="Enter a different access token..."
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+							onkeydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									connect();
+								}
+							}}
+						/>
+					</label>
+				{:else}
+					<!-- No stored PAT — manual token entry -->
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">Personal Access Token</span>
+						<div class="flex gap-2">
+							<input
+								type="password"
+								bind:value={token}
+								placeholder="Enter your access token..."
+								class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+								onkeydown={(e) => {
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										connect();
+									}
+								}}
+							/>
+							<button
+								type="button"
+								disabled={!selectedProviderId || !token.trim() || connecting}
+								onclick={connect}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+							>
+								{#if connecting}
+									<Loader2 size={14} class="animate-spin" />
+								{:else}
+									<Lock size={14} />
+								{/if}
+								Connect
+							</button>
+						</div>
+					</label>
+				{/if}
 			{/if}
 		</div>
 

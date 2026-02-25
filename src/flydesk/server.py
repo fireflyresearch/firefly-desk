@@ -67,6 +67,8 @@ from flydesk.api.knowledge import (
 from flydesk.api.knowledge import router as knowledge_router
 from flydesk.api.llm_providers import get_llm_repo
 from flydesk.api.llm_providers import router as llm_providers_router
+from flydesk.api.llm_status import get_llm_repo as llm_status_get_llm_repo
+from flydesk.api.llm_status import router as llm_status_router
 from flydesk.api.processes import get_process_repo
 from flydesk.api.processes import router as processes_router
 from flydesk.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
@@ -162,6 +164,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     llm_repo = LLMProviderRepository(session_factory, config.credential_encryption_key)
     app.dependency_overrides[get_llm_repo] = lambda: llm_repo
+    app.dependency_overrides[llm_status_get_llm_repo] = lambda: llm_repo
 
     # File upload dependencies
     from flydesk.files.extractor import ContentExtractor
@@ -473,6 +476,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings_repo=settings_repo,
     )
     app.state.desk_agent = desk_agent
+    app.state.context_enricher = context_enricher
+    app.state.agent_factory = agent_factory
+    app.state.llm_repo = llm_repo
+    app.state.settings_repo = settings_repo
 
     # Dashboard API dependency overrides
     app.dependency_overrides[dashboard_get_catalog] = lambda: catalog_repo
@@ -681,6 +688,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router)
     app.include_router(files_router)
     app.include_router(llm_providers_router)
+    app.include_router(llm_status_router)
     app.include_router(oidc_providers_router)
     app.include_router(settings_router)
     app.include_router(dashboard_router)

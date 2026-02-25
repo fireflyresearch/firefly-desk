@@ -7,12 +7,10 @@
 		User,
 		Shield,
 		LogOut,
-		MessageSquare,
 		Palette
 	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
 	import Logo from '$lib/components/layout/Logo.svelte';
+	import ModelStatus from '$lib/components/chat/ModelStatus.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
 
@@ -44,13 +42,6 @@
 			.slice(0, 2)
 	);
 
-	/** Determine active navigation tab from the current URL path. */
-	let activeTab = $derived.by(() => {
-		const path = $page.url.pathname;
-		if (path.startsWith('/admin')) return 'admin';
-		return 'chat';
-	});
-
 	function toggleDarkMode() {
 		setTheme($resolvedTheme === 'dark' ? 'light' : 'dark');
 	}
@@ -69,17 +60,12 @@
 			dropdownOpen = false;
 		}
 	}
-
-	function navigateToTab(tab: 'chat' | 'admin') {
-		if (tab === 'chat') goto('/');
-		else if (tab === 'admin') goto('/admin');
-	}
 </script>
 
 <svelte:window onclick={handleWindowClick} />
 
 <header
-	class="relative flex h-14 shrink-0 items-center border-b border-border/50 bg-surface/80 px-4 backdrop-blur-xl"
+	class="relative z-40 flex h-14 shrink-0 items-center border-b border-border/50 bg-surface/80 px-4 backdrop-blur-xl"
 >
 	<!-- Bottom border glow (visible in dark mode) -->
 	<div
@@ -108,42 +94,8 @@
 	<!-- Spacer -->
 	<div class="flex-1"></div>
 
-	<!-- Right: Navigation tabs + actions -->
+	<!-- Right: actions -->
 	<div class="flex items-center gap-1">
-		<!-- Navigation tabs -->
-		<nav class="mr-3 flex items-center gap-0.5" aria-label="Main navigation">
-			<button
-				type="button"
-				onclick={() => navigateToTab('chat')}
-				class="relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all
-					{activeTab === 'chat'
-					? 'bg-ember/10 text-ember'
-					: 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
-				aria-current={activeTab === 'chat' ? 'page' : undefined}
-			>
-				<MessageSquare size={15} />
-				Chat
-			</button>
-
-			{#if $isAdmin}
-				<button
-					type="button"
-					onclick={() => navigateToTab('admin')}
-					class="relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all
-						{activeTab === 'admin'
-						? 'bg-ember/10 text-ember'
-						: 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
-					aria-current={activeTab === 'admin' ? 'page' : undefined}
-				>
-					<Shield size={15} />
-					Admin
-				</button>
-			{/if}
-		</nav>
-
-		<!-- Separator -->
-		<div class="mr-2 h-5 w-px bg-border/50"></div>
-
 		{#if $currentUser?.devMode}
 			<span
 				class="mr-1 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning"
@@ -151,6 +103,9 @@
 				Dev
 			</span>
 		{/if}
+
+		<!-- Model status indicator -->
+		<ModelStatus />
 
 		<button
 			type="button"
@@ -212,62 +167,50 @@
 					</div>
 					<ul class="py-1">
 						<li>
-							<button
-								type="button"
-								onclick={() => {
-									closeDropdown();
-									goto('/settings');
-								}}
-								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+							<a
+								href="/settings"
+								onclick={closeDropdown}
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary no-underline transition-colors hover:bg-surface-hover hover:text-text-primary"
 								role="menuitem"
 							>
 								<User size={14} />
 								Profile
-							</button>
+							</a>
 						</li>
 						<li>
-							<button
-								type="button"
-								onclick={() => {
-									closeDropdown();
-									goto('/settings/appearance');
-								}}
-								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+							<a
+								href="/settings/appearance"
+								onclick={closeDropdown}
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary no-underline transition-colors hover:bg-surface-hover hover:text-text-primary"
 								role="menuitem"
 							>
 								<Palette size={14} />
 								Appearance
-							</button>
+							</a>
 						</li>
 						{#if $isAdmin}
 							<li>
-								<button
-									type="button"
-									onclick={() => {
-										closeDropdown();
-										goto('/admin');
-									}}
-									class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+								<a
+									href="/admin"
+									onclick={closeDropdown}
+									class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary no-underline transition-colors hover:bg-surface-hover hover:text-text-primary"
 									role="menuitem"
 								>
 									<Shield size={14} />
 									Admin Console
-								</button>
+								</a>
 							</li>
 						{/if}
 						<li class="border-t border-border">
-							<button
-								type="button"
-								onclick={() => {
-									closeDropdown();
-									goto('/auth/login');
-								}}
-								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+							<a
+								href="/auth/login"
+								onclick={closeDropdown}
+								class="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary no-underline transition-colors hover:bg-surface-hover hover:text-text-primary"
 								role="menuitem"
 							>
 								<LogOut size={14} />
 								Sign Out
-							</button>
+							</a>
 						</li>
 					</ul>
 				</div>

@@ -37,18 +37,19 @@
 	interface KnowledgeDocument {
 		id: string;
 		title: string;
-		type: string;
-		source: string;
+		document_type: string;
+		source: string | null;
 		tags: string[];
 		status?: string;
 		chunk_count?: number;
 		created_at?: string;
+		metadata?: Record<string, unknown>;
 	}
 
 	interface GraphStats {
-		total_entities: number;
-		total_relations: number;
-		entities_by_type: Record<string, number>;
+		entity_count: number;
+		relation_count: number;
+		entity_types: Record<string, number>;
 	}
 
 	// -----------------------------------------------------------------------
@@ -85,8 +86,8 @@
 			const matchesSearch =
 				!searchQuery.trim() ||
 				d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				d.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				d.source.toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(d.document_type ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(d.source ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				d.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
 			const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
 			return matchesSearch && matchesStatus;
@@ -96,7 +97,7 @@
 	let docCountsByType = $derived.by(() => {
 		const counts: Record<string, number> = {};
 		for (const doc of documents) {
-			const type = doc.type || 'unknown';
+			const type = doc.document_type || 'unknown';
 			counts[type] = (counts[type] || 0) + 1;
 		}
 		return counts;
@@ -561,7 +562,7 @@
 						<Network size={14} class="text-text-secondary" />
 						<span class="text-xs text-text-secondary">Entities</span>
 						<span class="ml-auto text-sm font-semibold text-text-primary">
-							{stats.total_entities}
+							{stats.entity_count}
 						</span>
 					</div>
 
@@ -569,7 +570,7 @@
 						<Hash size={14} class="text-text-secondary" />
 						<span class="text-xs text-text-secondary">Relations</span>
 						<span class="ml-auto text-sm font-semibold text-text-primary">
-							{stats.total_relations}
+							{stats.relation_count}
 						</span>
 					</div>
 				{/if}
@@ -599,13 +600,13 @@
 			{/if}
 
 			<!-- Entity type breakdown -->
-			{#if stats?.entities_by_type && Object.keys(stats.entities_by_type).length > 0}
+			{#if stats?.entity_types && Object.keys(stats.entity_types).length > 0}
 				<div class="border-t border-border pt-3">
 					<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
 						Entity Types
 					</h4>
 					<div class="flex flex-col gap-1.5">
-						{#each Object.entries(stats.entities_by_type).sort((a, b) => b[1] - a[1]) as [type, count]}
+						{#each Object.entries(stats.entity_types).sort((a, b) => b[1] - a[1]) as [type, count]}
 							<div class="flex items-center gap-2">
 								<span class="text-xs capitalize text-text-primary">{type}</span>
 								<span class="ml-auto text-xs text-text-secondary">{count}</span>
@@ -679,10 +680,10 @@
 							<td class="px-4 py-2">
 								<span
 									class="rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
-										doc.type
+										doc.document_type
 									] ?? typeBadgeColors.other}"
 								>
-									{doc.type}
+									{doc.document_type}
 								</span>
 							</td>
 							<td class="px-4 py-2">

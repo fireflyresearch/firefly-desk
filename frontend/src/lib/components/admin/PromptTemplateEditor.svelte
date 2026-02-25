@@ -1,9 +1,9 @@
 <!--
-  PromptTemplateEditor.svelte - View and edit prompt templates.
+  PromptTemplateEditor.svelte - View, edit, and preview prompt templates.
 
   Lists all .j2 templates with their override status. Select a template
-  to view its source in a monospace textarea, edit, and save overrides
-  via the PUT API. Includes a "Reset to Default" action.
+  to view its source in a CodeMirror editor, edit, save overrides via the
+  PUT API, and preview the rendered output with sample context data.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -15,7 +15,9 @@
 		Loader2,
 		RotateCcw,
 		CheckCircle2,
-		AlertCircle
+		AlertCircle,
+		Eye,
+		Pencil
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import CodeEditor from '$lib/components/shared/CodeEditor.svelte';
@@ -35,6 +37,12 @@
 		has_override: boolean;
 	}
 
+	interface PreviewResult {
+		name: string;
+		rendered: string;
+		error: string | null;
+	}
+
 	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
@@ -52,10 +60,14 @@
 	let saving = $state(false);
 	let resetting = $state(false);
 
+	// Preview state
+	let activeTab = $state<'edit' | 'preview'>('edit');
+	let previewHtml = $state('');
+	let previewError = $state('');
+	let previewLoading = $state(false);
+
 	// Track if content has been modified
-	let isDirty = $derived(
-		selectedDetail !== null && editedSource !== selectedDetail.source
-	);
+	let isDirty = $derived(selectedDetail !== null && editedSource !== selectedDetail.source);
 
 	// -----------------------------------------------------------------------
 	// Data loading
@@ -78,6 +90,9 @@
 		loadingDetail = true;
 		error = '';
 		successMessage = '';
+		activeTab = 'edit';
+		previewHtml = '';
+		previewError = '';
 		try {
 			selectedDetail = await apiJson<TemplateDetail>(`/admin/prompts/templates/${name}`);
 			editedSource = selectedDetail.source;
@@ -104,10 +119,13 @@
 		successMessage = '';
 
 		try {
-			const result = await apiJson<TemplateDetail>(`/admin/prompts/templates/${selectedName}`, {
-				method: 'PUT',
-				body: JSON.stringify({ source: editedSource })
-			});
+			const result = await apiJson<TemplateDetail>(
+				`/admin/prompts/templates/${selectedName}`,
+				{
+					method: 'PUT',
+					body: JSON.stringify({ source: editedSource })
+				}
+			);
 			selectedDetail = result;
 			editedSource = result.source;
 			successMessage = 'Template saved successfully.';
@@ -143,6 +161,39 @@
 			resetting = false;
 		}
 	}
+
+	async function loadPreview() {
+		if (!selectedName) return;
+		previewLoading = true;
+		previewError = '';
+		previewHtml = '';
+
+		try {
+			const result = await apiJson<PreviewResult>(
+				`/admin/prompts/templates/${selectedName}/preview`,
+				{
+					method: 'POST',
+					body: JSON.stringify({ source: editedSource })
+				}
+			);
+			if (result.error) {
+				previewError = result.error;
+			} else {
+				previewHtml = result.rendered;
+			}
+		} catch (e) {
+			previewError = e instanceof Error ? e.message : 'Failed to render preview';
+		} finally {
+			previewLoading = false;
+		}
+	}
+
+	function switchTab(tab: 'edit' | 'preview') {
+		activeTab = tab;
+		if (tab === 'preview') {
+			loadPreview();
+		}
+	}
 </script>
 
 <div class="flex h-full flex-col gap-4 p-6">
@@ -166,7 +217,9 @@
 
 	<!-- Success banner -->
 	{#if successMessage}
-		<div class="rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success">
+		<div
+			class="rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success"
+		>
 			<div class="flex items-center gap-2">
 				<CheckCircle2 size={14} />
 				{successMessage}
@@ -179,7 +232,7 @@
 			<Loader2 size={24} class="animate-spin text-text-secondary" />
 		</div>
 	{:else}
-		<div class="flex flex-1 gap-4 overflow-hidden">
+		<div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
 			<!-- Template list -->
 			<div
 				class="flex w-64 shrink-0 flex-col overflow-y-auto rounded-lg border border-border bg-surface"
@@ -219,8 +272,10 @@
 				</ul>
 			</div>
 
-			<!-- Editor -->
-			<div class="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+			<!-- Editor panel -->
+			<div
+				class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface"
+			>
 				{#if loadingDetail}
 					<div class="flex flex-1 items-center justify-center">
 						<Loader2 size={24} class="animate-spin text-text-secondary" />
@@ -230,7 +285,33 @@
 					<div
 						class="flex items-center justify-between border-b border-border bg-surface-secondary px-4 py-2"
 					>
-						<div class="flex items-center gap-2">
+						<div class="flex items-center gap-3">
+							<!-- Edit / Preview tabs -->
+							<div class="flex rounded-md bg-surface p-0.5">
+								<button
+									type="button"
+									onclick={() => switchTab('edit')}
+									class="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors
+										{activeTab === 'edit'
+										? 'bg-surface-secondary text-text-primary shadow-sm'
+										: 'text-text-secondary hover:text-text-primary'}"
+								>
+									<Pencil size={12} />
+									Edit
+								</button>
+								<button
+									type="button"
+									onclick={() => switchTab('preview')}
+									class="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors
+										{activeTab === 'preview'
+										? 'bg-surface-secondary text-text-primary shadow-sm'
+										: 'text-text-secondary hover:text-text-primary'}"
+								>
+									<Eye size={12} />
+									Preview
+								</button>
+							</div>
+
 							<span class="text-sm font-medium text-text-primary">
 								{selectedDetail.name}.j2
 							</span>
@@ -281,18 +362,60 @@
 						</div>
 					</div>
 
-					<!-- Template source editor -->
-					<div class="flex-1 overflow-auto">
-						<CodeEditor
-							value={editedSource}
-							language="jinja2"
-							placeholder="Enter Jinja2 template..."
-							onchange={(v) => (editedSource = v)}
-							minHeight="100%"
-						/>
-					</div>
+					<!-- Content area: Edit or Preview -->
+					{#if activeTab === 'edit'}
+						<div class="min-h-0 min-w-0 flex-1 overflow-hidden">
+							<CodeEditor
+								value={editedSource}
+								language="jinja2"
+								placeholder="Enter Jinja2 template..."
+								onchange={(v) => (editedSource = v)}
+								minHeight="100%"
+							/>
+						</div>
+					{:else}
+						<!-- Preview pane -->
+						<div class="min-w-0 flex-1 overflow-auto">
+							{#if previewLoading}
+								<div class="flex items-center justify-center py-12">
+									<Loader2 size={20} class="animate-spin text-text-secondary" />
+								</div>
+							{:else if previewError}
+								<div class="m-4 rounded-lg border border-danger/30 bg-danger/5 p-4">
+									<h4
+										class="mb-1 flex items-center gap-1.5 text-xs font-semibold text-danger"
+									>
+										<AlertCircle size={14} />
+										Render Error
+									</h4>
+									<pre
+										class="whitespace-pre-wrap font-mono text-xs text-danger/80"
+									>{previewError}</pre>
+								</div>
+							{:else}
+								<div class="flex flex-col gap-3 p-4">
+									<div
+										class="rounded-md border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-accent"
+									>
+										Preview rendered with sample context data. Variables not
+										found are shown as
+										<code class="rounded bg-accent/10 px-1 font-mono"
+											>«variable»</code
+										>.
+									</div>
+									<div
+										class="prose prose-sm max-w-none whitespace-pre-wrap rounded-lg border border-border bg-[#282c34] p-4 font-mono text-xs leading-relaxed text-[#abb2bf]"
+									>
+										{previewHtml}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{:else}
-					<div class="flex flex-1 flex-col items-center justify-center gap-2 text-text-secondary">
+					<div
+						class="flex flex-1 flex-col items-center justify-center gap-2 text-text-secondary"
+					>
 						<FileCode size={32} strokeWidth={1} />
 						<p class="text-sm">Select a template to view and edit</p>
 					</div>

@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
@@ -586,3 +586,94 @@ async def update_preferences(
 
     await settings_repo.update_user_settings(user_session.user_id, updated_settings)
     return updated_settings
+
+
+@router.post("/api/profile/avatar")
+async def upload_avatar(
+    request: Request,
+    file: UploadFile,
+    settings_repo: SettingsRepo,
+) -> dict[str, str]:
+    """Upload a profile avatar image.
+
+    Stores the file under the configured file_storage_path/avatars/ directory
+    and updates the user's picture_url setting.
+    """
+    user_session = getattr(request.state, "user_session", None)
+    if user_session is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Validate content type
+    allowed_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed: {', '.join(allowed_types)}",
+        )
+
+    # Validate file size (max 2MB)
+    max_size = 2 * 1024 * 1024
+    contents = await file.read()
+    if len(contents) > max_size:
+        raise HTTPException(status_code=400, detail="File too large (max 2MB)")
+
+    import os
+    from pathlib import Path
+
+    config = get_config()
+    avatars_dir = Path(config.file_storage_path) / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate a safe filename
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
+    safe_name = f"{user_session.user_id}.{ext}"
+    file_path = avatars_dir / safe_name
+
+    # Write file
+    file_path.write_bytes(contents)
+
+    # Build the URL path that the frontend can use
+    avatar_url = f"/api/profile/avatar/{safe_name}"
+
+    # Store in user settings so it persists across sessions
+    current = await settings_repo.get_user_settings(user_session.user_id)
+    settings_data = current.model_dump()
+    settings_data["picture_url"] = avatar_url
+    updated_settings = UserSettings(**settings_data)
+    await settings_repo.update_user_settings(user_session.user_id, updated_settings)
+
+    # Also update the session in-memory so the current request cycle sees it
+    if hasattr(user_session, "picture_url"):
+        user_session.picture_url = avatar_url
+
+    return {"picture_url": avatar_url}
+
+
+@router.get("/api/profile/avatar/{filename}")
+async def serve_avatar(filename: str) -> Response:
+    """Serve a stored avatar image."""
+    from pathlib import Path
+
+    config = get_config()
+    file_path = Path(config.file_storage_path) / "avatars" / filename
+
+    # Prevent path traversal
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Avatar not found")
+
+    content_type = "image/png"
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        content_type = "image/jpeg"
+    elif filename.endswith(".gif"):
+        content_type = "image/gif"
+    elif filename.endswith(".webp"):
+        content_type = "image/webp"
+
+    return Response(
+        content=file_path.read_bytes(),
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

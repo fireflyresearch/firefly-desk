@@ -20,7 +20,8 @@
 		XCircle,
 		ToggleLeft,
 		ToggleRight,
-		GitBranch
+		GitBranch,
+		Lock
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -43,7 +44,8 @@
 		provider_type: string;
 		display_name: string;
 		base_url: string;
-		client_id: string;
+		auth_method: string;
+		client_id: string | null;
 		has_client_secret: boolean;
 		oauth_authorize_url: string | null;
 		oauth_token_url: string | null;
@@ -107,6 +109,7 @@
 		provider_type: 'github',
 		display_name: '',
 		base_url: 'https://api.github.com',
+		auth_method: 'pat' as 'oauth' | 'pat',
 		client_id: '',
 		client_secret: '',
 		oauth_authorize_url: 'https://github.com/login/oauth/authorize',
@@ -164,6 +167,7 @@
 			provider_type: 'github',
 			display_name: '',
 			base_url: 'https://api.github.com',
+			auth_method: 'pat',
 			client_id: '',
 			client_secret: '',
 			oauth_authorize_url: 'https://github.com/login/oauth/authorize',
@@ -179,7 +183,8 @@
 			provider_type: provider.provider_type,
 			display_name: provider.display_name,
 			base_url: provider.base_url,
-			client_id: provider.client_id,
+			auth_method: (provider.auth_method || 'oauth') as 'oauth' | 'pat',
+			client_id: provider.client_id || '',
 			client_secret: '',
 			oauth_authorize_url: provider.oauth_authorize_url || '',
 			oauth_token_url: provider.oauth_token_url || '',
@@ -197,25 +202,30 @@
 		saving = true;
 		error = '';
 
-		const scopesList = formData.scopes
-			? formData.scopes
-					.split(',')
-					.map((s) => s.trim())
-					.filter(Boolean)
-			: null;
+		const isPat = formData.auth_method === 'pat';
+
+		const scopesList =
+			!isPat && formData.scopes
+				? formData.scopes
+						.split(',')
+						.map((s) => s.trim())
+						.filter(Boolean)
+				: null;
 
 		const payload: Record<string, unknown> = {
 			provider_type: formData.provider_type,
 			display_name: formData.display_name,
 			base_url: formData.base_url,
-			client_id: formData.client_id,
-			oauth_authorize_url: formData.oauth_authorize_url || null,
-			oauth_token_url: formData.oauth_token_url || null,
+			auth_method: formData.auth_method,
+			client_id: isPat ? null : formData.client_id || null,
+			oauth_authorize_url: isPat ? null : formData.oauth_authorize_url || null,
+			oauth_token_url: isPat ? null : formData.oauth_token_url || null,
 			scopes: scopesList,
 			is_active: true
 		};
 
-		// Only send client_secret if user provided one
+		// For PAT: client_secret holds the PAT token
+		// For OAuth: client_secret holds the OAuth client secret
 		if (formData.client_secret) {
 			payload.client_secret = formData.client_secret;
 		}
@@ -261,6 +271,7 @@
 					provider_type: provider.provider_type,
 					display_name: provider.display_name,
 					base_url: provider.base_url,
+					auth_method: provider.auth_method || 'oauth',
 					client_id: provider.client_id,
 					oauth_authorize_url: provider.oauth_authorize_url,
 					oauth_token_url: provider.oauth_token_url,
@@ -400,64 +411,113 @@
 					/>
 				</label>
 
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Client ID</span>
-					<input
-						type="text"
-						bind:value={formData.client_id}
-						required
-						placeholder="OAuth app client ID"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+				<!-- Auth Method Toggle -->
+				<div class="col-span-2 flex flex-col gap-1">
+					<span class="text-xs font-medium text-text-secondary">Authentication Method</span>
+					<div class="flex gap-2">
+						<button
+							type="button"
+							onclick={() => (formData.auth_method = 'pat')}
+							class="flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors {formData.auth_method === 'pat'
+								? 'border-accent bg-accent/10 text-accent'
+								: 'border-border text-text-secondary hover:bg-surface-hover'}"
+						>
+							<Lock size={14} class="mb-0.5 mr-1 inline-block" />
+							Personal Access Token
+						</button>
+						<button
+							type="button"
+							onclick={() => (formData.auth_method = 'oauth')}
+							class="flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors {formData.auth_method === 'oauth'
+								? 'border-accent bg-accent/10 text-accent'
+								: 'border-border text-text-secondary hover:bg-surface-hover'}"
+						>
+							<GitBranch size={14} class="mb-0.5 mr-1 inline-block" />
+							OAuth App
+						</button>
+					</div>
+				</div>
 
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">
-						Client Secret
-						{#if editingId}
-							<span class="text-text-secondary/60">(leave blank to keep existing)</span>
-						{/if}
-					</span>
-					<input
-						type="password"
-						bind:value={formData.client_secret}
-						placeholder={editingId ? '********' : 'Enter client secret'}
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+				{#if formData.auth_method === 'pat'}
+					<!-- PAT fields -->
+					<label class="col-span-2 flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">
+							Personal Access Token
+							{#if editingId}
+								<span class="text-text-secondary/60">(leave blank to keep existing)</span>
+							{/if}
+						</span>
+						<input
+							type="password"
+							bind:value={formData.client_secret}
+							placeholder={editingId ? '********' : 'ghp_xxxx / glpat-xxxx'}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+						<span class="text-xs text-text-secondary/60">
+							Stored encrypted. Used for all Git operations with this provider.
+						</span>
+					</label>
+				{:else}
+					<!-- OAuth fields -->
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">Client ID</span>
+						<input
+							type="text"
+							bind:value={formData.client_id}
+							required
+							placeholder="OAuth app client ID"
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					</label>
 
-				<label class="col-span-2 flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">OAuth Authorize URL</span>
-					<input
-						type="url"
-						bind:value={formData.oauth_authorize_url}
-						placeholder="https://github.com/login/oauth/authorize"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">
+							Client Secret
+							{#if editingId}
+								<span class="text-text-secondary/60">(leave blank to keep existing)</span>
+							{/if}
+						</span>
+						<input
+							type="password"
+							bind:value={formData.client_secret}
+							placeholder={editingId ? '********' : 'Enter client secret'}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					</label>
 
-				<label class="col-span-2 flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">OAuth Token URL</span>
-					<input
-						type="url"
-						bind:value={formData.oauth_token_url}
-						placeholder="https://github.com/login/oauth/access_token"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+					<label class="col-span-2 flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">OAuth Authorize URL</span>
+						<input
+							type="url"
+							bind:value={formData.oauth_authorize_url}
+							placeholder="https://github.com/login/oauth/authorize"
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					</label>
 
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">
-						Scopes
-						<span class="text-text-secondary/60">(comma-separated)</span>
-					</span>
-					<input
-						type="text"
-						bind:value={formData.scopes}
-						placeholder="repo"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-					/>
-				</label>
+					<label class="col-span-2 flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">OAuth Token URL</span>
+						<input
+							type="url"
+							bind:value={formData.oauth_token_url}
+							placeholder="https://github.com/login/oauth/access_token"
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					</label>
+
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">
+							Scopes
+							<span class="text-text-secondary/60">(comma-separated)</span>
+						</span>
+						<input
+							type="text"
+							bind:value={formData.scopes}
+							placeholder="repo"
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						/>
+					</label>
+				{/if}
 
 				<div class="col-span-2 flex justify-end gap-2 pt-1">
 					<button
@@ -497,13 +557,13 @@
 						<tr class="border-b border-border bg-surface-secondary">
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Name</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">
+								Auth
+							</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">
 								Base URL
 							</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">
-								Client ID
-							</th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">
-								Secret
+								Secret / Token
 							</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">
 								Active
@@ -530,11 +590,17 @@
 										{providerLabel(provider.provider_type)}
 									</span>
 								</td>
+								<td class="px-4 py-2">
+									<span
+										class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {provider.auth_method === 'pat'
+											? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+											: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'}"
+									>
+										{provider.auth_method === 'pat' ? 'PAT' : 'OAuth'}
+									</span>
+								</td>
 								<td class="max-w-[240px] truncate px-4 py-2 font-mono text-xs text-text-secondary">
 									{provider.base_url}
-								</td>
-								<td class="px-4 py-2 font-mono text-xs text-text-secondary">
-									{provider.client_id}
 								</td>
 								<td class="px-4 py-2">
 									{#if provider.has_client_secret}

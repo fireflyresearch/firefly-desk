@@ -143,10 +143,12 @@ export function layoutDagre<N extends Node = Node, E extends Edge = Edge>(
 // ---------------------------------------------------------------------------
 
 /** Map a KG entity type string to a FlowNodeType. */
-function entityTypeToNodeType(type: string): FlowNodeData['nodeType'] {
-	const lower = type.toLowerCase();
+function entityTypeToNodeType(type: string | undefined): FlowNodeData['nodeType'] {
+	const lower = (type ?? '').toLowerCase();
 	if (lower === 'document' || lower === 'file') return 'document';
 	if (lower === 'system' || lower === 'service' || lower === 'technology') return 'system';
+	if (lower === 'process' || lower === 'process-step' || lower === 'workflow' || lower === 'step')
+		return 'process-step';
 	return 'entity';
 }
 

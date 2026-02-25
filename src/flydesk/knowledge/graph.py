@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,7 @@ class Relation:
     source_id: str
     target_id: str
     relation_type: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     properties: dict[str, Any] = field(default_factory=dict)
     confidence: float = 1.0
 
@@ -281,6 +283,7 @@ class KnowledgeGraph:
     @classmethod
     def _row_to_relation(cls, row: RelationRow) -> Relation:
         return Relation(
+            id=row.id,
             source_id=row.source_id,
             target_id=row.target_id,
             relation_type=row.relation_type,

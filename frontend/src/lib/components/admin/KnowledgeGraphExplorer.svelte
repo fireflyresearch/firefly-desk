@@ -1,16 +1,19 @@
 <!--
   KnowledgeGraphExplorer.svelte - Knowledge graph visualization and management.
 
-  Provides a toggle between a SvelteFlow graph view (via FlowCanvas) and a
-  grouped list view. Includes entity detail/edit slide-out panel, search,
-  entity type filter chips, stats overlay, legend, minimap, dagre auto-layout,
-  and CRUD operations.
+  D3 force-directed graph designed for large graphs (hundreds of nodes).
+  Features: collapsible filter sidebar with type counts, zoom/pan,
+  node search, grouped list view, entity detail/edit slide-out panel,
+  stats overlay, and CRUD operations. All panels contained within the
+  parent flex container — no width overflow.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { fly } from 'svelte/transition';
+	import { tick } from 'svelte';
+	import { fly, slide } from 'svelte/transition';
+	import * as d3 from 'd3';
 	import {
 		Search,
 		Loader2,
@@ -22,36 +25,32 @@
 		ChevronRight,
 		AlertCircle,
 		Pencil,
-		BarChart3,
 		Filter,
 		Save,
 		Check,
-		RefreshCw
+		RefreshCw,
+		ZoomIn,
+		ZoomOut,
+		Maximize2,
+		PanelLeftClose,
+		PanelLeft
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
-	import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
-	import { toFlowNodes, toFlowEdges, layoutDagre } from '$lib/components/flow/flow-utils.js';
-	import type {
-		FlowNode as FlowNodeType,
-		FlowEdge as FlowEdgeType,
-		GraphEntity,
-		GraphRelation
-	} from '$lib/components/flow/flow-types.js';
+	import type { GraphEntity, GraphRelation } from '$lib/components/flow/flow-types.js';
 
 	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
 
 	interface GraphNeighborhood {
-		entity: GraphEntity;
-		neighbors: GraphEntity[];
+		entities: GraphEntity[];
 		relations: GraphRelation[];
 	}
 
 	interface GraphStats {
 		entity_count: number;
 		relation_count: number;
-		type_counts?: Record<string, number>;
+		entity_types?: Record<string, number>;
 	}
 
 	interface EntityEditForm {
@@ -59,6 +58,19 @@
 		type: string;
 		properties: string;
 		confidence: number;
+	}
+
+	interface SimNode extends d3.SimulationNodeDatum {
+		id: string;
+		name: string;
+		type: string;
+		entity: GraphEntity;
+	}
+
+	interface SimLink extends d3.SimulationLinkDatum<SimNode> {
+		id: string;
+		label: string;
+		relation: GraphRelation;
 	}
 
 	// -----------------------------------------------------------------------
@@ -72,17 +84,13 @@
 	let error = $state('');
 	let searchQuery = $state('');
 
-	// Graph state (SvelteFlow)
-	let flowNodes = $state<FlowNodeType[]>([]);
-	let flowEdges = $state<FlowEdgeType[]>([]);
-
-	// Entity type filter state
-	let allEntityTypes = $state<string[]>([]);
+	// Filter sidebar
+	let showFilterPanel = $state(true);
 	let hiddenTypes = $state<Set<string>>(new Set());
+	let filterSearch = $state('');
 
-	// Stats
+	// Stats (from API — gives accurate counts without fetching all entities)
 	let stats = $state<GraphStats | null>(null);
-	let showStats = $state(true);
 
 	// Selection/detail state
 	let selectedEntity = $state<GraphEntity | null>(null);
@@ -101,6 +109,12 @@
 	// List view state
 	let expandedTypes = $state<Set<string>>(new Set());
 
+	// D3 refs
+	let svgEl: SVGSVGElement;
+	let containerEl: HTMLDivElement;
+	let simulation: d3.Simulation<SimNode, SimLink> | null = null;
+	let currentZoom: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
+
 	// -----------------------------------------------------------------------
 	// Constants
 	// -----------------------------------------------------------------------
@@ -115,6 +129,17 @@
 		document: '#6366f1',
 		product: '#ec4899',
 		process: '#14b8a6',
+		system: '#0ea5e9',
+		service: '#a855f7',
+		endpoint: '#f97316',
+		role: '#84cc16',
+		domain: '#22d3ee',
+		data_object: '#fb923c',
+		configuration: '#a3a3a3',
+		interface: '#d946ef',
+		section: '#64748b',
+		page: '#f43f5e',
+		api: '#0284c7',
 		default: '#6b7280'
 	};
 
@@ -122,8 +147,10 @@
 		return typeColors[(type ?? '').toLowerCase()] ?? typeColors.default;
 	}
 
+	const NODE_RADIUS = 5;
+
 	// -----------------------------------------------------------------------
-	// Derived: detect whether the edit form differs from the selected entity
+	// Derived
 	// -----------------------------------------------------------------------
 
 	let editFormModified = $derived.by(() => {
@@ -136,14 +163,31 @@
 		return false;
 	});
 
-	// -----------------------------------------------------------------------
-	// Filtered data
-	// -----------------------------------------------------------------------
+	/** All entity types with their counts, sorted by count descending. */
+	let typeCounts = $derived.by(() => {
+		// Prefer stats from API (accurate even if entities are capped)
+		if (stats?.entity_types) {
+			return Object.entries(stats.entity_types)
+				.sort((a, b) => b[1] - a[1]);
+		}
+		// Fallback to local entity data
+		const counts: Record<string, number> = {};
+		for (const e of entities) {
+			const t = (e.type ?? 'unknown').toLowerCase();
+			counts[t] = (counts[t] || 0) + 1;
+		}
+		return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+	});
+
+	/** Filtered type list for the sidebar search. */
+	let filteredTypeCounts = $derived.by(() => {
+		if (!filterSearch.trim()) return typeCounts;
+		const q = filterSearch.toLowerCase();
+		return typeCounts.filter(([type]) => type.includes(q));
+	});
 
 	let filteredEntities = $derived.by(() => {
 		let result = entities;
-
-		// Apply search filter
 		if (searchQuery.trim()) {
 			const q = searchQuery.toLowerCase();
 			result = result.filter(
@@ -152,12 +196,9 @@
 					(e.type ?? '').toLowerCase().includes(q)
 			);
 		}
-
-		// Apply entity type filter
 		if (hiddenTypes.size > 0) {
 			result = result.filter((e) => !hiddenTypes.has((e.type ?? '').toLowerCase()));
 		}
-
 		return result;
 	});
 
@@ -171,60 +212,344 @@
 		return groups;
 	});
 
+	/** Number of visible types (not hidden). */
+	let visibleTypeCount = $derived(typeCounts.length - hiddenTypes.size);
+
 	// -----------------------------------------------------------------------
-	// Build flow graph from filtered data
+	// D3 Force Graph
 	// -----------------------------------------------------------------------
 
-	$effect(() => {
-		if (filteredEntities.length === 0) {
-			flowNodes = [];
-			flowEdges = [];
-			return;
+	function buildGraph() {
+		if (!svgEl || !containerEl) return;
+
+		// Clear previous
+		d3.select(svgEl).selectAll('*').remove();
+		if (simulation) {
+			simulation.stop();
+			simulation = null;
 		}
+
+		if (filteredEntities.length === 0) return;
+
+		const rect = containerEl.getBoundingClientRect();
+		const width = rect.width;
+		const height = rect.height;
+		if (width === 0 || height === 0) return;
 
 		const filteredIds = new Set(filteredEntities.map((e) => e.id));
 
-		// Filter relations to only include those between visible entities
+		const nodes: SimNode[] = filteredEntities.map((e) => ({
+			id: e.id,
+			name: e.name ?? 'Unnamed',
+			type: (e.type ?? 'unknown').toLowerCase(),
+			entity: e
+		}));
+
 		const visibleRelations = relations.filter(
 			(r) => filteredIds.has(r.source_id) && filteredIds.has(r.target_id)
 		);
 
-		// Convert to SvelteFlow nodes/edges
-		const rawNodes = toFlowNodes(filteredEntities);
-		const rawEdges = toFlowEdges(visibleRelations);
+		const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+		const links: SimLink[] = visibleRelations
+			.filter((r) => nodeMap.has(r.source_id) && nodeMap.has(r.target_id))
+			.map((r) => ({
+				id: r.id,
+				source: nodeMap.get(r.source_id)!,
+				target: nodeMap.get(r.target_id)!,
+				label: r.label || r.relation_type,
+				relation: r
+			}));
 
-		// Apply dagre layout
-		flowNodes = layoutDagre(rawNodes, rawEdges, {
-			nodeWidth: 200,
-			nodeHeight: 60,
-			horizontalGap: 60,
-			verticalGap: 80,
-			direction: 'TB'
+		const svg = d3
+			.select(svgEl)
+			.attr('width', width)
+			.attr('height', height)
+			.attr('viewBox', `0 0 ${width} ${height}`);
+
+		// Arrow marker
+		const defs = svg.append('defs');
+		defs
+			.append('marker')
+			.attr('id', 'arrowhead')
+			.attr('viewBox', '0 -4 8 8')
+			.attr('refX', NODE_RADIUS + 10)
+			.attr('refY', 0)
+			.attr('markerWidth', 5)
+			.attr('markerHeight', 5)
+			.attr('orient', 'auto')
+			.append('path')
+			.attr('d', 'M0,-3L7,0L0,3')
+			.attr('fill', 'var(--color-text-secondary)')
+			.attr('opacity', 0.35);
+
+		const g = svg.append('g');
+
+		const zoom = d3
+			.zoom<SVGSVGElement, unknown>()
+			.scaleExtent([0.02, 10])
+			.on('zoom', (event) => {
+				g.attr('transform', event.transform);
+			});
+
+		svg.call(zoom);
+		currentZoom = zoom;
+
+		// Links
+		const link = g
+			.append('g')
+			.attr('class', 'links')
+			.selectAll('line')
+			.data(links)
+			.join('line')
+			.attr('stroke', 'var(--color-border)')
+			.attr('stroke-width', 0.5)
+			.attr('stroke-opacity', 0.35)
+			.attr('marker-end', 'url(#arrowhead)');
+
+		// Edge labels (visible at high zoom)
+		const edgeLabel = g
+			.append('g')
+			.attr('class', 'edge-labels')
+			.selectAll('text')
+			.data(links)
+			.join('text')
+			.text((d) => d.label)
+			.attr('font-size', 7)
+			.attr('fill', 'var(--color-text-secondary)')
+			.attr('text-anchor', 'middle')
+			.attr('dy', -3)
+			.attr('opacity', 0);
+
+		// Nodes
+		const node = g
+			.append('g')
+			.attr('class', 'nodes')
+			.selectAll<SVGCircleElement, SimNode>('circle')
+			.data(nodes)
+			.join('circle')
+			.attr('r', NODE_RADIUS)
+			.attr('fill', (d) => getTypeColor(d.type))
+			.attr('stroke', 'var(--color-surface)')
+			.attr('stroke-width', 1)
+			.attr('cursor', 'pointer')
+			.on('mouseover', function (event, d) {
+				d3.select(this).transition().duration(100).attr('r', NODE_RADIUS * 1.8).attr('stroke-width', 2);
+				tooltip
+					.style('opacity', 1)
+					.html(
+						`<strong>${d.name}</strong><br/><span style="color:${getTypeColor(d.type)}">${d.type}</span>`
+					)
+					.style('left', event.pageX + 12 + 'px')
+					.style('top', event.pageY - 10 + 'px');
+			})
+			.on('mouseout', function () {
+				d3.select(this).transition().duration(100).attr('r', NODE_RADIUS).attr('stroke-width', 1);
+				tooltip.style('opacity', 0);
+			})
+			.on('click', (_event, d) => {
+				selectEntity(d.entity);
+				highlightNode(d.id);
+			})
+			.call(
+				d3
+					.drag<SVGCircleElement, SimNode>()
+					.on('start', (event, d) => {
+						if (!event.active) simulation!.alphaTarget(0.3).restart();
+						d.fx = d.x;
+						d.fy = d.y;
+					})
+					.on('drag', (event, d) => {
+						d.fx = event.x;
+						d.fy = event.y;
+					})
+					.on('end', (event, d) => {
+						if (!event.active) simulation!.alphaTarget(0);
+						d.fx = null;
+						d.fy = null;
+					})
+			);
+
+		// Node labels (visible at medium+ zoom)
+		const label = g
+			.append('g')
+			.attr('class', 'labels')
+			.selectAll('text')
+			.data(nodes)
+			.join('text')
+			.text((d) => d.name.length > 20 ? d.name.slice(0, 18) + '…' : d.name)
+			.attr('font-size', 8)
+			.attr('fill', 'var(--color-text-primary)')
+			.attr('dx', NODE_RADIUS + 3)
+			.attr('dy', 3)
+			.attr('pointer-events', 'none')
+			.attr('opacity', 0);
+
+		// Tooltip
+		const tooltip = d3
+			.select(containerEl)
+			.selectAll<HTMLDivElement, unknown>('.kg-tooltip')
+			.data([0])
+			.join('div')
+			.attr('class', 'kg-tooltip')
+			.style('position', 'fixed')
+			.style('pointer-events', 'none')
+			.style('padding', '6px 10px')
+			.style('background', 'var(--color-surface)')
+			.style('border', '1px solid var(--color-border)')
+			.style('border-radius', '6px')
+			.style('font-size', '11px')
+			.style('color', 'var(--color-text-primary)')
+			.style('box-shadow', '0 4px 12px rgba(0,0,0,0.15)')
+			.style('z-index', '50')
+			.style('opacity', '0')
+			.style('transition', 'opacity 0.15s');
+
+		// Force simulation — tuned for large graphs
+		const n = nodes.length;
+		const chargeStrength = n > 300 ? -50 : n > 150 ? -80 : n > 50 ? -120 : -200;
+		const linkDistance = n > 300 ? 30 : n > 150 ? 45 : n > 50 ? 60 : 80;
+
+		simulation = d3
+			.forceSimulation<SimNode>(nodes)
+			.force(
+				'link',
+				d3
+					.forceLink<SimNode, SimLink>(links)
+					.id((d) => d.id)
+					.distance(linkDistance)
+			)
+			.force('charge', d3.forceManyBody().strength(chargeStrength))
+			.force('center', d3.forceCenter(width / 2, height / 2))
+			.force('collision', d3.forceCollide(NODE_RADIUS + 2))
+			.force('x', d3.forceX(width / 2).strength(0.04))
+			.force('y', d3.forceY(height / 2).strength(0.04))
+			.on('tick', () => {
+				link
+					.attr('x1', (d) => (d.source as SimNode).x!)
+					.attr('y1', (d) => (d.source as SimNode).y!)
+					.attr('x2', (d) => (d.target as SimNode).x!)
+					.attr('y2', (d) => (d.target as SimNode).y!);
+
+				edgeLabel
+					.attr('x', (d) => ((d.source as SimNode).x! + (d.target as SimNode).x!) / 2)
+					.attr('y', (d) => ((d.source as SimNode).y! + (d.target as SimNode).y!) / 2);
+
+				node.attr('cx', (d) => d.x!).attr('cy', (d) => d.y!);
+				label.attr('x', (d) => d.x!).attr('y', (d) => d.y!);
+			});
+
+		// Adaptive rendering based on zoom
+		zoom.on('zoom.adaptive', (event) => {
+			const k = event.transform.k;
+			// Show labels when zoomed in enough to read them
+			label.attr('opacity', k > 0.8 ? Math.min(1, (k - 0.8) * 2) : 0);
+			// Show edge labels only when very zoomed in
+			edgeLabel.attr('opacity', k > 2 ? 0.7 : 0);
 		});
 
-		// Apply marker ends for directional arrows
-		flowEdges = rawEdges.map((edge) => ({
-			...edge,
-			markerEnd: 'arrowclosed'
-		}));
+		// Fit after simulation settles
+		setTimeout(() => fitToView(), 1000);
+	}
 
-		// Highlight search matches by setting status to 'active'
-		if (searchQuery.trim()) {
-			const q = searchQuery.toLowerCase();
-			flowNodes = flowNodes.map((node) => {
-				const label = (node.data.label ?? '') as string;
-				const subtitle = (node.data.subtitle ?? '') as string;
-				const isMatch =
-					label.toLowerCase().includes(q) || subtitle.toLowerCase().includes(q);
-				if (isMatch) {
-					return {
-						...node,
-						data: { ...node.data, status: 'active' as const }
-					};
-				}
-				return node;
-			});
+	function fitToView() {
+		if (!svgEl || !currentZoom || !containerEl) return;
+		const svg = d3.select(svgEl);
+		const g = svg.select<SVGGElement>('g');
+		const gNode = g.node();
+		if (!gNode) return;
+		const bounds = gNode.getBBox();
+		if (bounds.width === 0 || bounds.height === 0) return;
+
+		const rect = containerEl.getBoundingClientRect();
+		const padding = 40;
+		const scale = Math.min(
+			(rect.width - padding * 2) / bounds.width,
+			(rect.height - padding * 2) / bounds.height,
+			2
+		);
+		const tx = rect.width / 2 - scale * (bounds.x + bounds.width / 2);
+		const ty = rect.height / 2 - scale * (bounds.y + bounds.height / 2);
+		(svg as any)
+			.transition()
+			.duration(500)
+			.call(currentZoom!.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+	}
+
+	function highlightNode(nodeId: string) {
+		if (!svgEl) return;
+		const svg = d3.select(svgEl);
+
+		const neighborIds = new Set<string>([nodeId]);
+		for (const r of relations) {
+			if (r.source_id === nodeId) neighborIds.add(r.target_id);
+			if (r.target_id === nodeId) neighborIds.add(r.source_id);
 		}
+
+		svg.selectAll<SVGCircleElement, SimNode>('.nodes circle')
+			.attr('opacity', (d) => neighborIds.has(d.id) ? 1 : 0.15)
+			.attr('stroke-width', (d) => d.id === nodeId ? 3 : 1);
+
+		svg.selectAll<SVGLineElement, SimLink>('.links line')
+			.attr('stroke-opacity', (d) =>
+				(d.source as SimNode).id === nodeId || (d.target as SimNode).id === nodeId ? 0.8 : 0.03
+			)
+			.attr('stroke-width', (d) =>
+				(d.source as SimNode).id === nodeId || (d.target as SimNode).id === nodeId ? 1.5 : 0.5
+			);
+
+		svg.selectAll<SVGTextElement, SimNode>('.labels text')
+			.attr('opacity', (d) => neighborIds.has(d.id) ? 1 : 0);
+	}
+
+	function clearHighlight() {
+		if (!svgEl) return;
+		const svg = d3.select(svgEl);
+		svg.selectAll('.nodes circle').attr('opacity', 1).attr('stroke-width', 1);
+		svg.selectAll('.links line').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5);
+		// Labels controlled by zoom level, just reset to hidden for now
+		svg.selectAll('.labels text').attr('opacity', 0);
+	}
+
+	function handleZoomIn() {
+		if (!svgEl || !currentZoom) return;
+		d3.select(svgEl).transition().duration(300).call(currentZoom.scaleBy, 1.5);
+	}
+
+	function handleZoomOut() {
+		if (!svgEl || !currentZoom) return;
+		d3.select(svgEl).transition().duration(300).call(currentZoom.scaleBy, 0.67);
+	}
+
+	// Rebuild graph when data changes
+	let graphVersion = $state(0);
+	$effect(() => {
+		void filteredEntities;
+		void relations;
+		void viewMode;
+		void graphVersion;
+
+		if (viewMode === 'graph' && !loading && filteredEntities.length > 0) {
+			tick().then(() => buildGraph());
+		}
+	});
+
+	// Resize handler
+	$effect(() => {
+		if (!containerEl) return;
+		let debounce: ReturnType<typeof setTimeout>;
+		const observer = new ResizeObserver(() => {
+			clearTimeout(debounce);
+			debounce = setTimeout(() => {
+				if (viewMode === 'graph' && filteredEntities.length > 0) {
+					buildGraph();
+				}
+			}, 200);
+		});
+		observer.observe(containerEl);
+		return () => {
+			observer.disconnect();
+			clearTimeout(debounce);
+		};
 	});
 
 	// -----------------------------------------------------------------------
@@ -235,14 +560,7 @@
 		loading = true;
 		error = '';
 		try {
-			entities = await apiJson<GraphEntity[]>('/knowledge/graph/entities');
-
-			// Extract unique entity types for filter chips
-			const types = new Set<string>();
-			for (const e of entities) {
-				types.add((e.type ?? 'unknown').toLowerCase());
-			}
-			allEntityTypes = [...types].sort();
+			entities = await apiJson<GraphEntity[]>('/knowledge/graph/entities?limit=500');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load entities';
 		} finally {
@@ -251,8 +569,7 @@
 	}
 
 	async function loadRelations() {
-		// Fetch neighborhoods for entities to gather relations
-		const sampleSize = Math.min(entities.length, 50);
+		const sampleSize = Math.min(entities.length, 200);
 		const sampleEntities = entities.slice(0, sampleSize);
 
 		const seenLinks = new Set<string>();
@@ -268,8 +585,7 @@
 
 			for (const result of neighborhoods) {
 				if (result.status !== 'fulfilled') continue;
-				const hood = result.value;
-				for (const rel of hood.relations) {
+				for (const rel of result.value.relations) {
 					if (seenLinks.has(rel.id)) continue;
 					if (!nodeIdSet.has(rel.source_id) || !nodeIdSet.has(rel.target_id)) continue;
 					seenLinks.add(rel.id);
@@ -277,7 +593,7 @@
 				}
 			}
 		} catch {
-			// Relations are optional -- graph still works without them
+			// Relations are optional
 		}
 
 		relations = collectedRelations;
@@ -287,7 +603,7 @@
 		try {
 			stats = await apiJson<GraphStats>('/knowledge/graph/stats');
 		} catch {
-			// Stats are non-critical; silently ignore errors
+			// Stats are non-critical
 		}
 	}
 
@@ -304,25 +620,18 @@
 		}
 	}
 
-	/**
-	 * Refresh the entire graph -- reloads entities, relations, and stats.
-	 * Call this after KG recompute completes or any external graph mutation.
-	 */
 	async function refreshGraph() {
 		await loadEntities();
 		await Promise.all([loadRelations(), loadStats()]);
+		graphVersion++;
 	}
 
-	// Listen for custom 'kg-recompute-done' events dispatched when the SSE
-	// stream for a KG recompute job completes.
 	$effect(() => {
 		function handleRecomputeDone() {
 			refreshGraph();
 		}
 		window.addEventListener('kg-recompute-done', handleRecomputeDone);
-		return () => {
-			window.removeEventListener('kg-recompute-done', handleRecomputeDone);
-		};
+		return () => window.removeEventListener('kg-recompute-done', handleRecomputeDone);
 	});
 
 	$effect(() => {
@@ -333,37 +642,28 @@
 	});
 
 	// -----------------------------------------------------------------------
-	// Node click handler -- bridge from FlowCanvas to entity detail
-	// -----------------------------------------------------------------------
-
-	function handleNodeClick(node: FlowNodeType) {
-		const entity = entities.find((e) => e.id === node.id);
-		if (entity) {
-			selectEntity(entity);
-		}
-	}
-
-	function handlePaneClick() {
-		// Clicking the empty canvas clears selection
-		closeDetail();
-	}
-
-	// -----------------------------------------------------------------------
-	// Entity type filter
+	// Filter actions
 	// -----------------------------------------------------------------------
 
 	function toggleTypeFilter(type: string) {
 		const next = new Set(hiddenTypes);
-		if (next.has(type)) {
-			next.delete(type);
-		} else {
-			next.add(type);
-		}
+		if (next.has(type)) next.delete(type);
+		else next.add(type);
 		hiddenTypes = next;
 	}
 
 	function showAllTypes() {
 		hiddenTypes = new Set();
+	}
+
+	function hideAllTypes() {
+		hiddenTypes = new Set(typeCounts.map(([t]) => t));
+	}
+
+	function showOnlyType(type: string) {
+		const all = new Set(typeCounts.map(([t]) => t));
+		all.delete(type);
+		hiddenTypes = all;
 	}
 
 	// -----------------------------------------------------------------------
@@ -382,6 +682,7 @@
 		neighborhood = null;
 		editingEntity = false;
 		propertiesJsonError = '';
+		clearHighlight();
 	}
 
 	function startEditEntity() {
@@ -414,41 +715,31 @@
 
 	async function saveEntity() {
 		if (!selectedEntity) return;
-
-		// Validate properties JSON before saving
 		if (!validatePropertiesJson(editForm.properties)) return;
 
 		savingEntity = true;
 		error = '';
 		try {
-			let parsedProperties: Record<string, unknown>;
-			try {
-				parsedProperties = JSON.parse(editForm.properties);
-			} catch {
-				propertiesJsonError = 'Invalid JSON';
-				savingEntity = false;
-				return;
-			}
-
-			const payload: Record<string, unknown> = {
-				name: editForm.name,
-				entity_type: editForm.type,
-				properties: parsedProperties,
-				confidence: editForm.confidence
-			};
-
+			const parsedProperties = JSON.parse(editForm.properties);
 			await apiFetch(`/knowledge/graph/entities/${selectedEntity.id}`, {
 				method: 'PATCH',
-				body: JSON.stringify(payload)
+				body: JSON.stringify({
+					name: editForm.name,
+					entity_type: editForm.type,
+					properties: parsedProperties,
+					confidence: editForm.confidence
+				})
 			});
 			editingEntity = false;
 			propertiesJsonError = '';
 			closeDetail();
-			await loadEntities();
-			await loadRelations();
-			await loadStats();
+			await refreshGraph();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save entity';
+			if (e instanceof SyntaxError) {
+				propertiesJsonError = 'Invalid JSON';
+			} else {
+				error = e instanceof Error ? e.message : 'Failed to save entity';
+			}
 		} finally {
 			savingEntity = false;
 		}
@@ -460,289 +751,296 @@
 		try {
 			await apiFetch(`/knowledge/graph/entities/${id}`, { method: 'DELETE' });
 			closeDetail();
-			await loadEntities();
-			await loadRelations();
-			await loadStats();
+			await refreshGraph();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete entity';
 		}
 	}
 
-	// -----------------------------------------------------------------------
-	// List view toggle
-	// -----------------------------------------------------------------------
-
 	function toggleTypeGroup(type: string) {
 		const next = new Set(expandedTypes);
-		if (next.has(type)) {
-			next.delete(type);
-		} else {
-			next.add(type);
-		}
+		if (next.has(type)) next.delete(type);
+		else next.add(type);
 		expandedTypes = next;
 	}
 </script>
 
-<div class="flex h-full flex-col gap-3">
-	<!-- Toolbar -->
-	<div class="flex items-center gap-3">
+<div class="flex h-full min-h-0 min-w-0 flex-col">
+	<!-- Top toolbar -->
+	<div class="flex items-center gap-2 px-1 pb-2">
+		<!-- Toggle filter sidebar -->
+		<button
+			type="button"
+			onclick={() => (showFilterPanel = !showFilterPanel)}
+			class="inline-flex shrink-0 items-center rounded-md border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-hover"
+			title="{showFilterPanel ? 'Hide' : 'Show'} filter panel"
+		>
+			{#if showFilterPanel}
+				<PanelLeftClose size={14} />
+			{:else}
+				<PanelLeft size={14} />
+			{/if}
+		</button>
+
 		<!-- Search -->
-		<div class="relative flex-1">
-			<Search size={14} class="absolute top-1/2 left-3 -translate-y-1/2 text-text-secondary" />
+		<div class="relative min-w-0 flex-1">
+			<Search size={14} class="absolute top-1/2 left-2.5 -translate-y-1/2 text-text-secondary" />
 			<input
 				type="text"
 				bind:value={searchQuery}
-				placeholder="Search entities..."
-				class="w-full rounded-md border border-border bg-surface py-1.5 pr-3 pl-8 text-sm text-text-primary outline-none focus:border-accent"
+				placeholder="Search entities by name or type..."
+				class="w-full rounded-md border border-border bg-surface py-1.5 pr-3 pl-8 text-xs text-text-primary outline-none focus:border-accent"
 			/>
 		</div>
 
-		<!-- Refresh button -->
+		<!-- Refresh -->
 		<button
 			type="button"
 			onclick={() => refreshGraph()}
-			class="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
-			title="Refresh Graph"
+			class="inline-flex shrink-0 items-center rounded-md border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-hover"
+			title="Refresh"
 		>
 			<RefreshCw size={14} />
 		</button>
 
-		<!-- Stats toggle -->
-		<button
-			type="button"
-			onclick={() => (showStats = !showStats)}
-			class="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors
-				{showStats ? 'bg-accent/10 text-accent border-accent/30' : 'text-text-secondary hover:bg-surface-hover'}"
-			title="Toggle Stats"
-		>
-			<BarChart3 size={14} />
-		</button>
-
 		<!-- View toggle -->
-		<div class="flex rounded-md border border-border">
+		<div class="flex shrink-0 rounded-md border border-border">
 			<button
 				type="button"
 				onclick={() => (viewMode = 'graph')}
-				class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors
-					{viewMode === 'graph'
-					? 'bg-accent text-white'
-					: 'text-text-secondary hover:bg-surface-hover'}"
-				title="Graph View"
+				class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-colors
+					{viewMode === 'graph' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
 			>
-				<Network size={14} />
+				<Network size={13} />
 				Graph
 			</button>
 			<button
 				type="button"
 				onclick={() => (viewMode = 'list')}
-				class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors
-					{viewMode === 'list'
-					? 'bg-accent text-white'
-					: 'text-text-secondary hover:bg-surface-hover'}"
-				title="List View"
+				class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-colors
+					{viewMode === 'list' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
 			>
-				<List size={14} />
+				<List size={13} />
 				List
 			</button>
 		</div>
 	</div>
 
-	<!-- Entity type filter chips -->
-	{#if allEntityTypes.length > 0}
-		<div class="flex items-center gap-2 overflow-x-auto">
-			<Filter size={12} class="flex-shrink-0 text-text-secondary" />
-			<button
-				type="button"
-				onclick={showAllTypes}
-				class="flex-shrink-0 rounded-full border border-border px-2 py-0.5 text-xs font-medium transition-colors
-					{hiddenTypes.size === 0 ? 'bg-accent/10 text-accent border-accent/30' : 'text-text-secondary hover:bg-surface-hover'}"
-			>
-				All
-			</button>
-			{#each allEntityTypes as type}
-				<button
-					type="button"
-					onclick={() => toggleTypeFilter(type)}
-					class="flex flex-shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium capitalize transition-colors
-						{hiddenTypes.has(type)
-						? 'border-border text-text-secondary/50 bg-surface-secondary/50 line-through'
-						: 'border-border text-text-secondary hover:bg-surface-hover'}"
-				>
-					<span
-						class="inline-block h-2 w-2 rounded-full"
-						style="background-color: {getTypeColor(type)}{hiddenTypes.has(type) ? '40' : ''}"
-					></span>
-					{type}
-				</button>
-			{/each}
-		</div>
-	{/if}
-
 	<!-- Error banner -->
 	{#if error}
-		<div
-			class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
-		>
-			<AlertCircle size={16} />
+		<div class="mb-2 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+			<AlertCircle size={14} />
 			{error}
 		</div>
 	{/if}
 
-	<!-- Content area -->
+	<!-- Main content area -->
 	{#if loading}
 		<div class="flex flex-1 items-center justify-center">
 			<Loader2 size={24} class="animate-spin text-text-secondary" />
 		</div>
 	{:else}
-		<div class="relative flex flex-1 gap-0 overflow-hidden">
+		<div class="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-border">
+			<!-- ============================================================= -->
+			<!-- Filter Sidebar                                                 -->
+			<!-- ============================================================= -->
+			{#if showFilterPanel}
+				<div
+					class="flex w-52 shrink-0 flex-col border-r border-border bg-surface-secondary/50"
+					transition:slide={{ axis: 'x', duration: 200 }}
+				>
+					<!-- Sidebar header -->
+					<div class="flex items-center justify-between border-b border-border px-3 py-2">
+						<div class="flex items-center gap-1.5">
+							<Filter size={12} class="text-text-secondary" />
+							<span class="text-xs font-semibold text-text-secondary">Entity Types</span>
+						</div>
+						<span class="rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">
+							{visibleTypeCount}/{typeCounts.length}
+						</span>
+					</div>
+
+					<!-- Quick actions -->
+					<div class="flex gap-1 border-b border-border px-3 py-1.5">
+						<button
+							type="button"
+							onclick={showAllTypes}
+							class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors
+								{hiddenTypes.size === 0 ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-hover'}"
+						>
+							Show All
+						</button>
+						<button
+							type="button"
+							onclick={hideAllTypes}
+							class="rounded px-1.5 py-0.5 text-[10px] font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+						>
+							Hide All
+						</button>
+					</div>
+
+					<!-- Type search -->
+					<div class="border-b border-border px-3 py-1.5">
+						<input
+							type="text"
+							bind:value={filterSearch}
+							placeholder="Filter types..."
+							class="w-full rounded border border-border bg-surface px-2 py-1 text-[11px] text-text-primary outline-none focus:border-accent"
+						/>
+					</div>
+
+					<!-- Type list -->
+					<div class="flex-1 overflow-y-auto">
+						{#each filteredTypeCounts as [type, count]}
+							<button
+								type="button"
+								onclick={() => toggleTypeFilter(type)}
+								ondblclick={() => showOnlyType(type)}
+								class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-hover
+									{hiddenTypes.has(type) ? 'opacity-40' : ''}"
+								title="Click to toggle, double-click to show only this type"
+							>
+								<span
+									class="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+									style="background-color: {getTypeColor(type)}"
+								></span>
+								<span class="min-w-0 flex-1 truncate text-[11px] capitalize text-text-primary">
+									{type.replace(/_/g, ' ')}
+								</span>
+								<span class="shrink-0 text-[10px] tabular-nums text-text-secondary">
+									{count}
+								</span>
+							</button>
+						{/each}
+					</div>
+
+					<!-- Stats footer -->
+					{#if stats}
+						<div class="border-t border-border px-3 py-2">
+							<div class="flex justify-between text-[10px]">
+								<span class="text-text-secondary">Entities</span>
+								<span class="font-semibold text-text-primary">{stats.entity_count.toLocaleString()}</span>
+							</div>
+							<div class="flex justify-between text-[10px]">
+								<span class="text-text-secondary">Relations</span>
+								<span class="font-semibold text-text-primary">{stats.relation_count.toLocaleString()}</span>
+							</div>
+							<div class="flex justify-between text-[10px]">
+								<span class="text-text-secondary">Showing</span>
+								<span class="font-semibold text-text-primary">{filteredEntities.length.toLocaleString()}</span>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<!-- ============================================================= -->
 			<!-- Graph View                                                     -->
 			<!-- ============================================================= -->
 			{#if viewMode === 'graph'}
-				<div class="relative flex-1 overflow-hidden rounded-lg border border-border bg-surface">
+				<div
+					class="relative min-h-0 min-w-0 flex-1 bg-surface"
+					bind:this={containerEl}
+				>
 					{#if filteredEntities.length === 0}
-						<div
-							class="absolute inset-0 flex flex-col items-center justify-center text-text-secondary"
-						>
+						<div class="absolute inset-0 flex flex-col items-center justify-center text-text-secondary">
 							<Network size={48} strokeWidth={1} class="mb-2 opacity-30" />
-							<p class="text-sm">No entities in the knowledge graph.</p>
-							<p class="text-xs">Documents with extracted entities will appear here.</p>
+							<p class="text-sm">No entities match the current filters.</p>
+							{#if hiddenTypes.size > 0}
+								<button
+									type="button"
+									onclick={showAllTypes}
+									class="mt-2 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
+								>
+									Show All Types
+								</button>
+							{/if}
 						</div>
 					{:else}
-						<FlowCanvas
-							nodes={flowNodes}
-							edges={flowEdges}
-							fitView={true}
-							interactive={true}
-							options={{
-								minimap: true,
-								controls: true,
-								background: 'dots',
-								minZoom: 0.1,
-								maxZoom: 5
-							}}
-							onNodeClick={handleNodeClick}
-							onPaneClick={handlePaneClick}
-						/>
+						<svg bind:this={svgEl} class="h-full w-full"></svg>
 					{/if}
 
-					<!-- Stats overlay -->
-					{#if showStats && stats}
-						<div class="pointer-events-none absolute top-3 right-3 flex gap-2">
-							<div
-								class="pointer-events-auto rounded-md border border-border bg-surface/90 px-3 py-2 text-xs shadow-sm backdrop-blur-sm"
-							>
-								<div class="font-medium text-text-secondary">Entities</div>
-								<div class="text-lg font-semibold text-text-primary">
-									{stats.entity_count}
-								</div>
-							</div>
-							<div
-								class="pointer-events-auto rounded-md border border-border bg-surface/90 px-3 py-2 text-xs shadow-sm backdrop-blur-sm"
-							>
-								<div class="font-medium text-text-secondary">Relations</div>
-								<div class="text-lg font-semibold text-text-primary">
-									{stats.relation_count}
-								</div>
-							</div>
-						</div>
-					{/if}
-
-					<!-- Legend -->
-					{#if Object.keys(entitiesByType).length > 0}
-						<div
-							class="absolute bottom-3 left-3 rounded-lg border border-border bg-surface/90 px-3 py-2 text-xs backdrop-blur-sm"
+					<!-- Zoom controls -->
+					<div class="absolute bottom-3 right-3 flex flex-col gap-1">
+						<button
+							type="button"
+							onclick={handleZoomIn}
+							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
+							title="Zoom In"
 						>
-							<div class="flex flex-wrap gap-2">
-								{#each Object.entries(typeColors).filter(([k]) => k !== 'default') as [type, color]}
-									{#if entitiesByType[type]}
-										<div class="flex items-center gap-1">
-											<span
-												class="h-2.5 w-2.5 rounded-full"
-												style="background-color: {color}"
-											></span>
-											<span class="capitalize text-text-secondary">{type}</span>
-										</div>
-									{/if}
-								{/each}
-							</div>
-						</div>
-					{/if}
+							<ZoomIn size={14} />
+						</button>
+						<button
+							type="button"
+							onclick={handleZoomOut}
+							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
+							title="Zoom Out"
+						>
+							<ZoomOut size={14} />
+						</button>
+						<button
+							type="button"
+							onclick={() => fitToView()}
+							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
+							title="Fit to View"
+						>
+							<Maximize2 size={14} />
+						</button>
+					</div>
 				</div>
 
 			<!-- ============================================================= -->
 			<!-- List View                                                      -->
 			<!-- ============================================================= -->
 			{:else}
-				<div class="flex-1 overflow-y-auto">
+				<div class="min-w-0 flex-1 overflow-y-auto bg-surface p-3">
 					{#if Object.keys(entitiesByType).length === 0}
-						<div
-							class="flex flex-col items-center justify-center py-12 text-text-secondary"
-						>
+						<div class="flex flex-col items-center justify-center py-12 text-text-secondary">
 							<Network size={48} strokeWidth={1} class="mb-2 opacity-30" />
 							<p class="text-sm">No entities found.</p>
 						</div>
 					{:else}
-						<div class="flex flex-col gap-2">
-							{#each Object.entries(entitiesByType).sort((a, b) => a[0].localeCompare(b[0])) as [type, typeEntities]}
+						<div class="flex flex-col gap-1.5">
+							{#each Object.entries(entitiesByType).sort((a, b) => b[1].length - a[1].length) as [type, typeEntities]}
 								<div class="rounded-lg border border-border bg-surface">
-									<!-- Group header -->
 									<button
 										type="button"
 										onclick={() => toggleTypeGroup(type)}
-										class="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-surface-secondary/50"
+										class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-secondary/50"
 									>
 										{#if expandedTypes.has(type)}
-											<ChevronDown size={14} class="text-text-secondary" />
+											<ChevronDown size={13} class="text-text-secondary" />
 										{:else}
-											<ChevronRight size={14} class="text-text-secondary" />
+											<ChevronRight size={13} class="text-text-secondary" />
 										{/if}
 										<span
 											class="inline-block h-2.5 w-2.5 rounded-full"
 											style="background-color: {getTypeColor(type)}"
 										></span>
-										<span class="text-sm font-medium capitalize text-text-primary">
-											{type}
+										<span class="text-xs font-medium capitalize text-text-primary">
+											{type.replace(/_/g, ' ')}
 										</span>
-										<span
-											class="rounded-full bg-surface-secondary px-2 py-0.5 text-xs text-text-secondary"
-										>
+										<span class="rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">
 											{typeEntities.length}
 										</span>
 									</button>
 
-									<!-- Expanded entity cards -->
 									{#if expandedTypes.has(type)}
-										<div class="border-t border-border px-4 py-2">
-											<div class="flex flex-col gap-1.5">
+										<div class="border-t border-border px-3 py-1.5" transition:slide={{ duration: 150 }}>
+											<div class="flex flex-col gap-1">
 												{#each typeEntities as entity}
 													<button
 														type="button"
 														onclick={() => selectEntity(entity)}
-														class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-secondary/50
+														class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-surface-secondary/50
 															{selectedEntity?.id === entity.id ? 'bg-accent/5 ring-1 ring-accent/30' : ''}"
 													>
-														<span class="text-sm font-medium text-text-primary">
+														<span class="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
 															{entity.name}
 														</span>
 														{#if entity.confidence != null && entity.confidence < 1.0}
-															<span
-																class="rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning"
-															>
+															<span class="shrink-0 rounded bg-warning/10 px-1 py-0.5 text-[10px] text-warning">
 																{Math.round(entity.confidence * 100)}%
-															</span>
-														{/if}
-														{#if entity.properties && Object.keys(entity.properties).length > 0}
-															<span class="text-xs text-text-secondary">
-																{Object.keys(entity.properties).length} properties
-															</span>
-														{/if}
-														{#if entity.source_documents && entity.source_documents.length > 0}
-															<span class="text-xs text-text-secondary">
-																{entity.source_documents.length} source{entity
-																	.source_documents.length !== 1
-																	? 's'
-																	: ''}
 															</span>
 														{/if}
 													</button>
@@ -762,35 +1060,28 @@
 			<!-- ============================================================= -->
 			{#if selectedEntity}
 				<div
-					class="absolute inset-y-0 right-0 z-10 flex w-80 shrink-0 flex-col border-l border-border bg-surface shadow-lg"
-					transition:fly={{ x: 320, duration: 250 }}
+					class="absolute inset-y-0 right-0 z-10 flex w-72 shrink-0 flex-col border-l border-border bg-surface shadow-lg"
+					transition:fly={{ x: 288, duration: 200 }}
 				>
 					<!-- Panel header -->
-					<div
-						class="flex items-center justify-between border-b border-border px-3 py-2.5"
-					>
-						<div class="flex items-center gap-2">
-							<h4 class="text-sm font-semibold text-text-primary">
+					<div class="flex items-center justify-between border-b border-border px-3 py-2">
+						<div class="flex items-center gap-1.5">
+							<h4 class="text-xs font-semibold text-text-primary">
 								{editingEntity ? 'Edit Entity' : 'Entity Detail'}
 							</h4>
-							<!-- Status badge -->
 							{#if editingEntity && editFormModified}
-								<span
-									class="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
-								>
-									<Pencil size={10} />
+								<span class="inline-flex items-center gap-0.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+									<Pencil size={8} />
 									modified
 								</span>
 							{:else if !editingEntity}
-								<span
-									class="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
-								>
-									<Check size={10} />
+								<span class="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success">
+									<Check size={8} />
 									verified
 								</span>
 							{/if}
 						</div>
-						<div class="flex items-center gap-1">
+						<div class="flex items-center gap-0.5">
 							{#if !editingEntity}
 								<button
 									type="button"
@@ -798,7 +1089,7 @@
 									class="rounded p-1 text-text-secondary hover:bg-accent/10 hover:text-accent"
 									title="Edit"
 								>
-									<Pencil size={12} />
+									<Pencil size={11} />
 								</button>
 								<button
 									type="button"
@@ -806,7 +1097,7 @@
 									class="rounded p-1 text-text-secondary hover:bg-danger/10 hover:text-danger"
 									title="Delete"
 								>
-									<Trash2 size={12} />
+									<Trash2 size={11} />
 								</button>
 							{/if}
 							<button
@@ -815,7 +1106,7 @@
 								class="rounded p-1 text-text-secondary hover:text-text-primary"
 								title="Close"
 							>
-								<X size={14} />
+								<X size={13} />
 							</button>
 						</div>
 					</div>
@@ -824,242 +1115,129 @@
 					<div class="flex-1 overflow-y-auto p-3">
 						{#if loadingDetail}
 							<div class="flex items-center justify-center py-8">
-								<Loader2 size={16} class="animate-spin text-text-secondary" />
+								<Loader2 size={14} class="animate-spin text-text-secondary" />
 							</div>
 						{:else if editingEntity}
-							<!-- ====================================== -->
-							<!-- Edit Mode                              -->
-							<!-- ====================================== -->
-							<div class="flex flex-col gap-3">
-								<!-- Entity Name -->
+							<!-- Edit Mode -->
+							<div class="flex flex-col gap-2.5">
 								<div>
-									<label
-										for="edit-name"
-										class="mb-1 block text-xs font-medium text-text-secondary"
-									>
-										Name
-									</label>
-									<input
-										id="edit-name"
-										type="text"
-										bind:value={editForm.name}
-										placeholder="Entity name"
-										class="w-full rounded-md border border-border bg-surface py-1.5 px-2 text-sm text-text-primary outline-none focus:border-accent"
-									/>
+									<label for="edit-name" class="mb-0.5 block text-[10px] font-medium text-text-secondary">Name</label>
+									<input id="edit-name" type="text" bind:value={editForm.name} class="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary outline-none focus:border-accent" />
 								</div>
-
-								<!-- Entity Type -->
 								<div>
-									<label
-										for="edit-type"
-										class="mb-1 block text-xs font-medium text-text-secondary"
-									>
-										Type
-									</label>
-									<input
-										id="edit-type"
-										type="text"
-										bind:value={editForm.type}
-										placeholder="Entity type (e.g. person, organization)"
-										class="w-full rounded-md border border-border bg-surface py-1.5 px-2 text-sm text-text-primary outline-none focus:border-accent"
-									/>
+									<label for="edit-type" class="mb-0.5 block text-[10px] font-medium text-text-secondary">Type</label>
+									<input id="edit-type" type="text" bind:value={editForm.type} class="w-full rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary outline-none focus:border-accent" />
 								</div>
-
-								<!-- Confidence Score -->
 								<div>
-									<label
-										for="edit-confidence"
-										class="mb-1 flex items-center justify-between text-xs font-medium text-text-secondary"
-									>
+									<label for="edit-confidence" class="mb-0.5 flex justify-between text-[10px] font-medium text-text-secondary">
 										<span>Confidence</span>
 										<span class="tabular-nums">{editForm.confidence.toFixed(2)}</span>
 									</label>
-									<input
-										id="edit-confidence"
-										type="range"
-										min="0"
-										max="1"
-										step="0.01"
-										bind:value={editForm.confidence}
-										class="w-full accent-accent"
-									/>
-									<div class="mt-0.5 flex justify-between text-xs text-text-secondary">
-										<span>0</span>
-										<span>1</span>
-									</div>
+									<input id="edit-confidence" type="range" min="0" max="1" step="0.01" bind:value={editForm.confidence} class="w-full accent-accent" />
 								</div>
-
-								<!-- Properties (JSON textarea) -->
 								<div>
-									<label
-										for="edit-properties"
-										class="mb-1 block text-xs font-medium text-text-secondary"
-									>
-										Properties (JSON)
-									</label>
+									<label for="edit-properties" class="mb-0.5 block text-[10px] font-medium text-text-secondary">Properties (JSON)</label>
 									<textarea
 										id="edit-properties"
 										bind:value={editForm.properties}
 										oninput={() => validatePropertiesJson(editForm.properties)}
-										rows={6}
-										class="w-full resize-y rounded-md border bg-surface px-2 py-1.5 font-mono text-xs text-text-primary outline-none
-											{propertiesJsonError ? 'border-danger focus:border-danger' : 'border-border focus:border-accent'}"
+										rows={5}
+										class="w-full resize-y rounded border bg-surface px-2 py-1 font-mono text-[10px] text-text-primary outline-none
+											{propertiesJsonError ? 'border-danger' : 'border-border focus:border-accent'}"
 										spellcheck="false"
 									></textarea>
 									{#if propertiesJsonError}
-										<p class="mt-0.5 text-xs text-danger">{propertiesJsonError}</p>
+										<p class="mt-0.5 text-[10px] text-danger">{propertiesJsonError}</p>
 									{/if}
 								</div>
-
-								<!-- Read-only relations section -->
-								{#if neighborhood?.relations && neighborhood.relations.length > 0}
-									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Relations ({neighborhood.relations.length})
-										</h6>
-										<div class="flex flex-col gap-1">
-											{#each neighborhood.relations as rel}
-												<div
-													class="rounded-md border border-border bg-surface-secondary px-2 py-1.5 text-xs"
-												>
-													<span class="font-medium text-accent"
-														>{rel.label}</span
-													>
-												</div>
-											{/each}
-										</div>
-									</div>
-								{/if}
 							</div>
 						{:else}
-							<!-- ====================================== -->
-							<!-- View Mode                              -->
-							<!-- ====================================== -->
-							<div class="flex flex-col gap-3">
-								<!-- Name and type -->
+							<!-- View Mode -->
+							<div class="flex flex-col gap-2.5">
 								<div>
-									<h5 class="text-sm font-semibold text-text-primary">
-										{selectedEntity.name}
-									</h5>
+									<h5 class="text-xs font-semibold text-text-primary">{selectedEntity.name}</h5>
 									<span
-										class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium capitalize"
+										class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium capitalize"
 										style="background-color: {getTypeColor(selectedEntity.type)}20; color: {getTypeColor(selectedEntity.type)}"
 									>
-										<span
-											class="inline-block h-1.5 w-1.5 rounded-full"
-											style="background-color: {getTypeColor(selectedEntity.type)}"
-										></span>
+										<span class="inline-block h-1.5 w-1.5 rounded-full" style="background-color: {getTypeColor(selectedEntity.type)}"></span>
 										{selectedEntity.type}
 									</span>
 								</div>
 
-								<!-- Confidence -->
 								{#if selectedEntity.confidence != null}
 									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Confidence
-										</h6>
+										<h6 class="mb-0.5 text-[10px] font-medium text-text-secondary">Confidence</h6>
 										<div class="flex items-center gap-2">
-											<div
-												class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-secondary"
-											>
-												<div
-													class="h-full rounded-full bg-accent"
-													style="width: {(selectedEntity.confidence ?? 1) * 100}%"
-												></div>
+											<div class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-secondary">
+												<div class="h-full rounded-full bg-accent" style="width: {(selectedEntity.confidence ?? 1) * 100}%"></div>
 											</div>
-											<span class="text-xs tabular-nums text-text-secondary">
-												{Math.round((selectedEntity.confidence ?? 1) * 100)}%
-											</span>
+											<span class="text-[10px] tabular-nums text-text-secondary">{Math.round((selectedEntity.confidence ?? 1) * 100)}%</span>
 										</div>
 									</div>
 								{/if}
 
-								<!-- Properties -->
 								{#if selectedEntity.properties && Object.keys(selectedEntity.properties).length > 0}
 									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Properties
-										</h6>
-										<div
-											class="rounded-md border border-border bg-surface-secondary p-2"
-										>
+										<h6 class="mb-0.5 text-[10px] font-medium text-text-secondary">Properties</h6>
+										<div class="rounded border border-border bg-surface-secondary p-1.5">
 											{#each Object.entries(selectedEntity.properties) as [key, value]}
-												<div class="flex items-start gap-2 py-0.5 text-xs">
-													<span class="font-medium text-text-secondary"
-														>{key}:</span
-													>
-													<span class="text-text-primary"
-														>{String(value)}</span
-													>
+												<div class="flex items-start gap-1.5 py-0.5 text-[10px]">
+													<span class="font-medium text-text-secondary">{key}:</span>
+													<span class="text-text-primary">{String(value)}</span>
 												</div>
 											{/each}
 										</div>
 									</div>
 								{/if}
 
-								<!-- Related entities -->
-								{#if neighborhood?.neighbors && neighborhood.neighbors.length > 0}
-									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Related Entities ({neighborhood.neighbors.length})
-										</h6>
-										<div class="flex flex-col gap-1">
-											{#each neighborhood.neighbors as neighbor}
-												<button
-													type="button"
-													onclick={() => selectEntity(neighbor)}
-													class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-secondary"
-												>
-													<span
-														class="inline-block h-2 w-2 rounded-full"
-														style="background-color: {getTypeColor(neighbor.type ?? '')}"
-													></span>
-													<span class="font-medium text-text-primary"
-														>{neighbor.name ?? 'Unnamed'}</span
+								{#if neighborhood?.entities}
+									{@const neighbors = neighborhood.entities.filter((e) => e.id !== selectedEntity?.id)}
+									{#if neighbors.length > 0}
+										<div>
+											<h6 class="mb-0.5 text-[10px] font-medium text-text-secondary">Related Entities ({neighbors.length})</h6>
+											<div class="flex flex-col gap-0.5">
+												{#each neighbors.slice(0, 15) as neighbor}
+													<button
+														type="button"
+														onclick={() => selectEntity(neighbor)}
+														class="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-[10px] transition-colors hover:bg-surface-secondary"
 													>
-													<span class="capitalize text-text-secondary"
-														>{neighbor.type ?? 'unknown'}</span
-													>
-												</button>
-											{/each}
+														<span class="inline-block h-2 w-2 rounded-full" style="background-color: {getTypeColor(neighbor.type ?? '')}"></span>
+														<span class="min-w-0 flex-1 truncate font-medium text-text-primary">{neighbor.name ?? 'Unnamed'}</span>
+														<span class="shrink-0 capitalize text-text-secondary">{neighbor.type ?? 'unknown'}</span>
+													</button>
+												{/each}
+												{#if neighbors.length > 15}
+													<span class="px-1.5 text-[10px] text-text-secondary">+{neighbors.length - 15} more</span>
+												{/if}
+											</div>
 										</div>
-									</div>
+									{/if}
 								{/if}
 
-								<!-- Relations -->
 								{#if neighborhood?.relations && neighborhood.relations.length > 0}
 									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Relations ({neighborhood.relations.length})
-										</h6>
-										<div class="flex flex-col gap-1">
-											{#each neighborhood.relations as rel}
-												<div
-													class="rounded-md border border-border bg-surface-secondary px-2 py-1.5 text-xs"
-												>
-													<span class="font-medium text-accent"
-														>{rel.label}</span
-													>
+										<h6 class="mb-0.5 text-[10px] font-medium text-text-secondary">Relations ({neighborhood.relations.length})</h6>
+										<div class="flex flex-col gap-0.5">
+											{#each neighborhood.relations.slice(0, 15) as rel}
+												<div class="rounded border border-border bg-surface-secondary px-1.5 py-1 text-[10px]">
+													<span class="font-medium text-accent">{rel.label}</span>
 												</div>
 											{/each}
+											{#if neighborhood.relations.length > 15}
+												<span class="px-1.5 text-[10px] text-text-secondary">+{neighborhood.relations.length - 15} more</span>
+											{/if}
 										</div>
 									</div>
 								{/if}
 
-								<!-- Source documents -->
 								{#if selectedEntity.source_documents && selectedEntity.source_documents.length > 0}
 									<div>
-										<h6 class="mb-1 text-xs font-medium text-text-secondary">
-											Source Documents ({selectedEntity.source_documents.length})
-										</h6>
-										<div class="flex flex-col gap-1">
-											{#each selectedEntity.source_documents as docId}
-												<div
-													class="rounded-md bg-surface-secondary px-2 py-1 font-mono text-xs text-text-secondary"
-												>
-													{docId}
-												</div>
+										<h6 class="mb-0.5 text-[10px] font-medium text-text-secondary">Source Documents ({selectedEntity.source_documents.length})</h6>
+										<div class="flex flex-col gap-0.5">
+											{#each selectedEntity.source_documents.slice(0, 5) as docId}
+												<div class="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">{docId}</div>
 											{/each}
 										</div>
 									</div>
@@ -1068,29 +1246,27 @@
 						{/if}
 					</div>
 
-					<!-- Panel footer: Save / Cancel buttons (edit mode only) -->
+					<!-- Panel footer: Save / Cancel (edit mode only) -->
 					{#if editingEntity}
-						<div
-							class="flex items-center gap-2 border-t border-border px-3 py-2.5"
-						>
+						<div class="flex items-center gap-2 border-t border-border px-3 py-2">
 							<button
 								type="button"
 								onclick={saveEntity}
 								disabled={savingEntity || !!propertiesJsonError}
-								class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+								class="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2.5 py-1.5 text-[10px] font-medium text-white hover:bg-accent/90 disabled:opacity-50"
 							>
 								{#if savingEntity}
-									<Loader2 size={12} class="animate-spin" />
+									<Loader2 size={10} class="animate-spin" />
 									Saving...
 								{:else}
-									<Save size={12} />
+									<Save size={10} />
 									Save
 								{/if}
 							</button>
 							<button
 								type="button"
 								onclick={cancelEdit}
-								class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+								class="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[10px] font-medium text-text-secondary hover:bg-surface-hover"
 							>
 								Cancel
 							</button>

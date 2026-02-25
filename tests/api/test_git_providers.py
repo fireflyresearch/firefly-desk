@@ -44,13 +44,14 @@ def _make_user_session(*, roles: list[str] | None = None) -> UserSession:
     )
 
 
-def _sample_row(provider_id: str = "prov-1") -> GitProviderRow:
+def _sample_row(provider_id: str = "prov-1", **overrides) -> GitProviderRow:
     """Build a sample GitProviderRow for mocked responses."""
-    return GitProviderRow(
+    defaults = dict(
         id=provider_id,
         provider_type="github",
         display_name="GitHub Cloud",
         base_url="https://api.github.com",
+        auth_method="oauth",
         client_id="gh-client-id",
         client_secret_encrypted="encrypted-secret",
         oauth_authorize_url="https://github.com/login/oauth/authorize",
@@ -60,6 +61,8 @@ def _sample_row(provider_id: str = "prov-1") -> GitProviderRow:
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
+    defaults.update(overrides)
+    return GitProviderRow(**defaults)
 
 
 @pytest.fixture
@@ -499,3 +502,88 @@ class TestAdminGuard:
     async def test_non_admin_cannot_delete_provider(self, non_admin_client):
         response = await non_admin_client.delete("/api/admin/git-providers/prov-1")
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# PAT support
+# ---------------------------------------------------------------------------
+
+
+class TestPATSupport:
+    """Tests for Personal Access Token authentication method."""
+
+    async def test_create_pat_provider(self, admin_client, mock_repo):
+        created_row = _sample_row(auth_method="pat", client_id=None)
+        mock_repo.create_provider.return_value = created_row
+        body = {
+            "provider_type": "github",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com",
+            "auth_method": "pat",
+            "client_secret": "ghp_mytoken123",
+        }
+        response = await admin_client.post("/api/admin/git-providers", json=body)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["auth_method"] == "pat"
+        assert data["has_client_secret"] is True
+
+    async def test_create_pat_provider_no_client_id(self, admin_client, mock_repo):
+        """PAT providers do not require client_id."""
+        created_row = _sample_row(auth_method="pat", client_id=None)
+        mock_repo.create_provider.return_value = created_row
+        body = {
+            "provider_type": "github",
+            "display_name": "GitHub PAT",
+            "base_url": "https://api.github.com",
+            "auth_method": "pat",
+            "client_secret": "ghp_mytoken123",
+        }
+        response = await admin_client.post("/api/admin/git-providers", json=body)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["client_id"] is None
+
+    async def test_response_includes_auth_method(self, admin_client, mock_repo):
+        mock_repo.list_providers.return_value = [
+            _sample_row("prov-1", auth_method="oauth"),
+            _sample_row("prov-2", auth_method="pat", client_id=None),
+        ]
+        response = await admin_client.get("/api/admin/git-providers")
+        data = response.json()
+        assert data[0]["auth_method"] == "oauth"
+        assert data[1]["auth_method"] == "pat"
+
+    async def test_repo_create_with_auth_method(self, real_repo):
+        """Repository persists auth_method correctly."""
+        row = await real_repo.create_provider(
+            provider_type="github",
+            display_name="GitHub PAT",
+            base_url="https://api.github.com",
+            auth_method="pat",
+            client_secret="ghp_token",
+        )
+        assert row.auth_method == "pat"
+        assert row.client_id is None
+        decrypted = real_repo.decrypt_secret(row)
+        assert decrypted == "ghp_token"
+
+    async def test_repo_update_auth_method(self, real_repo):
+        """Can switch a provider from oauth to pat."""
+        row = await real_repo.create_provider(
+            provider_type="github",
+            display_name="GitHub",
+            base_url="https://api.github.com",
+            auth_method="oauth",
+            client_id="gh-client",
+        )
+        assert row.auth_method == "oauth"
+        updated = await real_repo.update_provider(
+            row.id,
+            auth_method="pat",
+            client_id=None,
+            client_secret="ghp_new_token",
+        )
+        assert updated is not None
+        assert updated.auth_method == "pat"
+        assert updated.client_id is None

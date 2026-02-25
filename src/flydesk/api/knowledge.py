@@ -14,7 +14,7 @@ from dataclasses import asdict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from flydesk.knowledge.graph import KnowledgeGraph
 from flydesk.knowledge.importer import KnowledgeImporter
@@ -139,13 +139,21 @@ class EntityResponse(BaseModel):
     confidence: float = 1.0
     mention_count: int = 1
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def type(self) -> str:
+        """Alias for entity_type -- consumed by the frontend GraphEntity interface."""
+        return self.entity_type
+
 
 class RelationResponse(BaseModel):
     """API response for a graph relation."""
 
+    id: str
     source_id: str
     target_id: str
     relation_type: str
+    label: str = ""
     properties: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 1.0
 
@@ -164,6 +172,16 @@ class GraphStatsResponse(BaseModel):
     relation_count: int
     entity_types: dict[str, int]
     relation_types: dict[str, int]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _relation_label(relation_type: str) -> str:
+    """Derive a human-readable edge label from a relation type slug."""
+    return relation_type.replace("_", " ").replace("-", " ")
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +540,7 @@ async def list_entities(
     entity_type: str | None = Query(
         default=None, alias="type", description="Filter by entity type"
     ),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[EntityResponse]:
     """List or search knowledge graph entities."""
@@ -548,7 +566,10 @@ async def get_entity_neighborhood(
         )
     return NeighborhoodResponse(
         entities=[EntityResponse(**asdict(e)) for e in neighborhood.entities],
-        relations=[RelationResponse(**asdict(r)) for r in neighborhood.relations],
+        relations=[
+            RelationResponse(**asdict(r), label=_relation_label(r.relation_type))
+            for r in neighborhood.relations
+        ],
     )
 
 

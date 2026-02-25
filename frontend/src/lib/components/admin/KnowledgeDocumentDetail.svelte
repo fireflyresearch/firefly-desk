@@ -33,8 +33,8 @@
 	interface KnowledgeDocument {
 		id: string;
 		title: string;
-		type: string;
-		source: string;
+		document_type: string;
+		source: string | null;
 		content?: string;
 		tags: string[];
 		status?: string;
@@ -387,10 +387,10 @@
 						<div class="mt-1.5 flex items-center gap-1.5">
 							<span
 								class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
-									doc.type
+									doc.document_type
 								] ?? typeBadgeColors.other}"
 							>
-								{doc.type}
+								{doc.document_type}
 							</span>
 							{#if doc.status}
 								{@const badge = statusBadge(doc.status)}

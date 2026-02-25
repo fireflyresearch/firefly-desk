@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -68,6 +69,50 @@ except ImportError:  # pragma: no cover
 # Module-level aliases used in ``except`` clauses.
 _BUDGET_EXCEEDED_ERROR: type[Exception] = _BudgetExceededError  # type: ignore[assignment]
 _CIRCUIT_BREAKER_OPEN_ERROR: type[Exception] = _CircuitBreakerOpenError  # type: ignore[assignment]
+
+# Retry configuration for transient LLM provider errors.
+_LLM_MAX_RETRIES = 3
+_LLM_RETRY_BASE_DELAY = 3.0  # seconds
+_LLM_RETRY_MAX_DELAY = 15.0  # seconds
+# Number of fallback model attempts after exhausting primary retries.
+_LLM_FALLBACK_RETRIES = 2
+
+# Strings that indicate a transient/retryable LLM error.
+_TRANSIENT_ERROR_INDICATORS = (
+    "overloaded",
+    "rate_limit",
+    "rate limit",
+    "too many requests",
+    "529",
+    "503",
+    "502",
+    "server_error",
+    "temporarily unavailable",
+    "capacity",
+    "try again",
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a transient LLM provider error."""
+    msg = str(exc).lower()
+    return any(indicator in msg for indicator in _TRANSIENT_ERROR_INDICATORS)
+
+
+def _friendly_error_message(exc: Exception) -> str:
+    """Return a user-friendly error message based on the exception type."""
+    if _is_transient_error(exc):
+        return (
+            "The language model provider is temporarily overloaded. "
+            "I retried automatically but it's still busy. "
+            "Please try again in a moment.\n\n"
+            f"Error: {exc}"
+        )
+    return (
+        "I'm sorry, I encountered an error connecting to the language model. "
+        "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
+        f"Error: {exc}"
+    )
 
 
 class DeskAgent:
@@ -355,10 +400,33 @@ class DeskAgent:
         # Select reasoning pattern
         pattern_instance = self._select_reasoning_pattern(pattern, tools)
 
-        # Execute reasoning
+        # Execute reasoning with retry for transient errors
         usage_data: dict[str, Any] = {}
         try:
-            result = await agent.run_with_reasoning(pattern_instance, message, conversation_id=conversation_id)
+            last_reasoning_exc: Exception | None = None
+            result = None
+            for attempt in range(_LLM_MAX_RETRIES):
+                try:
+                    result = await agent.run_with_reasoning(pattern_instance, message, conversation_id=conversation_id)
+                    break  # Success
+                except (_BudgetExceededError, _CircuitBreakerOpenError):
+                    raise  # Let outer handlers deal with these
+                except Exception as retry_exc:
+                    last_reasoning_exc = retry_exc
+                    if _is_transient_error(retry_exc) and attempt < _LLM_MAX_RETRIES - 1:
+                        delay = min(
+                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                            _LLM_RETRY_MAX_DELAY,
+                        )
+                        _logger.warning(
+                            "Transient LLM error in reasoning (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, _LLM_MAX_RETRIES, delay, retry_exc,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise  # Non-transient or final attempt
+            if result is None:
+                raise last_reasoning_exc or RuntimeError("Reasoning failed after retries")
 
             # Emit reasoning steps as SSE events
             for i, step in enumerate(result.trace.steps):
@@ -457,8 +525,10 @@ class DeskAgent:
             )
         except Exception as exc:
             _logger.error("Reasoning failed: %s", exc, exc_info=True)
-            error_msg = f"Reasoning failed: {exc}"
-            yield SSEEvent(event=SSEEventType.TOKEN, data={"content": error_msg})
+            yield SSEEvent(
+                event=SSEEventType.TOKEN,
+                data={"content": _friendly_error_message(exc)},
+            )
 
         # Emit USAGE event before DONE (if usage data was captured)
         if usage_data:
@@ -909,46 +979,203 @@ class DeskAgent:
         except Exception:
             _logger.debug("Could not inspect agent tools.", exc_info=True)
 
-        try:
-            async with asyncio.timeout(120):
-                async with await agent.run_stream(
-                    message,
-                    streaming_mode="incremental",
-                    conversation_id=conversation_id,
-                ) as stream:
-                    async for token in stream.stream_tokens():
+        last_exc: Exception | None = None
+        for attempt in range(_LLM_MAX_RETRIES):
+            try:
+                async with asyncio.timeout(120):
+                    async with await agent.run_stream(
+                        message,
+                        streaming_mode="incremental",
+                        conversation_id=conversation_id,
+                    ) as stream:
+                        async for token in stream.stream_tokens():
+                            yield token
+                        # After streaming completes, extract usage from the underlying stream
+                        if usage_out is not None:
+                            self._extract_stream_usage(stream, agent, usage_out)
+                            # Also extract tool call info from the message history
+                            self._extract_tool_calls(stream, usage_out)
+
+                    # pydantic-ai's run_stream only handles the first model turn.
+                    # If the model called tools, the follow-up response (with tool
+                    # results) was never generated.  Detect this and do a follow-up
+                    # run() with the accumulated message history so the model can
+                    # produce the actual answer.
+                    async for token in self._follow_up_after_tool_calls(
+                        stream, agent, conversation_id, usage_out,
+                    ):
                         yield token
-                    # After streaming completes, extract usage from the underlying stream
-                    if usage_out is not None:
-                        self._extract_stream_usage(stream, agent, usage_out)
-                        # Also extract tool call info from the message history
-                        self._extract_tool_calls(stream, usage_out)
-        except _BUDGET_EXCEEDED_ERROR as exc:
-            _logger.warning("Budget exceeded during streaming: %s", exc)
-            yield (
-                "Your message could not be processed because the cost budget has been "
-                "reached. Please contact your administrator to increase the spending limit."
+
+                return  # Success — exit retry loop
+            except _BUDGET_EXCEEDED_ERROR as exc:
+                _logger.warning("Budget exceeded during streaming: %s", exc)
+                yield (
+                    "Your message could not be processed because the cost budget has been "
+                    "reached. Please contact your administrator to increase the spending limit."
+                )
+                return
+            except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
+                _logger.warning("Circuit breaker open during streaming: %s", exc)
+                yield (
+                    "The language model provider is temporarily unavailable. "
+                    "Please try again in a few moments."
+                )
+                return
+            except TimeoutError:
+                _logger.warning("LLM streaming timed out after 120s")
+                yield (
+                    "The language model took too long to respond. "
+                    "Please try again or check your LLM provider configuration."
+                )
+                return
+            except Exception as exc:
+                last_exc = exc
+                if _is_transient_error(exc):
+                    if attempt < _LLM_MAX_RETRIES - 1:
+                        delay = min(
+                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                            _LLM_RETRY_MAX_DELAY,
+                        )
+                        _logger.warning(
+                            "Transient LLM error (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, _LLM_MAX_RETRIES, delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    # Final attempt — fall through to fallback models below
+                    _logger.warning(
+                        "Primary model exhausted %d retries: %s", _LLM_MAX_RETRIES, exc,
+                    )
+                else:
+                    # Non-transient error — report to user immediately
+                    _logger.error("LLM streaming failed: %s", exc, exc_info=True)
+                    yield _friendly_error_message(exc)
+                    return
+
+        # All retries on primary model exhausted — try fallback models.
+        if last_exc is not None and _is_transient_error(last_exc) and self._agent_factory:
+            fallback_models = await self._agent_factory.get_fallback_model_strings()
+            for fb_model in fallback_models:
+                _logger.warning("Primary model overloaded, trying fallback: %s", fb_model)
+                fb_agent = await self._agent_factory.create_agent(
+                    system_prompt, tools=tools, model_override=fb_model,
+                )
+                if fb_agent is None:
+                    continue
+                for fb_attempt in range(_LLM_FALLBACK_RETRIES):
+                    try:
+                        async with asyncio.timeout(120):
+                            async with await fb_agent.run_stream(
+                                message,
+                                streaming_mode="incremental",
+                                conversation_id=conversation_id,
+                            ) as fb_stream:
+                                async for token in fb_stream.stream_tokens():
+                                    yield token
+                                if usage_out is not None:
+                                    self._extract_stream_usage(fb_stream, fb_agent, usage_out)
+                                    self._extract_tool_calls(fb_stream, usage_out)
+
+                            # Follow-up for tool calls (same as primary model)
+                            async for token in self._follow_up_after_tool_calls(
+                                fb_stream, fb_agent, conversation_id, usage_out,
+                            ):
+                                yield token
+
+                        return  # Fallback succeeded
+                    except Exception as fb_exc:
+                        if _is_transient_error(fb_exc) and fb_attempt < _LLM_FALLBACK_RETRIES - 1:
+                            delay = _LLM_RETRY_BASE_DELAY + random.uniform(0, 1)
+                            _logger.warning(
+                                "Fallback model %s also busy (attempt %d/%d), retrying in %.1fs",
+                                fb_model, fb_attempt + 1, _LLM_FALLBACK_RETRIES, delay,
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        _logger.warning("Fallback model %s failed: %s", fb_model, fb_exc)
+                        break  # Try next fallback model
+
+        # All retries and fallbacks exhausted
+        if last_exc is not None:
+            _logger.error("LLM streaming failed after %d retries + fallbacks: %s", _LLM_MAX_RETRIES, last_exc)
+            yield _friendly_error_message(last_exc)
+
+    async def _follow_up_after_tool_calls(
+        self,
+        stream: object,
+        agent: object,
+        conversation_id: str | None,
+        usage_out: dict[str, Any] | None,
+    ) -> AsyncGenerator[str, None]:
+        """If the stream's model turn included tool calls, run a follow-up.
+
+        pydantic-ai's ``run_stream()`` only handles a single model turn.
+        When the model emits text + tool_call, the ``on_complete()`` callback
+        executes the tools and appends results to the message history, but
+        there is no second LLM call to produce the actual answer.
+
+        This method detects that situation, extracts the accumulated message
+        history, and calls ``agent.run()`` with it so the LLM sees the tool
+        results and can produce a meaningful response.  The follow-up text
+        is yielded in fixed-size chunks to maintain the streaming feel.
+        """
+        # Check if any tool calls happened during the stream.
+        tool_calls = (usage_out or {}).get("tool_calls", [])
+        if not tool_calls:
+            return
+
+        _logger.info(
+            "Stream had %d tool call(s); running follow-up to get tool-result response",
+            len(tool_calls),
+        )
+
+        # Get the complete message history from the stream (includes the
+        # user prompt, model response with tool calls, and tool return values).
+        try:
+            inner_stream = getattr(stream, "_stream", stream)
+            all_messages_fn = getattr(inner_stream, "all_messages", None)
+            if callable(all_messages_fn):
+                message_history = all_messages_fn()
+            elif isinstance(all_messages_fn, (list, tuple)):
+                message_history = list(all_messages_fn)
+            else:
+                _logger.warning("Cannot extract message history from stream; skipping follow-up.")
+                return
+        except Exception:
+            _logger.debug("Failed to extract message history for follow-up.", exc_info=True)
+            return
+
+        # Make a follow-up run() call with the accumulated history so the LLM
+        # sees the tool results and produces the final answer.
+        try:
+            # Use the underlying pydantic-ai agent directly so we can pass
+            # message_history without re-injecting memory.
+            inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
+            result = await inner_agent.run(
+                "Based on the tool results above, provide a complete answer.",
+                message_history=message_history,
             )
-        except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
-            _logger.warning("Circuit breaker open during streaming: %s", exc)
-            yield (
-                "The language model provider is temporarily unavailable. "
-                "Please try again in a few moments."
-            )
-        except TimeoutError:
-            _logger.warning("LLM streaming timed out after 120s")
-            yield (
-                "The language model took too long to respond. "
-                "Please try again or check your LLM provider configuration."
-            )
+            follow_up_text = str(result.output) if hasattr(result, "output") else str(result.data)
+
+            if follow_up_text:
+                # Yield a separator so the user can distinguish the follow-up
+                yield "\n\n"
+                for i in range(0, len(follow_up_text), _STREAM_CHUNK_SIZE):
+                    yield follow_up_text[i : i + _STREAM_CHUNK_SIZE]
+
+                # Update usage with the follow-up call's tokens
+                if usage_out is not None:
+                    try:
+                        fu_usage = result.usage() if callable(getattr(result, "usage", None)) else None
+                        if fu_usage:
+                            usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
+                            usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
+                            usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
+                    except Exception:
+                        _logger.debug("Failed to extract follow-up usage.", exc_info=True)
         except Exception as exc:
-            _logger.error("LLM streaming failed: %s", exc, exc_info=True)
-            error_text = (
-                "I'm sorry, I encountered an error connecting to the language model. "
-                "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
-                f"Error: {exc}"
-            )
-            yield error_text
+            _logger.error("Follow-up LLM call after tool execution failed: %s", exc, exc_info=True)
+            yield f"\n\n*Tool results could not be summarized: {exc}*"
 
     async def _call_llm(
         self,
@@ -972,28 +1199,73 @@ class DeskAgent:
         if agent is None:
             return self._echo_fallback(message)
 
-        try:
-            result = await agent.run(message, conversation_id=conversation_id)
-            return str(result.output)
-        except _BUDGET_EXCEEDED_ERROR as exc:
-            _logger.warning("Budget exceeded during LLM call: %s", exc)
-            return (
-                "Your message could not be processed because the cost budget has been "
-                "reached. Please contact your administrator to increase the spending limit."
-            )
-        except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
-            _logger.warning("Circuit breaker open during LLM call: %s", exc)
-            return (
-                "The language model provider is temporarily unavailable. "
-                "Please try again in a few moments."
-            )
-        except Exception as exc:
-            _logger.error("LLM call failed: %s", exc, exc_info=True)
-            return (
-                "I'm sorry, I encountered an error connecting to the language model. "
-                "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
-                f"Error: {exc}"
-            )
+        last_exc: Exception | None = None
+        for attempt in range(_LLM_MAX_RETRIES):
+            try:
+                result = await agent.run(message, conversation_id=conversation_id)
+                return str(result.output)
+            except _BUDGET_EXCEEDED_ERROR as exc:
+                _logger.warning("Budget exceeded during LLM call: %s", exc)
+                return (
+                    "Your message could not be processed because the cost budget has been "
+                    "reached. Please contact your administrator to increase the spending limit."
+                )
+            except _CIRCUIT_BREAKER_OPEN_ERROR as exc:
+                _logger.warning("Circuit breaker open during LLM call: %s", exc)
+                return (
+                    "The language model provider is temporarily unavailable. "
+                    "Please try again in a few moments."
+                )
+            except Exception as exc:
+                last_exc = exc
+                if _is_transient_error(exc):
+                    if attempt < _LLM_MAX_RETRIES - 1:
+                        delay = min(
+                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                            _LLM_RETRY_MAX_DELAY,
+                        )
+                        _logger.warning(
+                            "Transient LLM error (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, _LLM_MAX_RETRIES, delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    _logger.warning(
+                        "Primary model exhausted %d retries: %s", _LLM_MAX_RETRIES, exc,
+                    )
+                else:
+                    _logger.error("LLM call failed: %s", exc, exc_info=True)
+                    return _friendly_error_message(exc)
+
+        # All retries on primary model exhausted — try fallback models.
+        if last_exc is not None and _is_transient_error(last_exc) and self._agent_factory:
+            fallback_models = await self._agent_factory.get_fallback_model_strings()
+            for fb_model in fallback_models:
+                _logger.warning("Primary model overloaded, trying fallback: %s", fb_model)
+                fb_agent = await self._agent_factory.create_agent(
+                    system_prompt, tools=tools, model_override=fb_model,
+                )
+                if fb_agent is None:
+                    continue
+                for fb_attempt in range(_LLM_FALLBACK_RETRIES):
+                    try:
+                        result = await fb_agent.run(message, conversation_id=conversation_id)
+                        return str(result.output)
+                    except Exception as fb_exc:
+                        if _is_transient_error(fb_exc) and fb_attempt < _LLM_FALLBACK_RETRIES - 1:
+                            delay = _LLM_RETRY_BASE_DELAY + random.uniform(0, 1)
+                            _logger.warning(
+                                "Fallback model %s also busy (attempt %d/%d), retrying in %.1fs",
+                                fb_model, fb_attempt + 1, _LLM_FALLBACK_RETRIES, delay,
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        _logger.warning("Fallback model %s failed: %s", fb_model, fb_exc)
+                        break  # Try next fallback model
+
+        # All retries and fallbacks exhausted
+        _logger.error("LLM call failed after %d retries + fallbacks: %s", _LLM_MAX_RETRIES, last_exc)
+        return _friendly_error_message(last_exc or RuntimeError("Unknown error"))
 
     @staticmethod
     def _echo_fallback(message: str) -> str:

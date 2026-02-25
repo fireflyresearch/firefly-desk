@@ -440,7 +440,8 @@ class TestRunWithReasoning:
 
         events: list[SSEEvent] = []
         with patch("fireflyframework_genai.reasoning.ReActPattern"), \
-             patch("fireflyframework_genai.reasoning.PlanAndExecutePattern"):
+             patch("fireflyframework_genai.reasoning.PlanAndExecutePattern"), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
             async for evt in desk_agent_with_factory.run_with_reasoning(
                 "fail", user_session, "conv-1",
             ):
@@ -448,7 +449,8 @@ class TestRunWithReasoning:
 
         token_events = [e for e in events if e.event == SSEEventType.TOKEN]
         assert len(token_events) == 1
-        assert "Reasoning failed" in token_events[0].data["content"]
+        # Transient errors get the friendly overloaded message (includes original error text)
+        assert "temporarily overloaded" in token_events[0].data["content"]
         assert "Model overloaded" in token_events[0].data["content"]
 
         assert events[-1].event == SSEEventType.DONE

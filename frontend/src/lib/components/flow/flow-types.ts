@@ -107,6 +107,7 @@ export interface GraphRelation {
 	id: string;
 	source_id: string;
 	target_id: string;
+	relation_type: string;
 	label: string;
 }
 

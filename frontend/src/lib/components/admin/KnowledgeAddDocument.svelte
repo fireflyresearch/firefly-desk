@@ -136,7 +136,7 @@
 
 		const payload = {
 			title: textForm.title,
-			type: textForm.type,
+			document_type: textForm.type,
 			content: textForm.content,
 			tags: textForm.tags
 				.split(',')

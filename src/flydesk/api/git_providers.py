@@ -37,8 +37,9 @@ class GitProviderRequest(BaseModel):
     provider_type: str
     display_name: str
     base_url: str
-    client_id: str
-    client_secret: str | None = None
+    auth_method: str = "oauth"  # "oauth" or "pat"
+    client_id: str | None = None
+    client_secret: str | None = None  # OAuth client secret or PAT token
     oauth_authorize_url: str | None = None
     oauth_token_url: str | None = None
     scopes: list[str] | None = None
@@ -52,7 +53,8 @@ class GitProviderResponse(BaseModel):
     provider_type: str
     display_name: str
     base_url: str
-    client_id: str
+    auth_method: str = "oauth"
+    client_id: str | None = None
     has_client_secret: bool
     oauth_authorize_url: str | None = None
     oauth_token_url: str | None = None
@@ -101,6 +103,7 @@ def _to_response(row: GitProviderRow) -> GitProviderResponse:
         provider_type=row.provider_type,
         display_name=row.display_name,
         base_url=row.base_url,
+        auth_method=row.auth_method or "oauth",
         client_id=row.client_id,
         has_client_secret=row.client_secret_encrypted is not None,
         oauth_authorize_url=row.oauth_authorize_url,
@@ -153,6 +156,7 @@ async def create_provider(
         provider_type=body.provider_type,
         display_name=body.display_name,
         base_url=body.base_url,
+        auth_method=body.auth_method,
         client_id=body.client_id,
         client_secret=body.client_secret,
         oauth_authorize_url=body.oauth_authorize_url,
@@ -185,6 +189,7 @@ async def update_provider(
         "provider_type": body.provider_type,
         "display_name": body.display_name,
         "base_url": body.base_url,
+        "auth_method": body.auth_method,
         "client_id": body.client_id,
         "oauth_authorize_url": body.oauth_authorize_url,
         "oauth_token_url": body.oauth_token_url,

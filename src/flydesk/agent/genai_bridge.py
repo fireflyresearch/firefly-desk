@@ -25,6 +25,14 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# Fallback models per provider type, tried in order when the primary model is
+# persistently overloaded.  These should be lightweight/high-availability models.
+_PROVIDER_FALLBACK_MODELS: dict[str, list[str]] = {
+    "anthropic": ["claude-haiku-4-5-20251001"],
+    "openai": ["gpt-4o-mini"],
+    "google": ["gemini-2.0-flash"],
+}
+
 
 def provider_to_model_string(provider: LLMProvider) -> str:
     """Convert a Desk LLMProvider to a pydantic-ai model string like 'openai:gpt-4o'."""
@@ -116,8 +124,16 @@ class DeskAgentFactory:
         system_prompt: str,
         tools: list[object] | None = None,
         model_settings_override: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> FireflyAgent | None:
         """Create a FireflyAgent from the default LLM provider.
+
+        Args:
+            system_prompt: The system prompt for the agent.
+            tools: Optional list of tools for the agent.
+            model_settings_override: Optional model settings to merge.
+            model_override: If provided, use this pydantic-ai model string
+                instead of the provider's default model (e.g. for fallback).
 
         Returns None if no provider is configured or no API key is set.
         """
@@ -130,7 +146,7 @@ class DeskAgentFactory:
         if provider is None or not provider.api_key:
             return None
 
-        model_str = provider_to_model_string(provider)
+        model_str = model_override or provider_to_model_string(provider)
 
         # Set the API key in the environment for the provider
         # pydantic-ai reads API keys from standard env vars
@@ -165,6 +181,37 @@ class DeskAgentFactory:
             middleware=middleware if middleware else None,
             model_settings=settings,
         )
+
+
+    async def get_fallback_model_strings(self) -> list[str]:
+        """Return fallback model strings for the default provider.
+
+        These are lighter-weight models that can be used when the primary
+        model is persistently overloaded.  Returns an empty list when no
+        fallback models are defined for the provider type.
+        """
+        try:
+            provider = await self._llm_repo.get_default_provider()
+        except Exception:
+            return []
+
+        if provider is None:
+            return []
+
+        from flydesk.llm.models import ProviderType
+
+        pt = provider.provider_type.value if hasattr(provider.provider_type, "value") else str(provider.provider_type)
+        fallback_ids = _PROVIDER_FALLBACK_MODELS.get(pt, [])
+
+        prefix_map = {
+            ProviderType.OPENAI: "openai",
+            ProviderType.ANTHROPIC: "anthropic",
+            ProviderType.GOOGLE: "google-gla",
+            ProviderType.AZURE_OPENAI: "openai",
+            ProviderType.OLLAMA: "ollama",
+        }
+        prefix = prefix_map.get(provider.provider_type, "openai")
+        return [f"{prefix}:{m}" for m in fallback_ids]
 
 
 def _set_provider_env(provider: LLMProvider) -> None:

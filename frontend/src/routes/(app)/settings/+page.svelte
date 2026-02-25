@@ -1,13 +1,14 @@
 <!--
   Settings profile page - User profile and preferences.
 
-  Shows user information, agent behavior, notifications, and keyboard shortcuts.
+  Shows user information with avatar upload, agent behavior, notifications,
+  and keyboard shortcuts.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Loader2, Bot, Bell, Keyboard, User } from 'lucide-svelte';
+	import { Loader2, Bot, Bell, Keyboard, User, Camera } from 'lucide-svelte';
 	import {
 		userSettings,
 		updateSettings,
@@ -15,6 +16,7 @@
 		saveUserSettings
 	} from '$lib/stores/settings.js';
 	import { currentUser } from '$lib/stores/user.js';
+	import { apiFetch } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
 	// State
@@ -23,6 +25,8 @@
 	let saving = $state(false);
 	let saved = $state(false);
 	let error = $state('');
+	let uploadingAvatar = $state(false);
+	let fileInput: HTMLInputElement;
 
 	// -----------------------------------------------------------------------
 	// Lifecycle
@@ -55,6 +59,49 @@
 			error = e instanceof Error ? e.message : 'Failed to save settings';
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function handleAvatarUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		// Validate on client side
+		const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+		if (!allowed.includes(file.type)) {
+			error = 'Please select a JPEG, PNG, GIF, or WebP image.';
+			return;
+		}
+		if (file.size > 2 * 1024 * 1024) {
+			error = 'Image must be under 2MB.';
+			return;
+		}
+
+		uploadingAvatar = true;
+		error = '';
+		try {
+			const formData = new FormData();
+			formData.append('file', file);
+			const resp = await apiFetch('/profile/avatar', {
+				method: 'POST',
+				body: formData
+			});
+			if (!resp.ok) {
+				const body = await resp.json().catch(() => ({}));
+				throw new Error(body.detail || 'Upload failed');
+			}
+			const data = await resp.json();
+			// Update the user store with the new picture URL
+			if ($currentUser) {
+				$currentUser = { ...$currentUser, pictureUrl: data.picture_url };
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to upload avatar';
+		} finally {
+			uploadingAvatar = false;
+			// Reset the input so the same file can be re-selected
+			input.value = '';
 		}
 	}
 
@@ -120,19 +167,43 @@
 		</div>
 
 		<div class="flex items-start gap-4">
-			{#if $currentUser?.pictureUrl}
-				<img
-					src={$currentUser.pictureUrl}
-					alt={$currentUser.displayName}
-					class="h-14 w-14 rounded-full object-cover"
-				/>
-			{:else}
-				<div
-					class="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-lg font-medium text-white"
+			<!-- Avatar with upload overlay -->
+			<div class="group relative shrink-0">
+				{#if $currentUser?.pictureUrl}
+					<img
+						src={$currentUser.pictureUrl}
+						alt={$currentUser.displayName}
+						class="h-14 w-14 rounded-full object-cover"
+					/>
+				{:else}
+					<div
+						class="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-lg font-medium text-white"
+					>
+						{initials}
+					</div>
+				{/if}
+				<!-- Upload overlay -->
+				<button
+					type="button"
+					onclick={() => fileInput.click()}
+					disabled={uploadingAvatar}
+					class="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:cursor-wait"
+					title="Upload avatar"
 				>
-					{initials}
-				</div>
-			{/if}
+					{#if uploadingAvatar}
+						<Loader2 size={16} class="animate-spin" />
+					{:else}
+						<Camera size={16} />
+					{/if}
+				</button>
+				<input
+					bind:this={fileInput}
+					type="file"
+					accept="image/jpeg,image/png,image/gif,image/webp"
+					onchange={handleAvatarUpload}
+					class="hidden"
+				/>
+			</div>
 			<div class="flex-1 space-y-2 text-sm">
 				<div class="flex justify-between">
 					<span class="text-text-secondary">Name</span>
