@@ -30,6 +30,7 @@ from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
 from flydesk.api.custom_tools import router as custom_tools_router
+from flydesk.api.git_import import router as git_import_router
 from flydesk.api.git_providers import get_git_provider_repo
 from flydesk.api.git_providers import router as git_providers_router
 from flydesk.api.github import router as github_router
@@ -686,6 +687,7 @@ def create_app() -> FastAPI:
     app.include_router(custom_tools_router)
     app.include_router(openapi_import_router)
     app.include_router(github_router)
+    app.include_router(git_import_router)
     app.include_router(git_providers_router)
     app.include_router(help_docs_router)
 
