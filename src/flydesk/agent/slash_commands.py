@@ -134,7 +134,13 @@ async def _cmd_context(
     **_: Any,
 ) -> str:
     """Run context enrichment for a query and show what the agent would see."""
-    query = arg.strip() or "test query"
+    query = arg.strip()
+    if not query:
+        return (
+            "**Usage:** `/context <query>`\n\n"
+            "Run context enrichment for a query and show what the agent would see.\n\n"
+            "**Example:** `/context how do I reset a password`"
+        )
 
     if context_enricher is None:
         return "Context enricher not available."
