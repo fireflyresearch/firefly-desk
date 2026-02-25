@@ -15,9 +15,14 @@
 		ChevronDown,
 		ChevronRight,
 		Loader2,
-		FileUp
+		FileUp,
+		Sparkles,
+		X,
+		CheckCircle2,
+		AlertCircle
 	} from 'lucide-svelte';
-	import { apiJson } from '$lib/services/api.js';
+	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import { parseSSEStream } from '$lib/services/sse.js';
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
 	import OpenAPIImportWizard from './OpenAPIImportWizard.svelte';
@@ -89,6 +94,25 @@
 	let showEndpointWizard = $state(false);
 	let endpointWizardSystemId = $state('');
 	let editingEndpoint = $state<any | null>(null);
+
+	// Detection state
+	let detectJobId = $state<string | null>(null);
+	let detectJobStatus = $state<string | null>(null);
+	let detectProgress = $state(0);
+	let detectionLog = $state<DetectionLogEntry[]>([]);
+	let showDetectionLog = $state(false);
+	let detectionLogEl: HTMLDivElement | null = $state(null);
+
+	interface DetectionLogEntry {
+		message: string;
+		pct: number;
+		timestamp: Date;
+		type: 'scan' | 'context' | 'llm' | 'result' | 'merge' | 'done' | 'error' | 'info';
+	}
+
+	let isDetecting = $derived(
+		detectJobStatus === 'pending' || detectJobStatus === 'running'
+	);
 
 	// -----------------------------------------------------------------------
 	// Data loading
@@ -215,6 +239,84 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// System Detection
+	// -----------------------------------------------------------------------
+
+	function classifyLogEntry(message: string): DetectionLogEntry['type'] {
+		const lower = message.toLowerCase();
+		if (lower.includes('scanning') || lower.includes('scan')) return 'scan';
+		if (lower.includes('context gathered') || lower.includes('context')) return 'context';
+		if (lower.includes('sending') || lower.includes('llm') || lower.includes('analysis')) return 'llm';
+		if (lower.includes('identified') || lower.includes('discovered')) return 'result';
+		if (lower.includes('merging') || lower.includes('merge') || lower.includes('creating')) return 'merge';
+		if (lower.includes('complete') || lower.includes('discovery complete')) return 'done';
+		if (lower.includes('failed') || lower.includes('error') || lower.includes('skipped')) return 'error';
+		return 'info';
+	}
+
+	async function triggerDetectSystems() {
+		error = '';
+		detectionLog = [];
+		showDetectionLog = true;
+		try {
+			const resp = await apiJson<{ job_id: string; status: string; progress_pct: number }>('/catalog/detect', { method: 'POST' });
+			detectJobId = resp.job_id;
+			detectJobStatus = resp.status;
+			detectProgress = resp.progress_pct ?? 0;
+
+			const response = await apiFetch(`/jobs/${resp.job_id}/stream`);
+			await parseSSEStream(
+				response,
+				(msg) => {
+					if (msg.event === 'job_progress') {
+						detectJobStatus = (msg.data.status as string) ?? detectJobStatus;
+						detectProgress = (msg.data.progress_pct as number) ?? detectProgress;
+						if (msg.data.progress_message) {
+							const message = msg.data.progress_message as string;
+							if (!detectionLog.some((e) => e.message === message)) {
+								detectionLog = [
+									...detectionLog,
+									{
+										message,
+										pct: msg.data.progress_pct as number,
+										timestamp: new Date(),
+										type: classifyLogEntry(message)
+									}
+								];
+								requestAnimationFrame(() => {
+									detectionLogEl?.scrollTo({
+										top: detectionLogEl.scrollHeight,
+										behavior: 'smooth'
+									});
+								});
+							}
+						}
+					} else if (msg.event === 'done') {
+						detectJobStatus = msg.data.status as string;
+						if (msg.data.error) {
+							error = `Detection failed: ${msg.data.error as string}`;
+							detectionLog = [
+								...detectionLog,
+								{ message: `Detection failed: ${msg.data.error}`, pct: 100, timestamp: new Date(), type: 'error' }
+							];
+						}
+					}
+				},
+				(err) => { error = `Stream error: ${err.message}`; },
+				async () => {
+					if (detectJobStatus !== 'failed' && detectJobStatus !== 'cancelled') {
+						detectJobStatus = 'completed';
+					}
+					await loadSystems();
+				}
+			);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Detection failed';
+			detectJobStatus = 'failed';
+		}
+	}
+
+	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
 
@@ -322,6 +424,20 @@
 			>
 				<FileUp size={16} />
 				Import from OpenAPI
+			</button>
+			<button
+				type="button"
+				onclick={triggerDetectSystems}
+				disabled={isDetecting}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+			>
+				{#if isDetecting}
+					<Loader2 size={16} class="animate-spin" />
+					Detecting...
+				{:else}
+					<Sparkles size={16} />
+					Detect Systems
+				{/if}
 			</button>
 			<button
 				type="button"
@@ -628,6 +744,83 @@
 					</tbody>
 				</table>
 			</div>
+		</div>
+	{/if}
+
+	<!-- Detection log panel -->
+	{#if showDetectionLog && detectionLog.length > 0}
+		<div class="rounded-lg border border-border bg-surface">
+			<div class="flex items-center justify-between border-b border-border px-4 py-2.5">
+				<div class="flex items-center gap-2">
+					<Sparkles size={16} class="text-accent" />
+					<span class="text-sm font-medium text-text-primary">System Detection</span>
+					{#if isDetecting}
+						<span class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+							<Loader2 size={10} class="animate-spin" />
+							Running
+						</span>
+					{:else if detectJobStatus === 'completed'}
+						<span class="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+							Complete
+						</span>
+					{:else if detectJobStatus === 'failed'}
+						<span class="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
+							Failed
+						</span>
+					{/if}
+				</div>
+				<button
+					type="button"
+					onclick={() => { showDetectionLog = false; }}
+					class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+				>
+					<X size={14} />
+				</button>
+			</div>
+			<div
+				bind:this={detectionLogEl}
+				class="max-h-64 overflow-y-auto px-4 py-3"
+			>
+				<div class="space-y-1">
+					{#each detectionLog as entry, i}
+						<div class="flex items-start gap-3 rounded px-2 py-1.5 text-sm hover:bg-surface-hover/50">
+							<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-secondary text-text-secondary">
+								{#if entry.type === 'done'}
+									<CheckCircle2 size={12} class="text-success" />
+								{:else if entry.type === 'error'}
+									<AlertCircle size={12} class="text-danger" />
+								{:else}
+									<Sparkles size={12} class="text-accent" />
+								{/if}
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="text-text-primary">{entry.message}</p>
+								<p class="text-[10px] text-text-secondary/60">{entry.timestamp.toLocaleTimeString()} · {entry.pct}%</p>
+							</div>
+						</div>
+					{/each}
+					{#if isDetecting}
+						<div class="flex items-center gap-3 px-2 py-1.5">
+							<Loader2 size={12} class="animate-spin text-accent" />
+							<span class="text-xs text-text-secondary">Processing...</span>
+						</div>
+					{/if}
+				</div>
+			</div>
+			{#if isDetecting || detectJobStatus === 'completed'}
+				<div class="border-t border-border px-4 py-2">
+					<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary">
+						<div
+							class="h-full rounded-full transition-all duration-500 {detectJobStatus === 'completed' ? 'bg-success' : detectJobStatus === 'failed' ? 'bg-danger' : 'bg-accent'}"
+							style="width: {detectProgress}%"
+						></div>
+					</div>
+					<div class="mt-1 flex justify-between text-[10px] text-text-secondary/60">
+						<span>{detectJobStatus === 'completed' ? 'Detection complete' : 'Detecting...'}</span>
+						<span>{detectProgress}%</span>
+					</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
