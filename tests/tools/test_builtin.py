@@ -165,6 +165,31 @@ class TestBuiltinToolRegistry:
         for tool in tools:
             assert tool.risk_level in (RiskLevel.READ, RiskLevel.LOW_WRITE)
 
+    def test_knowledge_read_grants_document_read_not_write(self):
+        """knowledge:read grants document_read and document_convert but NOT document_create or document_modify."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read"])
+        names = {t.name for t in tools}
+        assert "document_read" in names
+        assert "document_convert" in names
+        assert "document_create" not in names
+        assert "document_modify" not in names
+
+    def test_knowledge_write_grants_document_write(self):
+        """knowledge:write grants document_create and document_modify."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:write"])
+        names = {t.name for t in tools}
+        assert "document_create" in names
+        assert "document_modify" in names
+
+    def test_knowledge_read_and_write_grants_all_document_tools(self):
+        """Both knowledge:read and knowledge:write together grant all 4 document tools."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read", "knowledge:write"])
+        names = {t.name for t in tools}
+        assert "document_read" in names
+        assert "document_convert" in names
+        assert "document_create" in names
+        assert "document_modify" in names
+
 
 # ---------------------------------------------------------------------------
 # Executor tests
