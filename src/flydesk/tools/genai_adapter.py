@@ -292,6 +292,8 @@ def adapt_tools(
     wrapped in :class:`CustomToolAdapter` for subprocess sandbox execution.
     """
     adapted: list[BaseTool] = []
+    if builtin_executor is not None:
+        builtin_executor.set_user_context(session.user_id)
     for td in tool_defs:
         if td.endpoint_id.startswith("__builtin__") and builtin_executor is not None:
             adapted.append(BuiltinToolAdapter(td, builtin_executor))
