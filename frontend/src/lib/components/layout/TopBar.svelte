@@ -2,7 +2,6 @@
 	import {
 		PanelLeft,
 		PanelLeftClose,
-		Settings,
 		Sun,
 		Moon,
 		User,
@@ -49,7 +48,6 @@
 	let activeTab = $derived.by(() => {
 		const path = $page.url.pathname;
 		if (path.startsWith('/admin')) return 'admin';
-		if (path.startsWith('/settings')) return 'settings';
 		return 'chat';
 	});
 
@@ -167,18 +165,8 @@
 			{/if}
 		</button>
 
-		<button
-			type="button"
-			onclick={() => goto('/settings')}
-			class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary
-				{activeTab === 'settings' ? 'bg-ember/10 text-ember' : ''}"
-			aria-label="Settings"
-		>
-			<Settings size={16} />
-		</button>
-
 		<!-- User avatar with dropdown -->
-		<div class="relative" data-user-dropdown>
+		<div class="relative ml-1" data-user-dropdown>
 			<button
 				type="button"
 				onclick={toggleDropdown}
