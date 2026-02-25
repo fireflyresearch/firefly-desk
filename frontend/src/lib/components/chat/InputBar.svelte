@@ -11,6 +11,7 @@
 <script lang="ts">
 	import { Paperclip, Send, Terminal, Activity, Database, Settings, FileText, HelpCircle } from 'lucide-svelte';
 	import FileUploadArea from './FileUploadArea.svelte';
+	import ModelStatus from './ModelStatus.svelte';
 	import { uploadFile, type UploadedFile } from '$lib/services/files.js';
 
 	interface SlashCommand {
@@ -207,7 +208,7 @@
 			</div>
 		{/if}
 
-		<div class="rounded-2xl border border-border/60 bg-surface p-1 shadow-sm transition-colors">
+		<div class="rounded-2xl border border-border/60 bg-surface p-1 shadow-sm transition-all duration-200 focus-within:border-transparent focus-within:ring-0 focus-within:shadow-md">
 			<div class="flex items-end gap-1">
 				<button
 					type="button"
@@ -237,7 +238,7 @@
 					disabled={disabled || uploading}
 					rows={2}
 					placeholder={uploading ? 'Uploading files...' : 'Ask Ember anything...'}
-					class="min-h-[56px] flex-1 resize-none bg-transparent px-2 py-3 text-sm leading-relaxed text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
+					class="min-h-[72px] flex-1 resize-none bg-transparent px-2 py-3 text-sm leading-relaxed text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				></textarea>
 
 				<button
@@ -250,6 +251,14 @@
 					<Send size={16} />
 				</button>
 			</div>
+		</div>
+
+		<!-- Footer: model indicator + hint -->
+		<div class="flex items-center justify-between px-2 pt-1.5">
+			<ModelStatus compact />
+			<span class="text-[10px] text-text-secondary">
+				<kbd class="rounded bg-surface-secondary/50 px-1 py-0.5 font-mono text-[9px]">Shift+Enter</kbd> for new line
+			</span>
 		</div>
 	</div>
 </div>

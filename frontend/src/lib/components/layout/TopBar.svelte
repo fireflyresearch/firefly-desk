@@ -10,7 +10,6 @@
 		Palette
 	} from 'lucide-svelte';
 	import Logo from '$lib/components/layout/Logo.svelte';
-	import ModelStatus from '$lib/components/chat/ModelStatus.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
 
@@ -103,9 +102,6 @@
 				Dev
 			</span>
 		{/if}
-
-		<!-- Model status indicator -->
-		<ModelStatus />
 
 		<button
 			type="button"
