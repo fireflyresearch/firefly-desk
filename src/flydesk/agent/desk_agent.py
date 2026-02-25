@@ -247,6 +247,14 @@ class DeskAgent:
         # Post-processing: parse widget directives from full response
         parse_result = self._widget_parser.parse(full_text)
 
+        # Replace streamed content with clean text (widget directives stripped)
+        clean_text = "\n\n".join(parse_result.text_segments)
+        if clean_text != full_text:
+            yield SSEEvent(
+                event=SSEEventType.CONTENT_REPLACE,
+                data={"content": clean_text},
+            )
+
         # Emit widget events
         for widget in parse_result.widgets:
             yield SSEEvent(
@@ -262,7 +270,6 @@ class DeskAgent:
             )
 
         # Audit logging
-        clean_text = "\n\n".join(parse_result.text_segments)
         audit_event = AuditEvent(
             event_type=AuditEventType.AGENT_RESPONSE,
             user_id=session.user_id,
@@ -379,6 +386,15 @@ class DeskAgent:
 
             # Parse widgets from output
             parse_result = self._widget_parser.parse(output_text)
+
+            # Replace streamed content with clean text (widget directives stripped)
+            reasoning_clean_text = "\n\n".join(parse_result.text_segments)
+            if reasoning_clean_text != output_text:
+                yield SSEEvent(
+                    event=SSEEventType.CONTENT_REPLACE,
+                    data={"content": reasoning_clean_text},
+                )
+
             for widget in parse_result.widgets:
                 yield SSEEvent(
                     event=SSEEventType.WIDGET,

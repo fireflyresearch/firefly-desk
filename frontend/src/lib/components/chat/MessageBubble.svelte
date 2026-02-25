@@ -79,6 +79,12 @@
 		return name.slice(0, maxLen - 3) + '...';
 	}
 
+	// Safety-net: strip any remaining raw widget directives that were not
+	// cleaned by the backend content_replace event (e.g. race condition or
+	// historical messages loaded from persistence).
+	const WIDGET_PATTERN = /:::widget\{[^}]+\}[\s\S]*?:::/g;
+	let cleanContent = $derived((message.content ?? '').replace(WIDGET_PATTERN, '').trim());
+
 	let lightboxSrc = $state('');
 	let lightboxAlt = $state('');
 
@@ -184,7 +190,7 @@
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
 				<div class="border-l-2 border-l-ember/30 pl-3 text-sm leading-relaxed">
-					<MarkdownContent content={message.content} />
+					<MarkdownContent content={cleanContent} />
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
 					<ToolSummary tools={message.toolExecutions} />

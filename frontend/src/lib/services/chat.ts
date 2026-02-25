@@ -16,6 +16,7 @@ import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, To
 import {
 	addMessage,
 	updateStreamingMessage,
+	replaceStreamingContent,
 	upsertWidget,
 	appendReasoningStep,
 	setReasoningPlan,
@@ -226,6 +227,14 @@ function handleSSEEvent(msg: SSEMessage): void {
 			const content = msg.data.content ?? msg.data.token;
 			if (typeof content === 'string') {
 				updateStreamingMessage(content);
+			}
+			break;
+		}
+
+		case 'content_replace': {
+			const content = msg.data.content as string;
+			if (typeof content === 'string') {
+				replaceStreamingContent(content);
 			}
 			break;
 		}
