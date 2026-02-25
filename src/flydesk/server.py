@@ -79,6 +79,7 @@ from flydesk.api.sso_mappings import router as sso_mappings_router
 from flydesk.api.tools_admin import get_catalog_repo as tools_get_catalog
 from flydesk.api.tools_admin import get_settings_repo as tools_get_settings
 from flydesk.api.tools_admin import router as tools_admin_router
+from flydesk.api.users import get_local_user_repo as users_get_local_user_repo
 from flydesk.api.users import get_session_factory as users_get_session
 from flydesk.api.users import get_settings_repo as users_get_settings
 from flydesk.api.users import router as users_router
@@ -497,6 +498,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Users API dependency overrides
     app.dependency_overrides[users_get_session] = lambda: session_factory
     app.dependency_overrides[users_get_settings] = lambda: settings_repo
+    app.dependency_overrides[users_get_local_user_repo] = lambda: local_user_repo
 
     # Store config, session factory, and conversation repo in app state
     app.state.config = config
