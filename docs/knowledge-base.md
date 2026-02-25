@@ -38,6 +38,10 @@ A knowledge document is the fundamental unit of the Knowledge Base. Each documen
 
 Documents are added through the REST API via `POST /api/knowledge/documents`, through the Admin Console's Knowledge Base Manager, by importing from a URL, or by uploading a file.
 
+### Document Detail Panel
+
+The document detail panel in the Knowledge Base Manager is resizable. Drag the left edge of the panel to adjust its width between 300px and 800px. A fullscreen toggle (Maximize/Minimize button in the panel header) expands the view to fill the entire viewport, which is useful for reading long documents or exploring complex API specifications.
+
 ## Adding Documents
 
 ### Manual Creation
@@ -93,6 +97,10 @@ Content-Type: application/json
 ```
 
 The parser detects JSON/YAML content that contains `openapi` and `paths` keys, then extracts each endpoint as a structured description with its HTTP method, path, summary, parameters, and request/response schemas. This creates a comprehensive API reference document that Ember can use to answer questions about external system capabilities.
+
+### Swagger UI Rendering
+
+When viewing an OpenAPI specification document in the knowledge base detail panel, the content is rendered with an interactive Swagger UI viewer instead of raw markdown. This provides a navigable, familiar interface for exploring API endpoints, parameters, request/response schemas, and authentication requirements. Detection is based on the document type being `api_spec` or the content containing OpenAPI/Swagger markers (such as `openapi:` or `swagger:` keys).
 
 ### File Upload
 

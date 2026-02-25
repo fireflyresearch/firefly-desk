@@ -516,6 +516,68 @@ Updates a user account, including role assignments.
 
 **Required permission:** `admin:users`
 
+## Memory
+
+### GET /api/memory
+
+Returns all saved memories for the authenticated user. Memories are user-scoped; each user can only access their own memories.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | No | Filter by category: `general`, `preference`, `fact`, `workflow` |
+
+**Response:** Array of memory objects, each containing `id`, `user_id`, `content`, `category`, `source`, `created_at`, and `updated_at`.
+
+### DELETE /api/memory/{memory_id}
+
+Deletes a specific memory. Only the owning user can delete their memories.
+
+**Response:** `204 No Content`
+
+### PATCH /api/memory/{memory_id}
+
+Updates a memory's content or category. Only the owning user can update their memories.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | No | New content (1--5000 characters) |
+| `category` | string | No | New category: `general`, `preference`, `fact`, `workflow` |
+
+**Response:** The updated memory object.
+
+## Agent Tools
+
+### Built-in Tools
+
+The agent has access to built-in tools that operate on internal platform data. The following tools are always available:
+
+| Tool | Risk Level | Permission | Description |
+|------|-----------|------------|-------------|
+| `search_knowledge` | READ | `knowledge:read` | Search the knowledge base by natural language query |
+| `list_catalog_systems` | READ | `catalog:read` | List all registered external systems |
+| `list_system_endpoints` | READ | `catalog:read` | List available endpoints for a specific system |
+| `search_processes` | READ | `knowledge:read` | Search discovered business processes |
+| `query_audit_log` | READ | `audit:read` | Retrieve recent audit trail events |
+| `get_platform_status` | READ | None | Return platform health and status summary |
+| `document_read` | READ | `knowledge:read` | Read a knowledge document by ID |
+| `document_convert` | READ | `knowledge:read` | Convert document content between formats |
+| `document_create` | LOW_WRITE | `knowledge:write` | Create a new knowledge document |
+| `document_modify` | LOW_WRITE | `knowledge:write` | Modify an existing knowledge document |
+| `save_memory` | LOW_WRITE | None (user-scoped) | Save important information about the user for future reference |
+| `recall_memories` | READ | None (user-scoped) | Search the user's saved memories for relevant information |
+
+### Memory Tools
+
+The `save_memory` and `recall_memories` tools enable the agent to remember information about users across conversations. These tools are always available because memories are scoped to the authenticated user and do not require special permissions.
+
+**save_memory** accepts a `content` string (required) and an optional `category` (defaults to `general`). The agent uses this tool when a user shares preferences, facts about themselves, or workflow details worth remembering.
+
+**recall_memories** accepts a `query` string and returns up to 10 matching memories sorted by recency. The agent uses this tool during context enrichment and when the user asks about previously shared information.
+
 ## Dashboard
 
 ### GET /api/admin/dashboard/stats

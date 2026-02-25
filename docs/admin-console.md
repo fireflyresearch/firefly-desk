@@ -46,6 +46,10 @@ Displays all knowledge documents with their titles, document types, source infor
 - Edit document metadata (title, document type, tags)
 - Delete outdated or irrelevant documents, which removes the document record and all associated chunks and embeddings
 
+The document detail panel is resizable: drag the left edge to adjust its width between 300px and 800px. The panel also supports fullscreen mode via the Maximize/Minimize button in the detail header, which expands the panel to fill the viewport for easier reading of long documents.
+
+OpenAPI specification documents (`api_spec` type or content containing OpenAPI/Swagger markers) are rendered with an interactive Swagger UI viewer instead of raw markdown. This provides a familiar, navigable interface for exploring API endpoints, parameters, and schemas directly within the knowledge base.
+
 ### Add Document Tab
 
 Provides three methods for adding new documents:
