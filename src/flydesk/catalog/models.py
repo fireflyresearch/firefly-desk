@@ -63,6 +63,7 @@ class ExternalSystem(BaseModel):
     status: SystemStatus = SystemStatus.DRAFT
     metadata: dict[str, Any] = Field(default_factory=dict)
     agent_enabled: bool = False
+    workspace_id: str | None = None
 
 
 class ServiceEndpoint(BaseModel):

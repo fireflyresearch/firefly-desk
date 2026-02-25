@@ -38,6 +38,7 @@ class ExternalSystemRow(Base):
     auth_config: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     health_check_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tags: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
+    workspace_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     agent_enabled: Mapped[bool] = mapped_column(default=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
     metadata_: Mapped[dict] = mapped_column("metadata", _JSON, nullable=False, default=dict)

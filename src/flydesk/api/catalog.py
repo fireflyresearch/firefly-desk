@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
@@ -70,9 +70,11 @@ async def create_system(
 
 
 @router.get("/systems", dependencies=[CatalogRead])
-async def list_systems(repo: Repo) -> list[ExternalSystem]:
-    """Return every registered external system."""
-    return await repo.list_systems()
+async def list_systems(
+    repo: Repo, workspace_id: str | None = Query(default=None)
+) -> list[ExternalSystem]:
+    """Return every registered external system, optionally filtered by workspace."""
+    return await repo.list_systems(workspace_id=workspace_id)
 
 
 @router.get("/systems/{system_id}", dependencies=[CatalogRead])
