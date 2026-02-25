@@ -157,7 +157,7 @@
 			</span>
 			</div>
 			<!-- User avatar -->
-			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+			<div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
 				{#if $currentUser?.pictureUrl}
 					<img
 						src={$currentUser.pictureUrl}
@@ -177,20 +177,25 @@
 	<div class="group flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200, delay: staggerDelay }}>
 		<div class="flex gap-3">
 			<!-- Agent avatar (custom or default Ember) -->
-			<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full">
-				{#if $agentSettings.avatar_url}
-					<img
-						src={$agentSettings.avatar_url}
-						alt={$agentSettings.display_name || 'Assistant'}
-						class="h-7 w-7 rounded-full object-cover"
-					/>
-				{:else}
-					<EmberAvatar size={20} />
-				{/if}
+			<div class="mt-0.5 flex shrink-0 flex-col items-center">
+				<div class="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full">
+					{#if $agentSettings.avatar_url}
+						<img
+							src={$agentSettings.avatar_url}
+							alt={$agentSettings.display_name || 'Assistant'}
+							class="h-7 w-7 rounded-full object-cover"
+						/>
+					{:else}
+						<EmberAvatar size={20} />
+					{/if}
+				</div>
+				<span class="mt-0.5 text-center text-[9px] font-medium text-text-secondary">
+					{$agentSettings.display_name || 'Ember'}
+				</span>
 			</div>
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
-				<div class="border-l-2 border-l-ember/30 pl-3 text-sm leading-relaxed">
+				<div class="rounded-2xl rounded-bl-sm bg-surface-secondary/50 px-4 py-2.5 text-sm leading-relaxed">
 					<MarkdownContent content={cleanContent} />
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
