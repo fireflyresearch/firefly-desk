@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlencode
@@ -22,6 +23,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from flydesk.api.knowledge import get_indexing_producer
 from flydesk.config import DeskConfig, get_config
 from flydesk.knowledge.github import (
     GITHUB_OAUTH_AUTHORIZE,
@@ -29,6 +31,7 @@ from flydesk.knowledge.github import (
     GitHubClient,
     exchange_oauth_code,
 )
+from flydesk.knowledge.queue import IndexingQueueProducer, IndexingTask
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,7 @@ class ImportAcceptedResponse(BaseModel):
 
 
 Config = Annotated[DeskConfig, Depends(get_config)]
+Producer = Annotated[IndexingQueueProducer, Depends(get_indexing_producer)]
 
 
 def get_document_analyzer() -> DocumentAnalyzer:
@@ -381,11 +385,30 @@ async def import_files(
     owner: str,
     repo: str,
     body: ImportRequest,
+    producer: Producer,
     token: str | None = Query(default=None),
 ) -> ImportAcceptedResponse:
-    """Import selected files from a GitHub repository into the knowledge base.
-
-    This is a placeholder -- the actual indexing will be wired in a later task.
-    """
-    # TODO: Wire to knowledge importer / indexing queue
-    return ImportAcceptedResponse(status="accepted", files=len(body.paths))
+    """Import selected files from a GitHub repository into the knowledge base."""
+    client = _make_client(token)
+    try:
+        for path in body.paths:
+            fc = await client.get_file_content(owner, repo, path, ref=body.branch)
+            task = IndexingTask(
+                document_id=str(uuid.uuid4()),
+                title=path.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+                content=fc.content,
+                document_type="other",
+                source=f"git://{owner}/{repo}/{path}@{body.branch}",
+                tags=body.tags + ["git-import", f"repo:{owner}/{repo}"],
+                metadata={
+                    "provider": "github",
+                    "repo": f"{owner}/{repo}",
+                    "branch": body.branch,
+                    "path": path,
+                    "sha": fc.sha,
+                },
+            )
+            await producer.enqueue(task)
+        return ImportAcceptedResponse(status="accepted", files=len(body.paths))
+    finally:
+        await client.aclose()

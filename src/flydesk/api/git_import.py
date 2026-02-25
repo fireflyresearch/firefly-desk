@@ -17,14 +17,17 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from flydesk.api.git_providers import get_git_provider_repo
+from flydesk.api.knowledge import get_indexing_producer
 from flydesk.knowledge.git_provider import GitProvider, GitProviderFactory
 from flydesk.knowledge.git_provider_repository import GitProviderRepository
+from flydesk.knowledge.queue import IndexingQueueProducer, IndexingTask
 from flydesk.rbac.guards import KnowledgeRead, KnowledgeWrite
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,7 @@ router = APIRouter(prefix="/api/git", tags=["git-import"])
 # ---------------------------------------------------------------------------
 
 Repo = Annotated[GitProviderRepository, Depends(get_git_provider_repo)]
+Producer = Annotated[IndexingQueueProducer, Depends(get_indexing_producer)]
 
 
 # ---------------------------------------------------------------------------
@@ -227,24 +231,44 @@ async def import_repos(
     token: str,
     body: MultiRepoImportRequest,
     repo: Repo,
+    producer: Producer,
 ) -> dict:
     """Accept a multi-repo import request (cart).
 
-    For now this validates and returns ``202 Accepted`` with the queued items.
-    Task 10 will wire this to the knowledge indexer for actual processing.
+    Fetches file content from the Git provider and enqueues each file as an
+    ``IndexingTask`` for background indexing by the knowledge queue consumer.
     """
     provider = await _make_provider(repo, provider_id, token)
     try:
         results = []
         for item in body.items:
             for path in item.paths:
-                results.append(
-                    {
-                        "path": path,
-                        "repo": f"{item.owner}/{item.repo}",
-                        "status": "queued",
-                    }
-                )
+                try:
+                    fc = await provider.get_file_content(
+                        item.owner, item.repo, path, ref=item.branch
+                    )
+                    task = IndexingTask(
+                        document_id=str(uuid.uuid4()),
+                        title=path.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+                        content=fc.content,
+                        document_type="other",
+                        source=f"git://{item.owner}/{item.repo}/{path}@{item.branch}",
+                        tags=item.tags + ["git-import", f"repo:{item.owner}/{item.repo}"],
+                        metadata={
+                            "provider": provider_id,
+                            "repo": f"{item.owner}/{item.repo}",
+                            "branch": item.branch,
+                            "path": path,
+                            "sha": fc.sha,
+                        },
+                    )
+                    await producer.enqueue(task)
+                    results.append({"path": path, "document_id": task.document_id, "status": "queued"})
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to import %s/%s:%s — %s", item.owner, item.repo, path, exc
+                    )
+                    results.append({"path": path, "error": str(exc), "status": "failed"})
         return {"status": "accepted", "items": results}
     finally:
         await provider.aclose()
