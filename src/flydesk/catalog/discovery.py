@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
-from flydesk.catalog.enums import AuthType, SystemStatus
-from flydesk.catalog.models import AuthConfig, ExternalSystem
+from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
 from flydesk.jobs.handlers import ProgressCallback
 
 if TYPE_CHECKING:
@@ -45,6 +45,16 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent / "discovery_prompts"
 
 
+class DiscoveredEndpoint(BaseModel):
+    """An endpoint discovered from document analysis."""
+
+    name: str
+    method: str = "GET"
+    path: str = ""
+    description: str = ""
+    parameters: list[dict[str, str]] = Field(default_factory=list)
+
+
 class DiscoveredSystem(BaseModel):
     """A single system from the LLM discovery response."""
 
@@ -56,6 +66,8 @@ class DiscoveredSystem(BaseModel):
     confidence: float = 0.0
     tags: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    endpoints: list[DiscoveredEndpoint] = Field(default_factory=list)
+    config_parameters: list[dict[str, str]] = Field(default_factory=list)
 
 
 class SystemDiscoveryResult(BaseModel):
@@ -201,8 +213,9 @@ class SystemDiscoveryEngine:
         else:
             await on_progress(60, "LLM analysis complete — no systems identified")
 
-        # 4. Convert to domain models
-        discovered = self._to_external_systems(discovery_result)
+        # 4. Filter by quality gate, then convert to domain models
+        qualified = [s for s in discovery_result.systems if self._should_create(s)]
+        discovered = self._to_external_systems(SystemDiscoveryResult(systems=qualified))
         await on_progress(70, "Merging discovered systems with existing catalog...")
 
         # 5. Merge with existing
@@ -412,10 +425,26 @@ class SystemDiscoveryEngine:
                         "confidence": disc_sys.confidence,
                         "category": disc_sys.category,
                         "evidence": disc_sys.evidence,
+                        "discovered_endpoints": [ep.model_dump() for ep in disc_sys.endpoints],
+                        "config_parameters": disc_sys.config_parameters,
                     },
                 )
             )
         return systems
+
+    # ------------------------------------------------------------------
+    # Quality gate
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _should_create(system: DiscoveredSystem) -> bool:
+        """Only create systems with sufficient evidence."""
+        if system.confidence < 0.5:
+            return False
+        has_endpoints = len(system.endpoints) > 0
+        has_url = bool(system.base_url)
+        has_high_confidence = system.confidence >= 0.8
+        return has_endpoints or has_url or has_high_confidence
 
     # ------------------------------------------------------------------
     # Merge strategy
@@ -448,6 +477,27 @@ class SystemDiscoveryEngine:
                 # Brand new system -- create it
                 await self._catalog_repo.create_system(system)
                 stats["created"] += 1
+
+                # Auto-create discovered endpoints
+                for ep_data in system.metadata.get("discovered_endpoints", []):
+                    # Resolve HTTP method safely -- default to GET
+                    try:
+                        method = HttpMethod(ep_data.get("method", "GET").upper())
+                    except ValueError:
+                        method = HttpMethod.GET
+
+                    endpoint = ServiceEndpoint(
+                        id=str(uuid.uuid4()),
+                        system_id=system.id,
+                        name=ep_data.get("name", ""),
+                        description=ep_data.get("description", ""),
+                        method=method,
+                        path=ep_data.get("path", ""),
+                        when_to_use=ep_data.get("description", ""),
+                        risk_level=RiskLevel.READ,
+                        required_permissions=[],
+                    )
+                    await self._catalog_repo.create_endpoint(endpoint)
             else:
                 # System already exists -- never overwrite
                 logger.debug(

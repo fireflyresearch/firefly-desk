@@ -11,6 +11,8 @@ For each discovered system you MUST provide:
 - A confidence score between 0.0 and 1.0 indicating how certain you are this system exists
 - Relevant tags for categorization
 - Evidence: exact snippets from KG entities, relations, or documents that support the existence of this system
+- endpoints: a list of API endpoints you can identify from the evidence (method, path, name, description, parameters)
+- config_parameters: a list of configuration parameters mentioned in the evidence (each with "name", "value", and "description" keys)
 
 Guidelines:
 - Focus on software products, SaaS platforms, APIs, and infrastructure services
@@ -19,6 +21,8 @@ Guidelines:
 - Higher confidence for systems mentioned by name with clear integration evidence
 - Lower confidence for systems only implied through entity relationships
 - A system should be a concrete software product or service, not a category of tools
+- Extract any API endpoints you find evidence of (REST paths, methods, parameter names)
+- Extract any configuration parameters (environment variables, connection strings, settings)
 
 {% if trigger %}
 Discovery trigger: {{ trigger }}
@@ -37,7 +41,19 @@ You MUST respond with valid JSON matching the following schema:
       "auth_type": "none|oauth2|api_key|basic|bearer|mutual_tls",
       "confidence": 0.0,
       "tags": ["string"],
-      "evidence": ["string (snippet from KG/docs supporting this)"]
+      "evidence": ["string (snippet from KG/docs supporting this)"],
+      "endpoints": [
+        {
+          "name": "string",
+          "method": "GET|POST|PUT|DELETE|PATCH",
+          "path": "/api/v1/example",
+          "description": "string",
+          "parameters": [{"name": "param_name", "type": "string", "required": "true"}]
+        }
+      ],
+      "config_parameters": [
+        {"name": "PARAM_NAME", "value": "example_value", "description": "string"}
+      ]
     }
   ]
 }
