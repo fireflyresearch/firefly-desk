@@ -144,6 +144,34 @@ class GitHubClient:
         resp.raise_for_status()
         return [_parse_repo(r) for r in resp.json().get("items", [])]
 
+    # -- Organizations ------------------------------------------------------
+
+    async def list_user_organizations(self) -> list[dict]:
+        """List organizations the authenticated user belongs to."""
+        if not self._token:
+            raise ValueError("A token is required to list user organizations.")
+        resp = await self._client.get("/user/orgs")
+        resp.raise_for_status()
+        return [
+            {
+                "login": o["login"],
+                "avatar_url": o.get("avatar_url") or "",
+                "description": o.get("description") or "",
+            }
+            for o in resp.json()
+        ]
+
+    async def list_org_repos(
+        self, org: str, per_page: int = 30
+    ) -> list[GitHubRepo]:
+        """List repositories in a GitHub organization."""
+        resp = await self._client.get(
+            f"/orgs/{org}/repos",
+            params={"per_page": per_page, "sort": "updated", "type": "all"},
+        )
+        resp.raise_for_status()
+        return [_parse_repo(r) for r in resp.json()]
+
     # -- Branches -----------------------------------------------------------
 
     async def list_branches(

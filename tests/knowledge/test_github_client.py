@@ -11,7 +11,10 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import json
+import os
+import sys
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -22,6 +25,21 @@ from flydesk.knowledge.github import (
     GitHubClient,
     exchange_oauth_code,
 )
+
+
+def _get_worktree_client():
+    """Return GitHubClient from the worktree source (for testing new methods)."""
+    worktree_src = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "src")
+    )
+    if worktree_src not in sys.path:
+        sys.path.insert(0, worktree_src)
+    # Clear ALL flydesk modules to force a clean re-import from the worktree.
+    for key in list(sys.modules):
+        if key.startswith("flydesk"):
+            del sys.modules[key]
+    import flydesk.knowledge.github as gh
+    return gh
 
 
 # ---------------------------------------------------------------------------
@@ -199,3 +217,97 @@ class TestExchangeOAuthCode:
 
             with pytest.raises(ValueError, match="code is invalid"):
                 await exchange_oauth_code("client-id", "client-secret", "bad-code")
+
+
+# ---------------------------------------------------------------------------
+# list_user_organizations
+# ---------------------------------------------------------------------------
+
+
+class TestListUserOrganizations:
+    @pytest.mark.anyio
+    async def test_list_user_organizations_success(self):
+        gh = _get_worktree_client()
+        mock_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "login": "firefly-org",
+                    "avatar_url": "https://avatars.example.com/1",
+                    "description": "Firefly Org",
+                    "id": 12345,
+                },
+                {
+                    "login": "acme-corp",
+                    "avatar_url": "https://avatars.example.com/2",
+                    "description": None,
+                    "id": 67890,
+                },
+            ],
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/user/orgs"),
+        )
+        client = gh.GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        orgs = await client.list_user_organizations()
+        assert len(orgs) == 2
+        assert orgs[0]["login"] == "firefly-org"
+        assert orgs[0]["avatar_url"] == "https://avatars.example.com/1"
+        assert orgs[0]["description"] == "Firefly Org"
+        assert orgs[1]["login"] == "acme-corp"
+        assert orgs[1]["description"] == ""
+
+    @pytest.mark.anyio
+    async def test_list_user_organizations_requires_token(self):
+        gh = _get_worktree_client()
+        client = gh.GitHubClient(token=None)
+        with pytest.raises(ValueError, match="token is required"):
+            await client.list_user_organizations()
+
+
+# ---------------------------------------------------------------------------
+# list_org_repos
+# ---------------------------------------------------------------------------
+
+
+class TestListOrgRepos:
+    @pytest.mark.anyio
+    async def test_list_org_repos_success(self):
+        gh = _get_worktree_client()
+        mock_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "full_name": "firefly-org/api-gateway",
+                    "name": "api-gateway",
+                    "owner": {"login": "firefly-org"},
+                    "private": False,
+                    "default_branch": "main",
+                    "description": "API Gateway service",
+                    "html_url": "https://github.com/firefly-org/api-gateway",
+                },
+                {
+                    "full_name": "firefly-org/web-app",
+                    "name": "web-app",
+                    "owner": {"login": "firefly-org"},
+                    "private": True,
+                    "default_branch": "develop",
+                    "description": "Web application",
+                    "html_url": "https://github.com/firefly-org/web-app",
+                },
+            ],
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/orgs/firefly-org/repos"),
+        )
+        client = gh.GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        repos = await client.list_org_repos("firefly-org")
+        assert len(repos) == 2
+        assert repos[0].full_name == "firefly-org/api-gateway"
+        assert repos[0].owner == "firefly-org"
+        assert repos[0].private is False
+        assert repos[1].full_name == "firefly-org/web-app"
+        assert repos[1].private is True
+        assert repos[1].default_branch == "develop"

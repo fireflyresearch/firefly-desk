@@ -189,6 +189,62 @@ async def oauth_callback(
 
 
 # ---------------------------------------------------------------------------
+# Organization routes
+# ---------------------------------------------------------------------------
+
+
+@router.get("/orgs")
+async def list_organizations(
+    token: str = Query(..., description="GitHub PAT or OAuth token"),
+) -> list[dict]:
+    """List GitHub organizations for the authenticated user."""
+    client = _make_client(token)
+    try:
+        orgs = await client.list_user_organizations()
+        return orgs
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=f"GitHub API error: {exc.response.text}",
+        )
+    finally:
+        await client.aclose()
+
+
+@router.get("/orgs/{org}/repos")
+async def list_org_repos(
+    org: str,
+    token: str = Query(..., description="GitHub PAT or OAuth token"),
+    search: str = Query(default="", description="Filter repos by name"),
+) -> list[RepoResponse]:
+    """List repositories in a GitHub organization."""
+    client = _make_client(token)
+    try:
+        repos = await client.list_org_repos(org)
+        if search:
+            repos = [r for r in repos if search.lower() in r.name.lower()]
+        return [
+            RepoResponse(
+                full_name=r.full_name,
+                name=r.name,
+                owner=r.owner,
+                private=r.private,
+                default_branch=r.default_branch,
+                description=r.description,
+                html_url=r.html_url,
+            )
+            for r in repos
+        ]
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=f"GitHub API error: {exc.response.text}",
+        )
+    finally:
+        await client.aclose()
+
+
+# ---------------------------------------------------------------------------
 # Repo browsing routes
 # ---------------------------------------------------------------------------
 
