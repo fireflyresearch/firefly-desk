@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from flydesk.knowledge.retriever import KnowledgeRetriever
     from flydesk.processes.repository import ProcessRepository
     from flydesk.tools.document_tools import DocumentToolExecutor
+    from flydesk.tools.transform_tools import TransformToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,19 @@ class BuiltinToolRegistry:
             tools.append(document_modify_tool())
             tools.append(document_convert_tool())
 
+        # Transform tools (always available — no permission requirement)
+        from flydesk.tools.transform_tools import (
+            filter_rows_tool,
+            grep_result_tool,
+            parse_json_tool,
+            transform_data_tool,
+        )
+
+        tools.append(grep_result_tool())
+        tools.append(parse_json_tool())
+        tools.append(filter_rows_tool())
+        tools.append(transform_data_tool())
+
         return tools
 
 
@@ -234,6 +248,12 @@ class BuiltinToolExecutor:
         self._process_repo = process_repo
         self._doc_executor: DocumentToolExecutor | None = None
 
+        from flydesk.tools.transform_tools import (
+            TransformToolExecutor as _TransformExec,
+        )
+
+        self._transform_executor: TransformToolExecutor = _TransformExec()
+
     def set_document_executor(self, executor: DocumentToolExecutor) -> None:
         """Attach a :class:`DocumentToolExecutor` for document operations."""
         self._doc_executor = executor
@@ -243,6 +263,10 @@ class BuiltinToolExecutor:
         # Delegate document_* tools to the dedicated executor
         if tool_name.startswith("document_") and self._doc_executor is not None:
             return await self._doc_executor.execute(tool_name, arguments)
+
+        # Delegate transform tools to the dedicated executor
+        if self._transform_executor.is_transform_tool(tool_name):
+            return await self._transform_executor.execute(tool_name, arguments)
 
         handlers = {
             "search_knowledge": self._search_knowledge,
