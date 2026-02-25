@@ -21,7 +21,7 @@ from httpx import ASGITransport, AsyncClient
 
 from flydesk.auth.models import UserSession
 from flydesk.knowledge.graph import Entity, EntityGraph, Relation
-from flydesk.knowledge.models import DocumentChunk, DocumentType, KnowledgeDocument
+from flydesk.knowledge.models import DocumentChunk, DocumentStatus, DocumentType, KnowledgeDocument
 from flydesk.knowledge.queue import IndexingQueueProducer
 
 
@@ -294,6 +294,138 @@ class TestUpdateDocumentMetadata:
         response = await admin_client.put(
             "/api/knowledge/documents/no-such",
             json={"title": "New Title"},
+        )
+        assert response.status_code == 404
+
+    # -- Status transition validation tests --
+
+    async def test_valid_transition_draft_to_published(self, admin_client, mock_doc_store):
+        """draft -> published is a valid transition."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.DRAFT
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.PUBLISHED
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "published"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "published"
+
+    async def test_valid_transition_draft_to_archived(self, admin_client, mock_doc_store):
+        """draft -> archived is a valid transition."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.DRAFT
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.ARCHIVED
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "archived"},
+        )
+        assert response.status_code == 200
+
+    async def test_valid_transition_published_to_archived(self, admin_client, mock_doc_store):
+        """published -> archived is a valid transition."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.PUBLISHED
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.ARCHIVED
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "archived"},
+        )
+        assert response.status_code == 200
+
+    async def test_valid_transition_error_to_draft(self, admin_client, mock_doc_store):
+        """error -> draft is a valid transition."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.ERROR
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.DRAFT
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "draft"},
+        )
+        assert response.status_code == 200
+
+    async def test_valid_transition_archived_to_draft(self, admin_client, mock_doc_store):
+        """archived -> draft is a valid transition."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.ARCHIVED
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.DRAFT
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "draft"},
+        )
+        assert response.status_code == 200
+
+    async def test_invalid_transition_published_to_draft(self, admin_client, mock_doc_store):
+        """published -> draft is NOT valid."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.PUBLISHED
+        mock_doc_store.get_document.return_value = current_doc
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "draft"},
+        )
+        assert response.status_code == 400
+        assert "Cannot transition" in response.json()["detail"]
+
+    async def test_invalid_transition_archived_to_published(self, admin_client, mock_doc_store):
+        """archived -> published is NOT valid."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.ARCHIVED
+        mock_doc_store.get_document.return_value = current_doc
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "published"},
+        )
+        assert response.status_code == 400
+        assert "Cannot transition" in response.json()["detail"]
+
+    async def test_invalid_transition_indexing_blocked(self, admin_client, mock_doc_store):
+        """indexing -> anything is NOT valid (system-managed)."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.INDEXING
+        mock_doc_store.get_document.return_value = current_doc
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "draft"},
+        )
+        assert response.status_code == 400
+        assert "Cannot transition" in response.json()["detail"]
+
+    async def test_same_status_is_allowed(self, admin_client, mock_doc_store):
+        """Setting the same status should not be rejected."""
+        current_doc = _sample_document()
+        current_doc.status = DocumentStatus.DRAFT
+        mock_doc_store.get_document.return_value = current_doc
+        updated = _sample_document()
+        updated.status = DocumentStatus.DRAFT
+        mock_doc_store.update_document.return_value = updated
+        response = await admin_client.put(
+            "/api/knowledge/documents/doc-1",
+            json={"status": "draft"},
+        )
+        assert response.status_code == 200
+
+    async def test_status_transition_document_not_found(self, admin_client, mock_doc_store):
+        """Status transition on a non-existent document returns 404."""
+        mock_doc_store.get_document.return_value = None
+        response = await admin_client.put(
+            "/api/knowledge/documents/no-such",
+            json={"status": "published"},
         )
         assert response.status_code == 404
 

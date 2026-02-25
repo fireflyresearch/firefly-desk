@@ -192,6 +192,50 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// Status transitions
+	// -----------------------------------------------------------------------
+
+	const VALID_TRANSITIONS: Record<string, { label: string; target: string; destructive?: boolean }[]> = {
+		draft: [
+			{ label: 'Publish', target: 'published' },
+			{ label: 'Archive', target: 'archived', destructive: true },
+		],
+		published: [
+			{ label: 'Archive', target: 'archived', destructive: true },
+		],
+		error: [
+			{ label: 'Reset to Draft', target: 'draft' },
+		],
+		archived: [
+			{ label: 'Restore to Draft', target: 'draft' },
+		],
+		indexing: [],
+	};
+
+	let transitioning = $state(false);
+
+	async function transitionStatus(newStatus: string, destructive?: boolean) {
+		if (!doc || transitioning) return;
+		if (destructive && !confirm(`Are you sure you want to change the status to "${newStatus}"?`)) return;
+		transitioning = true;
+		error = '';
+		success = '';
+		try {
+			await apiJson(`/knowledge/documents/${documentId}`, {
+				method: 'PUT',
+				body: JSON.stringify({ status: newStatus })
+			});
+			success = `Status changed to ${newStatus}.`;
+			await loadDocument();
+			onUpdated?.();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to change status';
+		} finally {
+			transitioning = false;
+		}
+	}
+
+	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
 
@@ -436,6 +480,23 @@
 								>
 									{badge.label}
 								</span>
+								{#if VALID_TRANSITIONS[doc.status]?.length > 0}
+									<div class="flex gap-1">
+										{#each VALID_TRANSITIONS[doc.status] as action}
+											<button
+												type="button"
+												onclick={() => transitionStatus(action.target, action.destructive)}
+												disabled={transitioning}
+												class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+											>
+												{#if transitioning}
+													<Loader2 size={12} class="inline animate-spin" />
+												{/if}
+												{action.label}
+											</button>
+										{/each}
+									</div>
+								{/if}
 							{/if}
 						</div>
 					</div>

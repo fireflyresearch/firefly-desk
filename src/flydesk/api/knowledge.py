@@ -16,6 +16,18 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field, computed_field
 
+# ---------------------------------------------------------------------------
+# Document status transition rules
+# ---------------------------------------------------------------------------
+
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "draft": {"published", "archived"},
+    "published": {"archived"},
+    "error": {"draft"},
+    "archived": {"draft"},
+    "indexing": set(),  # system-managed
+}
+
 from flydesk.knowledge.graph import KnowledgeGraph
 from flydesk.knowledge.importer import KnowledgeImporter
 from flydesk.knowledge.indexer import KnowledgeIndexer
@@ -328,6 +340,22 @@ async def update_document_metadata(
     document_id: str, body: DocumentMetadataUpdate, store: DocStore
 ) -> dict[str, Any]:
     """Update document metadata and optionally content."""
+    # Validate status transition if a new status is requested
+    if body.status is not None:
+        current = await store.get_document(document_id)
+        if current is None:
+            raise HTTPException(
+                status_code=404, detail=f"Document {document_id} not found"
+            )
+        current_status = current.status or "draft"
+        if body.status != current_status:
+            allowed = VALID_TRANSITIONS.get(current_status, set())
+            if body.status not in allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot transition from '{current_status}' to '{body.status}'",
+                )
+
     updated = await store.update_document(
         document_id,
         title=body.title,
