@@ -156,7 +156,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			<div class="flex items-center gap-2">
 				<AlertCircle size={14} />
 				{error}
@@ -166,7 +166,7 @@
 
 	<!-- Success banner -->
 	{#if successMessage}
-		<div class="rounded-md border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success">
+		<div class="rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success">
 			<div class="flex items-center gap-2">
 				<CheckCircle2 size={14} />
 				{successMessage}

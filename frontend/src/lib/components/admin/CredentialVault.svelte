@@ -240,7 +240,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}
@@ -265,7 +265,7 @@
 			<div class="border-t border-border px-4 py-4">
 				{#if kmsStatus.is_dev_key}
 					<div
-						class="mb-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
+						class="mb-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
 					>
 						Using development encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY for
 						production.

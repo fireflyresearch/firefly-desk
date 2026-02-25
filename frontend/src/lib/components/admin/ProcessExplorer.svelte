@@ -743,7 +743,7 @@
 		<!-- Error banner -->
 		{#if error}
 			<div
-				class="mx-4 mt-3 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2 text-sm text-danger"
+				class="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				<AlertCircle size={16} />
 				<span class="flex-1">{error}</span>

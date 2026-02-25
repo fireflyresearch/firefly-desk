@@ -340,7 +340,7 @@
 
 		<!-- Error banner -->
 		{#if error}
-			<div class="mx-6 mt-4 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+			<div class="mx-6 mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 				{error}
 			</div>
 		{/if}

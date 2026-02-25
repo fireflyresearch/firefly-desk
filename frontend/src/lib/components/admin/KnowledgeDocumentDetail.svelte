@@ -208,13 +208,13 @@
 	}
 
 	const typeBadgeColors: Record<string, string> = {
-		text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-		markdown: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-		html: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
-		pdf: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-		code: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-		api_spec: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
-		other: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+		text: 'bg-accent/10 text-accent',
+		markdown: 'bg-purple-500/10 text-purple-500',
+		html: 'bg-warning/10 text-warning',
+		pdf: 'bg-danger/10 text-danger',
+		code: 'bg-success/10 text-success',
+		api_spec: 'bg-cyan-500/10 text-cyan-500',
+		other: 'bg-text-secondary/10 text-text-secondary'
 	};
 
 	function formatDate(dateStr?: string): string {
@@ -293,7 +293,7 @@
 			</div>
 		{:else if error}
 			<div
-				class="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+				class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				<AlertCircle size={16} />
 				{error}
@@ -301,7 +301,7 @@
 		{:else if doc}
 			{#if success}
 				<div
-					class="mb-3 flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-success"
+					class="mb-3 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-sm text-success"
 				>
 					<CheckCircle2 size={14} />
 					{success}
