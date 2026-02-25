@@ -17,6 +17,7 @@
 		Loader2,
 		Save,
 		X,
+		Plus,
 		CheckCircle2,
 		AlertCircle
 	} from 'lucide-svelte';
@@ -98,13 +99,19 @@
 	let fetchingPreview = $state(false);
 
 	// OpenAPI import
-	let openapiForm = $state({
-		spec: '',
-		title: '',
-		tags: ''
-	});
-	let openapiFile = $state<File | null>(null);
-	let openapiPreview = $state<{ endpoints: number; title?: string } | null>(null);
+	interface OpenapiEntry {
+		spec: string;
+		title: string;
+		preview: { endpoints: number; title?: string } | null;
+	}
+
+	let openapiEntries = $state<OpenapiEntry[]>([{ spec: '', title: '', preview: null }]);
+	let openapiTags = $state('');
+	let openapiImportResults = $state<
+		{ title: string; success: boolean; error?: string }[] | null
+	>(null);
+
+	let validOpenapiCount = $derived(openapiEntries.filter((e) => e.spec.trim().length > 0).length);
 
 	// -----------------------------------------------------------------------
 	// Sub-tab definitions
@@ -290,24 +297,17 @@
 	// OpenAPI import
 	// -----------------------------------------------------------------------
 
-	function handleOpenapiFileSelect(event: Event) {
-		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) {
-			openapiFile = file;
-			if (!openapiForm.title) {
-				openapiForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				openapiForm.spec = (e.target?.result as string) || '';
-				parseOpenapiPreview(openapiForm.spec);
-			};
-			reader.readAsText(file);
-		}
+	function addOpenapiEntry() {
+		openapiEntries = [...openapiEntries, { spec: '', title: '', preview: null }];
 	}
 
-	function parseOpenapiPreview(spec: string) {
+	function removeOpenapiEntry(index: number) {
+		if (openapiEntries.length <= 1) return;
+		openapiEntries = openapiEntries.filter((_, i) => i !== index);
+	}
+
+	function parseOpenapiPreview(spec: string): { endpoints: number; title?: string } | null {
+		if (spec.trim().length < 10) return null;
 		try {
 			const parsed = JSON.parse(spec);
 			const paths = parsed.paths ? Object.keys(parsed.paths) : [];
@@ -317,51 +317,125 @@
 					['get', 'post', 'put', 'delete', 'patch'].includes(m)
 				).length;
 			}
-			openapiPreview = {
+			return {
 				endpoints: endpointCount,
 				title: parsed.info?.title
 			};
-			if (!openapiForm.title && parsed.info?.title) {
-				openapiForm.title = parsed.info.title;
-			}
 		} catch {
 			// Try YAML-ish parsing for basic preview
 			const pathMatches = spec.match(/^\s{2}\/[^\s:]+:/gm);
-			openapiPreview = {
+			return {
 				endpoints: pathMatches?.length ?? 0
 			};
 		}
 	}
 
-	async function submitOpenapi() {
+	function updateOpenapiPreview(index: number) {
+		const entry = openapiEntries[index];
+		if (!entry) return;
+		const preview = parseOpenapiPreview(entry.spec);
+		openapiEntries[index].preview = preview;
+		if (preview?.title && !entry.title) {
+			openapiEntries[index].title = preview.title;
+		}
+	}
+
+	function handleOpenapiFilesSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = input.files;
+		if (!files || files.length === 0) return;
+
+		// If the only entry is blank, remove it before appending
+		const hasOnlyBlank =
+			openapiEntries.length === 1 &&
+			!openapiEntries[0].spec.trim() &&
+			!openapiEntries[0].title.trim();
+
+		const newEntries: OpenapiEntry[] = [];
+
+		let filesRead = 0;
+		const totalFiles = files.length;
+
+		for (const file of Array.from(files)) {
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				const content = (e.target?.result as string) || '';
+				const preview = parseOpenapiPreview(content);
+				const title = preview?.title || file.name.replace(/\.[^.]+$/, '');
+				newEntries.push({ spec: content, title, preview });
+				filesRead++;
+
+				if (filesRead === totalFiles) {
+					if (hasOnlyBlank) {
+						openapiEntries = newEntries;
+					} else {
+						openapiEntries = [...openapiEntries, ...newEntries];
+					}
+					openapiImportResults = null;
+				}
+			};
+			reader.readAsText(file);
+		}
+
+		// Reset input so re-selecting the same files triggers onchange
+		input.value = '';
+	}
+
+	async function submitAllOpenapi() {
+		if (validOpenapiCount === 0) return;
 		saving = true;
 		error = '';
 		success = '';
+		openapiImportResults = null;
 
-		const payload = {
-			spec: openapiForm.spec,
-			title: openapiForm.title || undefined,
-			tags: openapiForm.tags
-				.split(',')
-				.map((t) => t.trim())
-				.filter(Boolean)
-		};
+		const tags = openapiTags
+			.split(',')
+			.map((t) => t.trim())
+			.filter(Boolean);
 
-		try {
-			await apiJson('/knowledge/documents/import-openapi', {
-				method: 'POST',
-				body: JSON.stringify(payload)
-			});
-			success = 'OpenAPI spec imported successfully.';
-			openapiForm = { spec: '', title: '', tags: '' };
-			openapiFile = null;
-			openapiPreview = null;
-			onDocumentAdded?.();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to import OpenAPI spec';
-		} finally {
-			saving = false;
+		const results: { title: string; success: boolean; error?: string }[] = [];
+
+		for (const entry of openapiEntries) {
+			if (!entry.spec.trim()) continue;
+
+			const label = entry.title || 'Untitled Spec';
+			try {
+				await apiJson('/knowledge/documents/import-openapi', {
+					method: 'POST',
+					body: JSON.stringify({
+						spec: entry.spec,
+						title: entry.title || undefined,
+						tags
+					})
+				});
+				results.push({ title: label, success: true });
+			} catch (e) {
+				results.push({
+					title: label,
+					success: false,
+					error: e instanceof Error ? e.message : 'Import failed'
+				});
+			}
 		}
+
+		openapiImportResults = results;
+
+		const successCount = results.filter((r) => r.success).length;
+		const errorCount = results.filter((r) => !r.success).length;
+
+		if (errorCount === 0) {
+			success = `${successCount} spec${successCount !== 1 ? 's' : ''} imported successfully.`;
+			openapiEntries = [{ spec: '', title: '', preview: null }];
+			openapiTags = '';
+			onDocumentAdded?.();
+		} else if (successCount === 0) {
+			error = `All ${errorCount} spec${errorCount !== 1 ? 's' : ''} failed to import.`;
+		} else {
+			success = `${successCount} spec${successCount !== 1 ? 's' : ''} imported, ${errorCount} failed.`;
+			onDocumentAdded?.();
+		}
+
+		saving = false;
 	}
 </script>
 
@@ -688,84 +762,103 @@
 		<form
 			onsubmit={(e) => {
 				e.preventDefault();
-				submitOpenapi();
+				submitAllOpenapi();
 			}}
 			class="flex flex-col gap-3"
 		>
-			<div class="flex items-center gap-3">
-				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary"
-						>Title (optional, auto-detected)</span
-					>
+			<!-- Upload files button -->
+			<div class="flex items-center gap-2">
+				<label
+					class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+				>
+					<Upload size={14} />
+					Upload files
 					<input
-						type="text"
-						bind:value={openapiForm.title}
-						placeholder="API spec title"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						type="file"
+						multiple
+						accept=".json,.yaml,.yml"
+						onchange={handleOpenapiFilesSelect}
+						class="hidden"
 					/>
 				</label>
-
-				<div class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Or upload file</span>
-					<label
-						class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-					>
-						<Upload size={14} />
-						{openapiFile ? openapiFile.name : 'Choose file'}
-						<input
-							type="file"
-							accept=".json,.yaml,.yml"
-							onchange={handleOpenapiFileSelect}
-							class="hidden"
-						/>
-					</label>
-				</div>
+				<span class="text-xs text-text-secondary">.json / .yaml files</span>
 			</div>
 
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">OpenAPI Spec (JSON or YAML)</span>
-				<textarea
-					bind:value={openapiForm.spec}
-					required
-					rows={12}
-					oninput={() => {
-						if (openapiForm.spec.length > 10) {
-							parseOpenapiPreview(openapiForm.spec);
-						}
-					}}
-					class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-					placeholder={'{"openapi": "3.0.0", "info": {...}, "paths": {...}}'}
-				></textarea>
-			</label>
+			<!-- Entry cards list -->
+			<div class="flex flex-col gap-3">
+				{#each openapiEntries as entry, index}
+					<div class="relative flex flex-col gap-2 rounded-lg border border-border p-3">
+						<!-- Entry header: number + title + remove -->
+						<div class="flex items-center gap-2">
+							<span class="text-xs font-medium text-text-secondary">
+								Spec {index + 1}
+							</span>
+							<div class="flex-1">
+								<input
+									type="text"
+									bind:value={entry.title}
+									placeholder="Title (optional, auto-detected)"
+									class="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+								/>
+							</div>
+							{#if entry.preview}
+								<span
+									class="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/5 px-2 py-0.5 text-xs text-accent"
+								>
+									<Code2 size={12} />
+									{entry.preview.endpoints} endpoint{entry.preview.endpoints !== 1 ? 's' : ''}
+								</span>
+							{/if}
+							{#if openapiEntries.length > 1}
+								<button
+									type="button"
+									onclick={() => removeOpenapiEntry(index)}
+									class="shrink-0 rounded p-1 text-text-secondary hover:bg-danger/10 hover:text-danger"
+									title="Remove spec"
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
 
-			{#if openapiPreview}
-				<div
-					class="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-sm"
-				>
-					<Code2 size={14} class="text-accent" />
-					<span class="text-text-primary">
-						{#if openapiPreview.title}
-							<strong>{openapiPreview.title}</strong> &mdash;
-						{/if}
-						{openapiPreview.endpoints} endpoint{openapiPreview.endpoints !== 1 ? 's' : ''} detected
-					</span>
-				</div>
-			{/if}
+						<!-- Spec textarea -->
+						<textarea
+							bind:value={entry.spec}
+							rows={8}
+							oninput={() => updateOpenapiPreview(index)}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+							placeholder={'{"openapi": "3.0.0", "info": {...}, "paths": {...}}'}
+						></textarea>
+					</div>
+				{/each}
+			</div>
 
+			<!-- Add Spec button -->
+			<button
+				type="button"
+				onclick={addOpenapiEntry}
+				class="inline-flex items-center gap-1.5 self-start rounded-md border border-dashed border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:border-accent hover:text-accent"
+			>
+				<Plus size={14} />
+				Add Spec
+			</button>
+
+			<!-- Shared tags -->
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
+				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated, applied to all)</span>
 				<input
 					type="text"
-					bind:value={openapiForm.tags}
+					bind:value={openapiTags}
 					placeholder="e.g. api, openapi, rest"
 					class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 				/>
 			</label>
 
+			<!-- Submit button -->
 			<div class="flex justify-end pt-1">
 				<button
 					type="submit"
-					disabled={saving || !openapiForm.spec}
+					disabled={saving || validOpenapiCount === 0}
 					class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
 				>
 					{#if saving}
@@ -773,9 +866,28 @@
 					{:else}
 						<Code2 size={14} />
 					{/if}
-					Import OpenAPI Spec
+					Import {validOpenapiCount} Spec{validOpenapiCount !== 1 ? 's' : ''}
 				</button>
 			</div>
+
+			<!-- Per-spec import results -->
+			{#if openapiImportResults}
+				<div class="flex flex-col gap-1.5 rounded-lg border border-border bg-surface-secondary p-3">
+					<span class="text-xs font-medium text-text-secondary">Import Results</span>
+					{#each openapiImportResults as result}
+						<div class="flex items-center gap-2 text-sm">
+							{#if result.success}
+								<CheckCircle2 size={14} class="shrink-0 text-success" />
+								<span class="text-text-primary">{result.title}</span>
+							{:else}
+								<AlertCircle size={14} class="shrink-0 text-danger" />
+								<span class="text-text-primary">{result.title}</span>
+								<span class="text-xs text-danger">{result.error}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</form>
 
 	<!-- ================================================================= -->
