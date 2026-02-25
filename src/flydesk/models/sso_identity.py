@@ -46,6 +46,6 @@ class SSOIdentityRow(Base):
         DateTime(timezone=True), default=_utcnow
     )
 
-    # Relationships
-    provider = relationship("OIDCProviderRow", lazy="selectin")
-    local_user = relationship("LocalUserRow", lazy="selectin")
+    # Relationships (viewonly — managed via explicit queries, not cascading writes)
+    provider = relationship("OIDCProviderRow", lazy="selectin", viewonly=True)
+    local_user = relationship("LocalUserRow", lazy="selectin", viewonly=True)
