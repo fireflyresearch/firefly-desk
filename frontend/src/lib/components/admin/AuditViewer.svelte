@@ -7,7 +7,8 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { RefreshCw, Loader2, Filter, Clock } from 'lucide-svelte';
+	import { RefreshCw, Loader2, Filter, Clock, ChevronRight, ChevronDown, ExternalLink, Shield } from 'lucide-svelte';
+	import { slide } from 'svelte/transition';
 	import { apiJson } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
@@ -39,6 +40,11 @@
 	let filterUserId = $state('');
 	let filterEventType = $state('');
 	let filterLimit = $state(50);
+
+	// Expanded row
+	let expandedEventId = $state<string | null>(null);
+	let expandedDetail = $state<AuditEvent | null>(null);
+	let loadingDetail = $state(false);
 
 	// Auto-refresh
 	let autoRefresh = $state(false);
@@ -139,6 +145,105 @@
 
 	function formatEventType(type: string): string {
 		return type.replace(/_/g, ' ');
+	}
+
+	// -----------------------------------------------------------------------
+	// Expand / collapse
+	// -----------------------------------------------------------------------
+
+	async function toggleEventExpand(eventId: string) {
+		if (expandedEventId === eventId) {
+			expandedEventId = null;
+			expandedDetail = null;
+			return;
+		}
+		expandedEventId = eventId;
+		loadingDetail = true;
+		try {
+			expandedDetail = await apiJson<AuditEvent>(`/audit/events/${eventId}`);
+		} catch {
+			// Fall back to inline detail from the list
+			expandedDetail = events.find((ev) => ev.id === eventId) ?? null;
+		} finally {
+			loadingDetail = false;
+		}
+	}
+
+	function riskLevelBadge(level?: string): string {
+		switch (level) {
+			case 'high':
+				return 'bg-danger/15 text-danger border-danger/30';
+			case 'medium':
+				return 'bg-warning/15 text-warning border-warning/30';
+			case 'low':
+				return 'bg-success/15 text-success border-success/30';
+			default:
+				return 'bg-text-secondary/10 text-text-secondary border-text-secondary/20';
+		}
+	}
+
+	function formatDetailByType(event: AuditEvent | null): [string, string][] {
+		if (!event?.detail) return [];
+		const d = event.detail;
+
+		switch (event.event_type) {
+			case 'tool_call':
+				return [
+					['Tool', String(d.tool ?? '--')],
+					['Parameters', d.params ? JSON.stringify(d.params) : '--'],
+					['Result', d.result ? JSON.stringify(d.result) : '--']
+				];
+			case 'tool_result':
+				return [
+					['Tool', String(d.tool ?? '--')],
+					['Status', String(d.status ?? '--')],
+					['Duration', d.duration_ms ? `${d.duration_ms}ms` : '--'],
+					['Result', d.result ? JSON.stringify(d.result) : '--']
+				];
+			case 'auth_login':
+				return [
+					['Method', String(d.method ?? '--')],
+					['IP Address', String(d.ip ?? '--')],
+					['User Agent', String(d.user_agent ?? '--')],
+					['Success', String(d.success ?? '--')]
+				];
+			case 'auth_logout':
+				return [
+					['Method', String(d.method ?? '--')],
+					['Reason', String(d.reason ?? '--')]
+				];
+			case 'agent_response':
+				return [
+					['Model', String(d.model ?? '--')],
+					['Input Tokens', String(d.input_tokens ?? '--')],
+					['Output Tokens', String(d.output_tokens ?? '--')],
+					['Latency', d.latency_ms ? `${d.latency_ms}ms` : '--']
+				];
+			case 'confirmation_requested':
+			case 'confirmation_response':
+				return [
+					['Action', String(d.action ?? '--')],
+					['Status', String(d.status ?? '--')],
+					['Message', String(d.message ?? '--')]
+				];
+			case 'catalog_change':
+				return [
+					['Entity', String(d.entity ?? '--')],
+					['Operation', String(d.operation ?? '--')],
+					['Entity ID', String(d.entity_id ?? '--')]
+				];
+			case 'knowledge_update':
+				return [
+					['Source', String(d.source ?? '--')],
+					['Operation', String(d.operation ?? '--')],
+					['Items', String(d.items_count ?? '--')]
+				];
+			default:
+				return Object.entries(d).map(([k, v]) => [
+					k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+					typeof v === 'object' ? JSON.stringify(v) : String(v ?? '--')
+				]);
+		}
 	}
 
 	function applyFilters() {
@@ -245,6 +350,7 @@
 				<table class="w-full text-left text-sm">
 					<thead>
 						<tr class="border-b border-border bg-surface-secondary">
+							<th class="w-8 px-2 py-2"></th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Timestamp</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Event Type</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">User</th>
@@ -255,10 +361,18 @@
 					<tbody>
 						{#each events as event, i}
 							<tr
-								class="border-b border-border last:border-b-0 {i % 2 === 1
+								class="border-b border-border cursor-pointer transition-colors hover:bg-surface-hover {i % 2 === 1
 									? 'bg-surface-secondary/50'
-									: ''}"
+									: ''} {expandedEventId === event.id ? 'bg-surface-hover' : ''}"
+								onclick={() => toggleEventExpand(event.id)}
 							>
+								<td class="px-2 py-2 text-text-secondary">
+									{#if expandedEventId === event.id}
+										<ChevronDown size={14} />
+									{:else}
+										<ChevronRight size={14} />
+									{/if}
+								</td>
 								<td class="whitespace-nowrap px-4 py-2">
 									<span class="inline-flex items-center gap-1 text-xs text-text-secondary">
 										<Clock size={12} />
@@ -280,9 +394,104 @@
 									{truncate(formatDetail(event.detail))}
 								</td>
 							</tr>
+
+							<!-- Expanded detail row -->
+							{#if expandedEventId === event.id}
+								<tr transition:slide={{ duration: 200 }}>
+									<td colspan="6" class="px-4 py-4 bg-surface-secondary/30 border-b border-border">
+										{#if loadingDetail}
+											<div class="flex items-center justify-center py-4">
+												<Loader2 size={18} class="animate-spin text-text-secondary" />
+											</div>
+										{:else if expandedDetail}
+											<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+												<!-- Left: structured detail -->
+												<div>
+													<h4 class="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wide">Event Details</h4>
+													{#each formatDetailByType(expandedDetail) as [key, value]}
+														<div class="flex gap-2 py-1">
+															<span class="text-xs font-medium text-text-secondary w-28 shrink-0">{key}</span>
+															<span class="text-xs text-text-primary break-all">{value}</span>
+														</div>
+													{/each}
+												</div>
+
+												<!-- Right: context -->
+												<div>
+													<h4 class="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wide">Context</h4>
+
+													<!-- Risk level badge -->
+													{#if expandedDetail.risk_level}
+														<div class="flex items-center gap-2 py-1">
+															<Shield size={12} class="shrink-0" />
+															<span class="text-xs font-medium text-text-secondary w-24 shrink-0">Risk Level</span>
+															<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium {riskLevelBadge(expandedDetail.risk_level)}">
+																{expandedDetail.risk_level}
+															</span>
+														</div>
+													{/if}
+
+													<!-- Conversation link -->
+													{#if expandedDetail.conversation_id}
+														<div class="flex items-center gap-2 py-1">
+															<ExternalLink size={12} class="shrink-0 text-text-secondary" />
+															<span class="text-xs font-medium text-text-secondary w-24 shrink-0">Conversation</span>
+															<a
+																href="/conversations/{expandedDetail.conversation_id}"
+																class="text-xs text-accent hover:underline"
+																onclick={(e) => e.stopPropagation()}
+															>
+																{expandedDetail.conversation_id}
+															</a>
+														</div>
+													{/if}
+
+													<!-- System link -->
+													{#if expandedDetail.system_id}
+														<div class="flex items-center gap-2 py-1">
+															<ExternalLink size={12} class="shrink-0 text-text-secondary" />
+															<span class="text-xs font-medium text-text-secondary w-24 shrink-0">System</span>
+															<a
+																href="/admin/systems/{expandedDetail.system_id}"
+																class="text-xs text-accent hover:underline"
+																onclick={(e) => e.stopPropagation()}
+															>
+																{expandedDetail.system_id}
+															</a>
+														</div>
+													{/if}
+
+													<!-- Endpoint ID -->
+													{#if expandedDetail.endpoint_id}
+														<div class="flex items-center gap-2 py-1">
+															<ExternalLink size={12} class="shrink-0 text-text-secondary" />
+															<span class="text-xs font-medium text-text-secondary w-24 shrink-0">Endpoint</span>
+															<span class="text-xs text-text-primary font-mono">{expandedDetail.endpoint_id}</span>
+														</div>
+													{/if}
+
+													<!-- User ID -->
+													<div class="flex items-center gap-2 py-1">
+														<span class="text-xs font-medium text-text-secondary w-24 shrink-0 ml-[12px]">User</span>
+														<span class="text-xs text-text-primary font-mono">{expandedDetail.user_id}</span>
+													</div>
+												</div>
+											</div>
+
+											<!-- Bottom: raw JSON -->
+											<details class="mt-3">
+												<summary class="text-xs text-text-secondary cursor-pointer hover:text-text-primary transition-colors" onclick={(e: MouseEvent) => e.stopPropagation()}>
+													Raw JSON
+												</summary>
+												<pre class="mt-2 text-xs bg-surface rounded-md p-3 overflow-x-auto border border-border text-text-primary">{JSON.stringify(expandedDetail.detail, null, 2)}</pre>
+											</details>
+										{/if}
+									</td>
+								</tr>
+							{/if}
 						{:else}
 							<tr>
-								<td colspan="5" class="px-4 py-8 text-center text-sm text-text-secondary">
+								<td colspan="6" class="px-4 py-8 text-center text-sm text-text-secondary">
 									No audit events match the current filters.
 								</td>
 							</tr>
