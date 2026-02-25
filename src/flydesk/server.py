@@ -30,6 +30,8 @@ from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
 from flydesk.api.custom_tools import router as custom_tools_router
+from flydesk.api.git_providers import get_git_provider_repo
+from flydesk.api.git_providers import router as git_providers_router
 from flydesk.api.github import router as github_router
 from flydesk.api.openapi_import import get_catalog_repo as openapi_get_catalog
 from flydesk.api.openapi_import import router as openapi_import_router
@@ -478,6 +480,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[admin_get_oidc_repo] = lambda: oidc_repo
     app.state.oidc_repo = oidc_repo
 
+    # Git provider repository
+    from flydesk.knowledge.git_provider_repository import GitProviderRepository
+
+    git_provider_repo = GitProviderRepository(session_factory, config.credential_encryption_key)
+    app.dependency_overrides[get_git_provider_repo] = lambda: git_provider_repo
+
     # Provide a default OIDCClient from config (may be overridden per-request)
     if config.oidc_issuer_url:
         _default_oidc_client = _OIDCClientCls(
@@ -677,5 +685,6 @@ def create_app() -> FastAPI:
     app.include_router(custom_tools_router)
     app.include_router(openapi_import_router)
     app.include_router(github_router)
+    app.include_router(git_providers_router)
 
     return app
