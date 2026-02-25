@@ -52,7 +52,7 @@ class KnowledgeDocumentStore:
     Methods are async stubs -- overridden in production and mocked in tests.
     """
 
-    async def list_documents(self) -> list[KnowledgeDocument]:
+    async def list_documents(self, *, workspace_id: str | None = None) -> list[KnowledgeDocument]:
         raise NotImplementedError
 
     async def get_document(self, document_id: str) -> KnowledgeDocument | None:
@@ -291,9 +291,11 @@ def _strip_content(doc: KnowledgeDocument) -> dict[str, Any]:
 
 
 @router.get("/documents", dependencies=[KnowledgeRead])
-async def list_documents(store: DocStore) -> list[dict[str, Any]]:
+async def list_documents(
+    store: DocStore, workspace_id: str | None = Query(default=None)
+) -> list[dict[str, Any]]:
     """List all knowledge documents (metadata only, content excluded)."""
-    documents = await store.list_documents()
+    documents = await store.list_documents(workspace_id=workspace_id)
     return [_strip_content(d) for d in documents]
 
 

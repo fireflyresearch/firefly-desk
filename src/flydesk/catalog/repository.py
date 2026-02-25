@@ -64,6 +64,7 @@ class CatalogRepository:
                 agent_enabled=system.agent_enabled,
                 status=system.status.value,
                 metadata_=_to_json(system.metadata),
+                workspace_id=system.workspace_id,
             )
             session.add(row)
             await session.commit()
@@ -76,10 +77,13 @@ class CatalogRepository:
                 return None
             return self._row_to_system(row)
 
-    async def list_systems(self) -> list[ExternalSystem]:
-        """Return every registered external system."""
+    async def list_systems(self, *, workspace_id: str | None = None) -> list[ExternalSystem]:
+        """Return every registered external system, optionally filtered by workspace."""
         async with self._session_factory() as session:
-            result = await session.execute(select(ExternalSystemRow))
+            stmt = select(ExternalSystemRow)
+            if workspace_id is not None:
+                stmt = stmt.where(ExternalSystemRow.workspace_id == workspace_id)
+            result = await session.execute(stmt)
             return [self._row_to_system(r) for r in result.scalars().all()]
 
     async def update_system(self, system: ExternalSystem) -> None:
@@ -98,6 +102,7 @@ class CatalogRepository:
             row.agent_enabled = system.agent_enabled
             row.status = system.status.value
             row.metadata_ = _to_json(system.metadata)
+            row.workspace_id = system.workspace_id
             await session.commit()
 
     async def delete_system(self, system_id: str) -> None:
@@ -323,13 +328,16 @@ class CatalogRepository:
 
     # -- Knowledge Documents --
 
-    async def list_knowledge_documents(self) -> list:
-        """Return all knowledge documents."""
+    async def list_knowledge_documents(self, *, workspace_id: str | None = None) -> list:
+        """Return all knowledge documents, optionally filtered by workspace."""
         from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
         from flydesk.models.knowledge_base import KnowledgeDocumentRow
 
         async with self._session_factory() as session:
-            result = await session.execute(select(KnowledgeDocumentRow))
+            stmt = select(KnowledgeDocumentRow)
+            if workspace_id is not None:
+                stmt = stmt.where(KnowledgeDocumentRow.workspace_id == workspace_id)
+            result = await session.execute(stmt)
             return [
                 KnowledgeDocument(
                     id=r.id,
@@ -338,6 +346,7 @@ class CatalogRepository:
                     document_type=DocumentType(r.document_type) if r.document_type else DocumentType.OTHER,
                     status=DocumentStatus(r.status) if r.status else DocumentStatus.DRAFT,
                     source=r.source,
+                    workspace_id=r.workspace_id,
                     tags=_from_json(r.tags) if r.tags else [],
                     metadata=_from_json(r.metadata_) if r.metadata_ else {},
                 )
@@ -360,6 +369,7 @@ class CatalogRepository:
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
                 status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
+                workspace_id=row.workspace_id,
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
@@ -396,6 +406,7 @@ class CatalogRepository:
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
                 status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
+                workspace_id=row.workspace_id,
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
@@ -415,6 +426,7 @@ class CatalogRepository:
             status=SystemStatus(row.status),
             metadata=_from_json(row.metadata_),
             agent_enabled=row.agent_enabled,
+            workspace_id=row.workspace_id,
         )
 
     @staticmethod

@@ -244,8 +244,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from flydesk.api.knowledge import KnowledgeDocumentStore
 
     class _LiveDocStore(KnowledgeDocumentStore):
-        async def list_documents(self):
-            return await catalog_repo.list_knowledge_documents()
+        async def list_documents(self, *, workspace_id: str | None = None):
+            return await catalog_repo.list_knowledge_documents(workspace_id=workspace_id)
 
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)

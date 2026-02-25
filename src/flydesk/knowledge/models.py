@@ -47,6 +47,7 @@ class KnowledgeDocument(BaseModel):
     document_type: DocumentType = DocumentType.OTHER
     status: DocumentStatus = DocumentStatus.DRAFT
     source: str | None = None
+    workspace_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
