@@ -77,11 +77,16 @@
 
 	// File upload
 	let fileForm = $state({
-		title: '',
 		tags: ''
 	});
-	let selectedFile = $state<File | null>(null);
+	let selectedFiles = $state<File[]>([]);
 	let dragOver = $state(false);
+	let uploadResults = $state<{
+		documents: { filename: string; document_id: string; status: string }[];
+		errors: { filename: string; error: string }[];
+	} | null>(null);
+
+	let totalFileSize = $derived(selectedFiles.reduce((sum, f) => sum + f.size, 0));
 
 	// URL import
 	let urlForm = $state({
@@ -154,40 +159,53 @@
 	function handleFileDrop(event: DragEvent) {
 		event.preventDefault();
 		dragOver = false;
-		const file = event.dataTransfer?.files[0];
-		if (file) {
-			selectedFile = file;
-			if (!fileForm.title) {
-				fileForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
+		const files = event.dataTransfer?.files;
+		if (files && files.length > 0) {
+			selectedFiles = [...selectedFiles, ...Array.from(files)];
+			uploadResults = null;
 		}
 	}
 
 	function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) {
-			selectedFile = file;
-			if (!fileForm.title) {
-				fileForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
+		const files = input.files;
+		if (files && files.length > 0) {
+			selectedFiles = [...selectedFiles, ...Array.from(files)];
+			uploadResults = null;
+		}
+		// Reset input so re-selecting the same files triggers onchange
+		input.value = '';
+	}
+
+	function removeFile(index: number) {
+		selectedFiles = selectedFiles.filter((_, i) => i !== index);
+		if (selectedFiles.length === 0) {
+			uploadResults = null;
 		}
 	}
 
-	function clearFile() {
-		selectedFile = null;
-		fileForm.title = '';
+	function clearFiles() {
+		selectedFiles = [];
+		uploadResults = null;
 	}
 
-	async function submitFile() {
-		if (!selectedFile) return;
+	function formatFileSize(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
+	async function submitFiles() {
+		if (selectedFiles.length === 0) return;
 		saving = true;
 		error = '';
 		success = '';
+		uploadResults = null;
 
 		const formData = new FormData();
-		formData.append('file', selectedFile);
-		formData.append('title', fileForm.title);
+		for (const file of selectedFiles) {
+			formData.append('files', file);
+		}
 		if (fileForm.tags) {
 			formData.append('tags', fileForm.tags);
 		}
@@ -199,7 +217,7 @@
 				headers['Authorization'] = `Bearer ${token}`;
 			}
 
-			const response = await fetch('/api/knowledge/documents/import-file', {
+			const response = await fetch('/api/knowledge/documents/import-files', {
 				method: 'POST',
 				headers,
 				body: formData
@@ -210,12 +228,25 @@
 				throw new Error(`API ${response.status}: ${body}`);
 			}
 
-			success = 'File imported successfully.';
-			selectedFile = null;
-			fileForm = { title: '', tags: '' };
+			const result = await response.json();
+			uploadResults = result;
+
+			const successCount = result.documents?.length ?? 0;
+			const errorCount = result.errors?.length ?? 0;
+
+			if (errorCount === 0) {
+				success = `${successCount} file${successCount !== 1 ? 's' : ''} imported successfully.`;
+			} else if (successCount === 0) {
+				error = `All ${errorCount} file${errorCount !== 1 ? 's' : ''} failed to import.`;
+			} else {
+				success = `${successCount} file${successCount !== 1 ? 's' : ''} imported, ${errorCount} failed.`;
+			}
+
+			selectedFiles = [];
+			fileForm = { tags: '' };
 			onDocumentAdded?.();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to upload file';
+			error = e instanceof Error ? e.message : 'Failed to upload files';
 		} finally {
 			saving = false;
 		}
@@ -455,7 +486,7 @@
 		<form
 			onsubmit={(e) => {
 				e.preventDefault();
-				submitFile();
+				submitFiles();
 			}}
 			class="flex flex-col gap-3"
 		>
@@ -481,31 +512,52 @@
 					? 'border-accent bg-accent/5'
 					: 'border-border hover:border-accent/50 hover:bg-surface-secondary/50'}"
 			>
-				{#if selectedFile}
-					<div class="flex items-center gap-2">
-						<FileText size={20} class="text-accent" />
-						<span class="text-sm font-medium text-text-primary">{selectedFile.name}</span>
-						<span class="text-xs text-text-secondary">
-							({(selectedFile.size / 1024).toFixed(1)} KB)
-						</span>
+				{#if selectedFiles.length > 0}
+					<!-- File list -->
+					<div
+						class="flex w-full flex-col gap-1"
+						onclick={(e) => e.stopPropagation()}
+						onkeydown={(e) => e.stopPropagation()}
+						role="list"
+					>
+						{#each selectedFiles as file, index}
+							<div class="flex items-center gap-2 rounded-md bg-surface px-3 py-1.5" role="listitem">
+								<FileText size={16} class="shrink-0 text-accent" />
+								<span class="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
+									{file.name}
+								</span>
+								<span class="shrink-0 text-xs text-text-secondary">
+									{formatFileSize(file.size)}
+								</span>
+								<button
+									type="button"
+									onclick={() => removeFile(index)}
+									class="shrink-0 rounded p-0.5 text-text-secondary hover:bg-danger/10 hover:text-danger"
+									title="Remove file"
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						<div class="flex items-center justify-between px-3 pt-1 text-xs text-text-secondary">
+							<span>{selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected</span>
+							<span>{formatFileSize(totalFileSize)} total</span>
+						</div>
 						<button
 							type="button"
-							onclick={(e) => {
-								e.stopPropagation();
-								clearFile();
-							}}
-							class="ml-2 rounded p-0.5 text-text-secondary hover:bg-danger/10 hover:text-danger"
+							onclick={() => clearFiles()}
+							class="mt-1 self-center text-xs text-text-secondary hover:text-danger"
 						>
-							<X size={14} />
+							Clear all
 						</button>
 					</div>
 				{:else}
 					<Upload size={24} class="text-text-secondary" />
 					<p class="text-sm text-text-secondary">
-						Drop a file here or <span class="text-accent">browse</span>
+						Drop files here or <span class="text-accent">browse</span>
 					</p>
 					<p class="text-xs text-text-secondary">
-						Supported: PDF, TXT, MD, HTML, JSON, YAML
+						Supported: PDF, TXT, MD, HTML, JSON, YAML. Multiple files allowed.
 					</p>
 				{/if}
 			</div>
@@ -513,21 +565,11 @@
 			<input
 				id="file-upload-input"
 				type="file"
+				multiple
 				accept=".pdf,.txt,.md,.html,.json,.yaml,.yml,.csv,.xml"
 				onchange={handleFileSelect}
 				class="hidden"
 			/>
-
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">Title</span>
-				<input
-					type="text"
-					bind:value={fileForm.title}
-					required
-					placeholder="Auto-populated from filename"
-					class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-				/>
-			</label>
 
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
@@ -542,7 +584,7 @@
 			<div class="flex justify-end pt-1">
 				<button
 					type="submit"
-					disabled={saving || !selectedFile}
+					disabled={saving || selectedFiles.length === 0}
 					class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
 				>
 					{#if saving}
@@ -550,9 +592,34 @@
 					{:else}
 						<Upload size={14} />
 					{/if}
-					Upload File
+					Upload {selectedFiles.length || ''} File{selectedFiles.length !== 1 ? 's' : ''}
 				</button>
 			</div>
+
+			<!-- Per-file upload results -->
+			{#if uploadResults}
+				<div class="flex flex-col gap-1.5 rounded-lg border border-border bg-surface-secondary p-3">
+					<span class="text-xs font-medium text-text-secondary">Upload Results</span>
+					{#if uploadResults.documents && uploadResults.documents.length > 0}
+						{#each uploadResults.documents as doc}
+							<div class="flex items-center gap-2 text-sm">
+								<CheckCircle2 size={14} class="shrink-0 text-success" />
+								<span class="text-text-primary">{doc.filename}</span>
+								<span class="text-xs text-text-secondary">({doc.status})</span>
+							</div>
+						{/each}
+					{/if}
+					{#if uploadResults.errors && uploadResults.errors.length > 0}
+						{#each uploadResults.errors as err}
+							<div class="flex items-center gap-2 text-sm">
+								<AlertCircle size={14} class="shrink-0 text-danger" />
+								<span class="text-text-primary">{err.filename}</span>
+								<span class="text-xs text-danger">{err.error}</span>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{/if}
 		</form>
 
 	<!-- ================================================================= -->
