@@ -24,6 +24,8 @@ from flydesk.auth.local_user_repository import LocalUserRepository
 from flydesk.auth.password import hash_password
 from flydesk.models.audit import AuditEventRow
 from flydesk.models.conversation import ConversationRow
+from flydesk.models.oidc import OIDCProviderRow
+from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.rbac.guards import AdminUsers
 from flydesk.config import get_config
 from flydesk.settings.models import UserSettings
@@ -147,6 +149,26 @@ class LocalUserResponse(BaseModel):
     created_at: str
     updated_at: str
     last_login_at: str | None = None
+
+
+class LinkSSOBody(BaseModel):
+    """Request body for linking an SSO identity to a local user."""
+
+    provider_id: str
+    subject: str
+    email: str | None = None
+
+
+class SSOIdentityResponse(BaseModel):
+    """Response schema for an SSO identity link."""
+
+    id: str
+    provider_id: str
+    provider_name: str | None = None
+    subject: str
+    email: str | None = None
+    local_user_id: str
+    linked_at: str
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +429,114 @@ async def reset_password(
     if not ok:
         raise HTTPException(status_code=404, detail="User not found")
     return {"detail": "Password updated"}
+
+
+# ---------------------------------------------------------------------------
+# SSO Identity linking endpoints
+# ---------------------------------------------------------------------------
+
+
+def _identity_to_response(row: SSOIdentityRow) -> SSOIdentityResponse:
+    """Convert an SSOIdentityRow ORM instance to an API response."""
+    provider_name = row.provider.display_name if row.provider else None
+    return SSOIdentityResponse(
+        id=row.id,
+        provider_id=row.provider_id,
+        provider_name=provider_name,
+        subject=row.subject,
+        email=row.email,
+        local_user_id=row.local_user_id,
+        linked_at=row.linked_at.isoformat() if row.linked_at else "",
+    )
+
+
+@router.get(
+    "/api/admin/users/{user_id}/sso-identities",
+    dependencies=[AdminUsers],
+)
+async def list_sso_identities(
+    user_id: str,
+    session_factory: SessionFactory,
+) -> list[SSOIdentityResponse]:
+    """List SSO identities linked to a user."""
+    async with session_factory() as session:
+        result = await session.execute(
+            select(SSOIdentityRow).where(SSOIdentityRow.local_user_id == user_id)
+        )
+        rows = result.scalars().all()
+        return [_identity_to_response(row) for row in rows]
+
+
+@router.post(
+    "/api/admin/users/{user_id}/sso-identities",
+    dependencies=[AdminUsers],
+    status_code=201,
+)
+async def link_sso_identity(
+    user_id: str,
+    body: LinkSSOBody,
+    session_factory: SessionFactory,
+    local_user_repo: LocalUserRepo,
+) -> SSOIdentityResponse:
+    """Link an SSO identity to a local user."""
+    # Validate that the user exists
+    user = await local_user_repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    async with session_factory() as session:
+        # Validate that the provider exists
+        provider = await session.get(OIDCProviderRow, body.provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="OIDC provider not found")
+
+        # Check for duplicate (provider_id, subject)
+        existing = await session.execute(
+            select(SSOIdentityRow).where(
+                SSOIdentityRow.provider_id == body.provider_id,
+                SSOIdentityRow.subject == body.subject,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail="This SSO identity is already linked",
+            )
+
+        row = SSOIdentityRow(
+            id=str(uuid.uuid4()),
+            provider_id=body.provider_id,
+            subject=body.subject,
+            email=body.email,
+            local_user_id=user_id,
+        )
+        session.add(row)
+        await session.commit()
+
+        # Re-fetch to populate relationships
+        await session.refresh(row)
+        return _identity_to_response(row)
+
+
+@router.delete(
+    "/api/admin/users/{user_id}/sso-identities/{identity_id}",
+    dependencies=[AdminUsers],
+    status_code=204,
+)
+async def unlink_sso_identity(
+    user_id: str,
+    identity_id: str,
+    session_factory: SessionFactory,
+) -> Response:
+    """Remove an SSO identity link."""
+    async with session_factory() as session:
+        row = await session.get(SSOIdentityRow, identity_id)
+        if not row or row.local_user_id != user_id:
+            raise HTTPException(status_code=404, detail="SSO identity not found")
+
+        await session.delete(row)
+        await session.commit()
+        return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
