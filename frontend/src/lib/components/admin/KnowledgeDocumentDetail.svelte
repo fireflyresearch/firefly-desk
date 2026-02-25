@@ -384,68 +384,83 @@
 					<!-- Title and type -->
 					<div>
 						<h2 class="text-base font-semibold text-text-primary">{doc.title}</h2>
-						<span
-							class="mt-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
-								doc.type
-							] ?? typeBadgeColors.other}"
-						>
-							{doc.type}
-						</span>
-						{#if doc.status}
-							{@const badge = statusBadge(doc.status)}
+						<div class="mt-1.5 flex items-center gap-1.5">
 							<span
-								class="mt-1 ml-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium {badge.color}"
+								class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
+									doc.type
+								] ?? typeBadgeColors.other}"
 							>
-								{badge.label}
+								{doc.type}
 							</span>
-						{/if}
+							{#if doc.status}
+								{@const badge = statusBadge(doc.status)}
+								<span
+									class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {badge.color}"
+								>
+									{badge.label}
+								</span>
+							{/if}
+						</div>
 					</div>
 
 					<!-- Metadata grid -->
 					<div class="grid grid-cols-2 gap-3">
-						<div class="flex items-center gap-2 text-sm">
-							<Tag size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Source:</span>
-							<span class="text-text-primary">{doc.source || '--'}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Tag size={12} />
+								Source
+							</span>
+							<span class="text-sm font-medium text-text-primary">{doc.source || '--'}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Hash size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Chunks:</span>
-							<span class="text-text-primary">{doc.chunk_count ?? '--'}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Hash size={12} />
+								Chunks
+							</span>
+							<span class="text-sm font-medium text-text-primary">{doc.chunk_count ?? '--'}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Clock size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Created:</span>
-							<span class="text-text-primary">{formatDate(doc.created_at)}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Clock size={12} />
+								Created
+							</span>
+							<span class="text-sm font-medium text-text-primary">{formatDate(doc.created_at)}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Clock size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Updated:</span>
-							<span class="text-text-primary">{formatDate(doc.updated_at)}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Clock size={12} />
+								Updated
+							</span>
+							<span class="text-sm font-medium text-text-primary">{formatDate(doc.updated_at)}</span>
 						</div>
 					</div>
 
 					<!-- Tags -->
 					{#if doc.tags.length > 0}
-						<div class="flex flex-wrap gap-1.5">
-							{#each doc.tags as tag}
-								<span
-									class="rounded-full bg-surface-secondary px-2.5 py-0.5 text-xs text-text-secondary"
-								>
-									{tag}
-								</span>
-							{/each}
+						<div class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-text-secondary">Tags</span>
+							<div class="flex flex-wrap gap-1.5">
+								{#each doc.tags as tag}
+									<span
+										class="rounded-full bg-surface-secondary px-2.5 py-0.5 text-xs text-text-secondary"
+									>
+										{tag}
+									</span>
+								{/each}
+							</div>
 						</div>
 					{/if}
 
 					<!-- Content preview -->
 					{#if doc.content}
-						<div class="flex flex-col gap-1">
+						<div class="flex min-h-0 flex-1 flex-col gap-1.5">
 							<span class="text-xs font-medium text-text-secondary">Content Preview</span>
-							<MarkdownContent content={doc.content} maxHeight="384px" />
+							<div class="min-h-0 flex-1">
+								<MarkdownContent content={doc.content} />
+							</div>
 						</div>
 					{/if}
 				</div>

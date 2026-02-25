@@ -483,7 +483,7 @@
 		<!-- Add Document Tab                                                   -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'add'}
-			<div class="max-w-3xl">
+			<div class="w-full">
 				<KnowledgeAddDocument onDocumentAdded={handleDocumentAdded} />
 			</div>
 
@@ -733,10 +733,31 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="10" class="px-4 py-8 text-center text-sm text-text-secondary">
-								{searchQuery
-									? 'No documents match your search.'
-									: 'No documents in the knowledge base. Add one to get started.'}
+							<td colspan="10" class="px-4 py-12 text-center">
+								{#if searchQuery || statusFilter !== 'all'}
+									<div class="flex flex-col items-center gap-2">
+										<Search size={32} class="text-text-secondary/40" />
+										<p class="text-sm text-text-secondary">No documents match your search.</p>
+									</div>
+								{:else}
+									<div class="flex flex-col items-center gap-3">
+										<div class="rounded-full bg-accent/10 p-3">
+											<BookOpen size={32} class="text-accent" />
+										</div>
+										<div class="flex flex-col items-center gap-1">
+											<p class="text-sm font-medium text-text-primary">No documents yet</p>
+											<p class="text-sm text-text-secondary">Add your first document to start building your knowledge base.</p>
+										</div>
+										<button
+											type="button"
+											onclick={() => (activeTab = 'add')}
+											class="mt-1 inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+										>
+											<Plus size={14} />
+											Add Document
+										</button>
+									</div>
+								{/if}
 							</td>
 						</tr>
 					{/each}
