@@ -106,6 +106,21 @@ export function updateStreamingMessage(content: string): void {
 }
 
 /**
+ * Replace the entire content of the last streaming assistant message.
+ * Used after widget parsing to strip raw widget directives from the content.
+ * If no streaming message exists this is a no-op.
+ */
+export function replaceStreamingContent(content: string): void {
+	messages.update((msgs) => {
+		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
+		if (idx === -1) return msgs;
+		const updated = [...msgs];
+		updated[idx] = { ...updated[idx], content };
+		return updated;
+	});
+}
+
+/**
  * Append a widget directive to the last assistant message that is currently
  * streaming. If no streaming message exists this is a no-op.
  */
