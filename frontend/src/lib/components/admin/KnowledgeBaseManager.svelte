@@ -3,8 +3,7 @@
 
   Main admin panel for the knowledge base with three tabs:
   Documents (filterable table), Add Document (multi-method ingestion),
-  and Graph Explorer (D3 force graph + list view). Includes a statistics
-  sidebar with counts by type, total chunks, and total entities.
+  and Graph Explorer (D3 force graph + list view).
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -15,12 +14,9 @@
 		Trash2,
 		Loader2,
 		FileText,
-		BarChart3,
 		BookOpen,
 		Plus,
 		Network,
-		Hash,
-		Layers,
 		Archive,
 		RefreshCw,
 		Maximize2
@@ -47,12 +43,6 @@
 		metadata?: Record<string, unknown>;
 	}
 
-	interface GraphStats {
-		entity_count: number;
-		relation_count: number;
-		entity_types: Record<string, number>;
-	}
-
 	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
@@ -62,16 +52,11 @@
 	let loading = $state(true);
 	let error = $state('');
 	let searchQuery = $state('');
-	let showStats = $state(true);
 	let statusFilter = $state('all');
 
 	// Selection
 	let selectedDocumentId = $state<string | null>(null);
 	let selectedIds = $state<Set<string>>(new Set());
-
-	// Statistics
-	let stats = $state<GraphStats | null>(null);
-	let loadingStats = $state(true);
 
 	// Detail panel resize / fullscreen
 	let detailWidth = $state(384);
@@ -100,19 +85,6 @@
 		});
 	});
 
-	let docCountsByType = $derived.by(() => {
-		const counts: Record<string, number> = {};
-		for (const doc of documents) {
-			const type = doc.document_type || 'unknown';
-			counts[type] = (counts[type] || 0) + 1;
-		}
-		return counts;
-	});
-
-	let totalChunks = $derived(
-		documents.reduce((sum, d) => sum + (d.chunk_count ?? 0), 0)
-	);
-
 	let allSelected = $derived(
 		filteredDocuments.length > 0 && filteredDocuments.every((d) => selectedIds.has(d.id))
 	);
@@ -130,18 +102,6 @@
 			error = e instanceof Error ? e.message : 'Failed to load documents';
 		} finally {
 			loading = false;
-		}
-	}
-
-	async function loadStats() {
-		loadingStats = true;
-		try {
-			stats = await apiJson<GraphStats>('/knowledge/graph/stats');
-		} catch {
-			// Stats are optional -- component works without them
-			stats = null;
-		} finally {
-			loadingStats = false;
 		}
 	}
 
@@ -176,7 +136,6 @@
 					recomputingKG = false;
 					kgRecomputeMessage = '';
 					kgRecomputeProgress = 0;
-					await loadStats();
 				}
 			);
 		} catch (e) {
@@ -188,7 +147,6 @@
 
 	$effect(() => {
 		loadDocuments();
-		loadStats();
 	});
 
 	// -----------------------------------------------------------------------
@@ -205,8 +163,7 @@
 				selectedDocumentId = null;
 			}
 			await loadDocuments();
-			await loadStats();
-		} catch (e) {
+			} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete document';
 		}
 	}
@@ -223,8 +180,7 @@
 			selectedIds = new Set();
 			selectedDocumentId = null;
 			await loadDocuments();
-			await loadStats();
-		} catch (e) {
+			} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete documents';
 		}
 	}
@@ -279,7 +235,6 @@
 
 	function handleDocumentAdded() {
 		loadDocuments();
-		loadStats();
 	}
 
 	function startResize(e: MouseEvent) {
@@ -346,21 +301,11 @@
 	<!-- Main content -->
 	<div class="flex flex-1 flex-col gap-4 overflow-hidden p-6">
 		<!-- Header -->
-		<div class="flex items-center justify-between">
-			<div>
-				<h1 class="text-lg font-semibold text-text-primary">Knowledge Base</h1>
-				<p class="text-sm text-text-secondary">
-					Manage documents, explore the knowledge graph, and add new content
-				</p>
-			</div>
-			<button
-				type="button"
-				onclick={() => (showStats = !showStats)}
-				class="rounded-md border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-				title="{showStats ? 'Hide' : 'Show'} statistics"
-			>
-				<BarChart3 size={16} />
-			</button>
+		<div>
+			<h1 class="text-lg font-semibold text-text-primary">Knowledge Base</h1>
+			<p class="text-sm text-text-secondary">
+				Manage documents, explore the knowledge graph, and add new content
+			</p>
 		</div>
 
 		<!-- Error banner -->
@@ -487,22 +432,22 @@
 							<KnowledgeDocumentDetail
 								documentId={selectedDocumentId}
 								onClose={() => { selectedDocumentId = null; isFullscreen = false; }}
-								onDeleted={() => { selectedDocumentId = null; isFullscreen = false; loadDocuments(); loadStats(); }}
+								onDeleted={() => { selectedDocumentId = null; isFullscreen = false; loadDocuments(); }}
 								onUpdated={() => loadDocuments()}
 								onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
 								{isFullscreen}
 							/>
 						</div>
 					{:else}
-						<div class="flex flex-1 gap-0 overflow-hidden">
+						<div class="flex flex-1 gap-0 overflow-hidden min-w-0">
 							<!-- Table -->
-							<div class="flex-1 overflow-auto rounded-lg border border-border bg-surface">
+							<div class="min-w-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
 								{@render documentTable()}
 							</div>
 
 							<!-- Resize handle -->
 							<div
-								class="flex w-1 cursor-col-resize items-center justify-center hover:bg-accent/20 transition-colors {isResizing ? 'bg-accent/30' : ''}"
+								class="flex w-1 shrink-0 cursor-col-resize items-center justify-center hover:bg-accent/20 transition-colors {isResizing ? 'bg-accent/30' : ''}"
 								role="separator"
 								aria-orientation="vertical"
 								onmousedown={startResize}
@@ -510,12 +455,12 @@
 								<div class="h-8 w-0.5 rounded-full bg-border"></div>
 							</div>
 
-							<!-- Detail panel (resizable) -->
-							<div class="shrink-0 overflow-hidden" style="width: {detailWidth}px">
+							<!-- Detail panel (resizable, max 60% of container) -->
+							<div class="shrink-0 overflow-hidden" style="width: {detailWidth}px; max-width: 60%">
 								<KnowledgeDocumentDetail
 									documentId={selectedDocumentId}
 									onClose={() => (selectedDocumentId = null)}
-									onDeleted={() => { selectedDocumentId = null; loadDocuments(); loadStats(); }}
+									onDeleted={() => { selectedDocumentId = null; loadDocuments(); }}
 									onUpdated={() => loadDocuments()}
 									onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
 									{isFullscreen}
@@ -578,101 +523,6 @@
 		{/if}
 	</div>
 
-	<!-- ================================================================= -->
-	<!-- Statistics Sidebar                                                  -->
-	<!-- ================================================================= -->
-	{#if showStats}
-		<div
-			class="flex w-56 shrink-0 flex-col gap-4 border-l border-border bg-surface-secondary p-4"
-		>
-			<h3 class="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-				Statistics
-			</h3>
-
-			<!-- Document counts -->
-			<div class="flex flex-col gap-2">
-				<div class="flex items-center gap-2">
-					<BookOpen size={14} class="text-text-secondary" />
-					<span class="text-xs text-text-secondary">Documents</span>
-					<span class="ml-auto text-sm font-semibold text-text-primary">
-						{documents.length}
-					</span>
-				</div>
-
-				<div class="flex items-center gap-2">
-					<Layers size={14} class="text-text-secondary" />
-					<span class="text-xs text-text-secondary">Total Chunks</span>
-					<span class="ml-auto text-sm font-semibold text-text-primary">
-						{totalChunks}
-					</span>
-				</div>
-
-				{#if stats}
-					<div class="flex items-center gap-2">
-						<Network size={14} class="text-text-secondary" />
-						<span class="text-xs text-text-secondary">Entities</span>
-						<span class="ml-auto text-sm font-semibold text-text-primary">
-							{stats.entity_count}
-						</span>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<Hash size={14} class="text-text-secondary" />
-						<span class="text-xs text-text-secondary">Relations</span>
-						<span class="ml-auto text-sm font-semibold text-text-primary">
-							{stats.relation_count}
-						</span>
-					</div>
-				{/if}
-			</div>
-
-			<!-- By type breakdown -->
-			{#if Object.keys(docCountsByType).length > 0}
-				<div class="border-t border-border pt-3">
-					<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-						By Type
-					</h4>
-					<div class="flex flex-col gap-1.5">
-						{#each Object.entries(docCountsByType).sort((a, b) => b[1] - a[1]) as [type, count]}
-							<div class="flex items-center gap-2">
-								<span
-									class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
-										type
-									] ?? typeBadgeColors.other}"
-								>
-									{type}
-								</span>
-								<span class="ml-auto text-xs text-text-secondary">{count}</span>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{/if}
-
-			<!-- Entity type breakdown -->
-			{#if stats?.entity_types && Object.keys(stats.entity_types).length > 0}
-				<div class="border-t border-border pt-3">
-					<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-						Entity Types
-					</h4>
-					<div class="flex flex-col gap-1.5">
-						{#each Object.entries(stats.entity_types).sort((a, b) => b[1] - a[1]) as [type, count]}
-							<div class="flex items-center gap-2">
-								<span class="text-xs capitalize text-text-primary">{type}</span>
-								<span class="ml-auto text-xs text-text-secondary">{count}</span>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{/if}
-
-			{#if loadingStats}
-				<div class="flex items-center justify-center py-4">
-					<Loader2 size={16} class="animate-spin text-text-secondary" />
-				</div>
-			{/if}
-		</div>
-	{/if}
 </div>
 
 <!-- ===================================================================== -->
