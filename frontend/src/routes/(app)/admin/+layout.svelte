@@ -27,6 +27,7 @@
 		Wrench,
 		GitBranch,
 		GitFork,
+		FolderOpen,
 		HelpCircle
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
@@ -35,6 +36,7 @@
 
 	const navItems = [
 		{ href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+		{ href: '/admin/workspaces', label: 'Workspaces', icon: FolderOpen },
 		{ href: '/admin/agent', label: 'Agent', icon: Bot },
 		{ href: '/admin/processes', label: 'Processes', icon: GitBranch },
 		{ href: '/admin/catalog', label: 'Catalog', icon: Database },
