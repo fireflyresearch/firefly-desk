@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
@@ -213,3 +213,33 @@ async def delete_endpoint(endpoint_id: str, repo: Repo) -> Response:
         )
     await repo.delete_endpoint(endpoint_id)
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# System Discovery
+# ---------------------------------------------------------------------------
+
+
+class DetectRequest(BaseModel):
+    """Body for triggering system detection."""
+
+    trigger: str = ""
+
+
+@router.post("/detect", dependencies=[CatalogWrite])
+async def trigger_system_detection(request: Request, body: DetectRequest | None = None) -> dict:
+    """Trigger system detection analysis (returns a job ID for tracking)."""
+    engine = getattr(request.app.state, "system_discovery_engine", None)
+    if engine is None:
+        raise HTTPException(
+            status_code=503, detail="System discovery engine not available"
+        )
+    job_runner = getattr(request.app.state, "job_runner", None)
+    if job_runner is None:
+        raise HTTPException(
+            status_code=503, detail="Job runner not available"
+        )
+
+    trigger = body.trigger if body else ""
+    job = await engine.discover(trigger, job_runner)
+    return {"job_id": job.id, "status": job.status.value, "progress_pct": job.progress_pct}

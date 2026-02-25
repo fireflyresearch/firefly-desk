@@ -427,6 +427,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.process_repo = process_repo
     app.dependency_overrides[get_process_repo] = lambda: process_repo
 
+    # System discovery engine -- analyses catalog, KG, and KB to find unregistered systems.
+    from flydesk.catalog.discovery import SystemDiscoveryEngine
+    from flydesk.jobs.handlers import SystemDiscoveryHandler
+
+    system_discovery_engine = SystemDiscoveryEngine(
+        agent_factory=agent_factory,
+        catalog_repo=catalog_repo,
+        knowledge_graph=knowledge_graph,
+    )
+    job_runner.register_handler("system_discovery", SystemDiscoveryHandler(system_discovery_engine))
+    app.state.system_discovery_engine = system_discovery_engine
+
     # KG extraction and recomputation handler
     from flydesk.jobs.handlers import KGRecomputeHandler
     from flydesk.knowledge.kg_extractor import KGExtractor

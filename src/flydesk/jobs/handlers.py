@@ -18,6 +18,7 @@ from flydesk.knowledge.models import KnowledgeDocument
 from flydesk.knowledge.queue import IndexingTask
 
 if TYPE_CHECKING:
+    from flydesk.catalog.discovery import SystemDiscoveryEngine
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.knowledge.graph import KnowledgeGraph
     from flydesk.knowledge.kg_extractor import KGExtractor
@@ -102,6 +103,27 @@ class ProcessDiscoveryHandler:
         on_progress: ProgressCallback,
     ) -> dict:
         """Run process discovery analysis."""
+        return await self._engine._analyze(job_id, payload, on_progress)
+
+
+class SystemDiscoveryHandler:
+    """Wraps ``SystemDiscoveryEngine`` as a ``JobHandler``.
+
+    Delegates the full discovery analysis pipeline to the engine, which
+    gathers context from the catalog, knowledge graph, and knowledge base,
+    calls the LLM, parses results, and merges with existing systems.
+    """
+
+    def __init__(self, engine: SystemDiscoveryEngine) -> None:
+        self._engine = engine
+
+    async def execute(
+        self,
+        job_id: str,
+        payload: dict,
+        on_progress: ProgressCallback,
+    ) -> dict:
+        """Run system discovery analysis."""
         return await self._engine._analyze(job_id, payload, on_progress)
 
 
