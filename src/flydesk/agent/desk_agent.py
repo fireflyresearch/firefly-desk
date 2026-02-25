@@ -36,7 +36,9 @@ if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
+    from flydesk.files.models import FileUpload
     from flydesk.files.repository import FileUploadRepository
+    from flydesk.files.storage import FileStorageProvider
     from flydesk.settings.repository import SettingsRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 
@@ -92,6 +94,7 @@ class DeskAgent:
         tool_executor: ToolExecutor | None = None,
         builtin_executor: BuiltinToolExecutor | None = None,
         file_repo: FileUploadRepository | None = None,
+        file_storage: FileStorageProvider | None = None,
         confirmation_service: ConfirmationService | None = None,
         conversation_repo: ConversationRepository | None = None,
         agent_factory: DeskAgentFactory | None = None,
@@ -109,6 +112,7 @@ class DeskAgent:
         self._tool_executor = tool_executor
         self._builtin_executor = builtin_executor
         self._file_repo = file_repo
+        self._file_storage = file_storage
         self._confirmation_service = confirmation_service
         self._conversation_repo = conversation_repo
         self._agent_factory = agent_factory
@@ -140,9 +144,10 @@ class DeskAgent:
         turn_id = str(uuid.uuid4())
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
         adapted = self._adapt_tools(tools, session, conversation_id)
@@ -213,9 +218,10 @@ class DeskAgent:
         start = time.monotonic()
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
 
         elapsed_ms = round((time.monotonic() - start) * 1000)
 
@@ -328,9 +334,10 @@ class DeskAgent:
         turn_id = str(uuid.uuid4())
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
         adapted = self._adapt_tools(tools, session, conversation_id)
 
         # Create agent
@@ -659,24 +666,44 @@ class DeskAgent:
             lines.append(f"{role}: {content}")
         return "Recent conversation:\n" + "\n".join(lines)
 
-    async def _build_file_context(self, file_ids: list[str] | None) -> str:
-        """Fetch uploaded files by ID and concatenate their extracted text.
+    async def _build_file_context(
+        self, file_ids: list[str] | None,
+    ) -> tuple[str, list]:
+        """Fetch uploaded files by ID and build text context + multimodal parts.
 
-        Returns an empty string when no file IDs are provided or the file
+        Returns a tuple of ``(text_context, multimodal_parts)``.  The text
+        context is the same concatenated extracted-text string used historically.
+        The multimodal parts list contains :class:`BinaryContent` objects for
+        images and string descriptions for text/document files, suitable for
+        passing to multimodal LLMs.
+
+        Returns ``("", [])`` when no file IDs are provided or the file
         repository is not configured.
         """
         if not file_ids or self._file_repo is None:
-            return ""
+            return "", []
 
+        uploads: list[FileUpload] = []
         parts: list[str] = []
         for file_id in file_ids:
             upload = await self._file_repo.get(file_id)
             if upload is None:
                 continue
+            uploads.append(upload)
             text = upload.extracted_text or ""
             if text:
                 parts.append(f"- [{upload.filename}]: {text}")
-        return "\n".join(parts)
+
+        text_context = "\n".join(parts)
+
+        # Build multimodal parts when file storage is available.
+        multimodal_parts: list = []
+        if self._file_storage is not None and uploads:
+            multimodal_parts = await _build_multimodal_parts(
+                uploads, self._file_storage,
+            )
+
+        return text_context, multimodal_parts
 
     async def _prepare_turn(
         self,
@@ -685,11 +712,14 @@ class DeskAgent:
         conversation_id: str,
         tools: list[ToolDefinition] | None,
         file_ids: list[str] | None,
-    ) -> tuple[list[ToolDefinition], str]:
+    ) -> tuple[list[ToolDefinition], str, list]:
         """Shared context enrichment + prompt building for run() and stream().
 
         Returns:
-            A tuple of (resolved_tools, system_prompt).
+            A tuple of (resolved_tools, system_prompt, multimodal_parts).
+            ``multimodal_parts`` contains :class:`BinaryContent` objects for
+            images and string descriptions for documents when file storage
+            is configured, otherwise an empty list.
         """
         # 0. Auto-load tools from catalog + built-ins if not provided
         scopes = session.access_scopes
@@ -754,7 +784,7 @@ class DeskAgent:
         # 2. Prompt assembly
         tool_summaries = self._build_tool_summaries(tools or [])
         knowledge_context = self._format_knowledge_context(enriched)
-        file_context = await self._build_file_context(file_ids)
+        file_context, multimodal_parts = await self._build_file_context(file_ids)
         conversation_summary = self._format_conversation_history(
             enriched.conversation_history,
         )
@@ -799,7 +829,7 @@ class DeskAgent:
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 
-        return tools, system_prompt
+        return tools, system_prompt, multimodal_parts
 
     def _adapt_tools(
         self,
@@ -1158,3 +1188,37 @@ class DeskAgent:
             parts.append("Knowledge:\n" + "\n".join(snippet_lines))
 
         return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Module-level multimodal helpers
+# ---------------------------------------------------------------------------
+
+_IMAGE_CONTENT_TYPES = frozenset({
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+})
+
+
+async def _build_multimodal_parts(
+    uploads: list[FileUpload],
+    storage: FileStorageProvider,
+) -> list:
+    """Build multimodal content parts from file uploads.
+
+    - Images -> :class:`BinaryContent` (for multimodal LLMs)
+    - Text/docs with ``extracted_text`` -> string context
+    """
+    from fireflyframework_genai.types import BinaryContent
+
+    parts: list = []
+    for upload in uploads:
+        if upload.content_type in _IMAGE_CONTENT_TYPES:
+            raw = await storage.retrieve(upload.storage_path)
+            parts.append(BinaryContent(data=raw, media_type=upload.content_type))
+        elif upload.extracted_text:
+            parts.append(f"[{upload.filename}]: {upload.extracted_text}")
+    return parts
