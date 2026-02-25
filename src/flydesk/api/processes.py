@@ -84,6 +84,7 @@ def _process_to_dict(process: BusinessProcess) -> dict:
         "name": process.name,
         "description": process.description,
         "category": process.category,
+        "workspace_id": process.workspace_id,
         "source": process.source.value,
         "confidence": process.confidence,
         "status": process.status.value,
@@ -124,6 +125,7 @@ def _process_summary(process: BusinessProcess) -> dict:
         "name": process.name,
         "description": process.description,
         "category": process.category,
+        "workspace_id": process.workspace_id,
         "source": process.source.value,
         "confidence": process.confidence,
         "status": process.status.value,
@@ -145,6 +147,7 @@ async def list_processes(
     category: str | None = Query(None, description="Filter by category"),
     status: str | None = Query(None, description="Filter by status"),
     tag: str | None = Query(None, description="Filter by tag"),
+    workspace_id: str | None = Query(None, description="Filter by workspace"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> list[dict]:
@@ -164,6 +167,7 @@ async def list_processes(
         category=category,
         status=status_enum,
         tag=tag,
+        workspace_id=workspace_id,
         limit=limit,
         offset=offset,
     )

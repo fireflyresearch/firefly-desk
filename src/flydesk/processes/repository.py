@@ -73,6 +73,7 @@ class ProcessRepository:
                 name=process.name,
                 description=process.description,
                 category=process.category,
+                workspace_id=process.workspace_id,
                 source=process.source.value,
                 confidence=process.confidence,
                 status=process.status.value,
@@ -106,6 +107,7 @@ class ProcessRepository:
         category: str | None = None,
         status: ProcessStatus | None = None,
         tag: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[BusinessProcess]:
@@ -116,6 +118,8 @@ class ProcessRepository:
                 stmt = stmt.where(BusinessProcessRow.category == category)
             if status is not None:
                 stmt = stmt.where(BusinessProcessRow.status == status.value)
+            if workspace_id is not None:
+                stmt = stmt.where(BusinessProcessRow.workspace_id == workspace_id)
             stmt = stmt.order_by(BusinessProcessRow.created_at.desc()).limit(limit).offset(offset)
             result = await session.execute(stmt)
             rows = result.scalars().unique().all()
@@ -141,6 +145,7 @@ class ProcessRepository:
             row.name = process.name
             row.description = process.description
             row.category = process.category
+            row.workspace_id = process.workspace_id
             row.source = process.source.value
             row.confidence = process.confidence
             row.status = process.status.value
@@ -309,6 +314,7 @@ class ProcessRepository:
             name=row.name,
             description=row.description,
             category=row.category,
+            workspace_id=row.workspace_id,
             source=ProcessSource(row.source),
             confidence=row.confidence,
             status=ProcessStatus(row.status),

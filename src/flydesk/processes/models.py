@@ -62,6 +62,7 @@ class BusinessProcess(BaseModel):
     name: str
     description: str = ""
     category: str = ""  # "customer-service", "operations", "hr", etc.
+    workspace_id: str | None = None
     steps: list[ProcessStep] = Field(default_factory=list)
     dependencies: list[ProcessDependency] = Field(default_factory=list)
     source: ProcessSource = ProcessSource.AUTO_DISCOVERED

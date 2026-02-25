@@ -35,6 +35,7 @@ class BusinessProcessRow(Base):
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     category: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default="auto_discovered")
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="discovered", index=True)
