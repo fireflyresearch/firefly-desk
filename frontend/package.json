@@ -63,6 +63,7 @@
 		"marked": "^17.0.3",
 		"marked-highlight": "^2.2.3",
 		"mermaid": "^11.6.0",
+		"swagger-ui-dist": "^5.31.2",
 		"tiptap-markdown": "^0.9.0"
 	}
 }
