@@ -9,7 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Paperclip, Send, Terminal, Activity, Database, Settings, FileText, HelpCircle } from 'lucide-svelte';
+	import { Paperclip, Send, Terminal, Activity, Database, Settings, FileText, HelpCircle, BookOpen, Server } from 'lucide-svelte';
 	import FileUploadArea from './FileUploadArea.svelte';
 	import ModelStatus from './ModelStatus.svelte';
 	import { uploadFile, type UploadedFile } from '$lib/services/files.js';
@@ -47,6 +47,15 @@
 	let slashFilter = $state('');
 	let selectedSlashIndex = $state(0);
 
+	// Mention autocomplete state
+	let showMentionMenu = $state(false);
+	let mentionType = $state<'knowledge' | 'system' | null>(null);
+	let mentionFilter = $state('');
+	let mentionTriggerPos = $state(0);
+	let mentionItems = $state<Array<{id: string, name: string, type: string}>>([]);
+	let selectedMentionIdx = $state(0);
+	let mentionDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
 	let canSend = $derived((text.trim().length > 0 || pendingFiles.length > 0) && !disabled && !uploading);
 
 	let filteredCommands = $derived(
@@ -67,6 +76,7 @@
 		if ((!trimmed && pendingFiles.length === 0) || disabled || uploading) return;
 
 		showSlashMenu = false;
+		showMentionMenu = false;
 
 		// Upload pending files first
 		let uploadedFiles: UploadedFile[] = [];
@@ -103,7 +113,66 @@
 		}
 	}
 
+	async function fetchMentionItems() {
+		try {
+			if (mentionType === 'knowledge') {
+				const { apiJson } = await import('$lib/services/api.js');
+				const docs = await apiJson<Array<{id: string, title: string, document_type: string}>>('/knowledge/documents');
+				mentionItems = docs
+					.filter(d => d.title.toLowerCase().includes(mentionFilter.toLowerCase()))
+					.slice(0, 8)
+					.map(d => ({ id: d.id, name: d.title, type: d.document_type }));
+			} else if (mentionType === 'system') {
+				const { apiJson } = await import('$lib/services/api.js');
+				const systems = await apiJson<Array<{id: string, name: string, status: string}>>('/catalog/systems');
+				mentionItems = systems
+					.filter(s => s.name.toLowerCase().includes(mentionFilter.toLowerCase()))
+					.slice(0, 8)
+					.map(s => ({ id: s.id, name: s.name, type: s.status }));
+			}
+		} catch {
+			mentionItems = [];
+		}
+	}
+
+	function selectMention(item: { id: string; name: string; type: string }) {
+		const prefix = mentionType === 'knowledge' ? '@' : '#';
+		const token = `${prefix}[${item.name}](${item.id})`;
+		// Replace the trigger char + filter text with the token
+		const before = text.slice(0, mentionTriggerPos);
+		const cursorPos = textareaEl?.selectionStart ?? text.length;
+		const after = text.slice(cursorPos);
+		text = before + token + ' ' + after;
+		showMentionMenu = false;
+		mentionItems = [];
+		textareaEl?.focus();
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
+		// Mention menu keyboard navigation
+		if (showMentionMenu && mentionItems.length > 0) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				selectedMentionIdx = (selectedMentionIdx + 1) % mentionItems.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				selectedMentionIdx = (selectedMentionIdx - 1 + mentionItems.length) % mentionItems.length;
+				return;
+			}
+			if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+				e.preventDefault();
+				selectMention(mentionItems[selectedMentionIdx]);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				showMentionMenu = false;
+				return;
+			}
+		}
+
 		if (showSlashMenu && filteredCommands.length > 0) {
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
@@ -144,6 +213,38 @@
 			selectedSlashIndex = 0;
 		} else {
 			showSlashMenu = false;
+		}
+
+		// Detect @ or # mention
+		if (!showSlashMenu) {
+			const cursorPos = textareaEl?.selectionStart ?? val.length;
+			const textBeforeCursor = val.slice(0, cursorPos);
+
+			// Find the last @ or # that starts a mention
+			const atIdx = textBeforeCursor.lastIndexOf('@');
+			const hashIdx = textBeforeCursor.lastIndexOf('#');
+
+			const triggerIdx = Math.max(atIdx, hashIdx);
+			const triggerChar = triggerIdx === atIdx ? '@' : '#';
+
+			if (triggerIdx >= 0) {
+				const textAfterTrigger = textBeforeCursor.slice(triggerIdx + 1);
+				// Only show menu if no space in the filter text (still typing the mention)
+				if (!textAfterTrigger.includes(' ') && textAfterTrigger.length <= 50) {
+					mentionType = triggerChar === '@' ? 'knowledge' : 'system';
+					mentionFilter = textAfterTrigger;
+					mentionTriggerPos = triggerIdx;
+					selectedMentionIdx = 0;
+					showMentionMenu = true;
+					// Debounce the API fetch
+					clearTimeout(mentionDebounceTimer);
+					mentionDebounceTimer = setTimeout(() => fetchMentionItems(), 200);
+				} else {
+					showMentionMenu = false;
+				}
+			} else {
+				showMentionMenu = false;
+			}
 		}
 	}
 
@@ -197,6 +298,45 @@
 						<span class="flex flex-col">
 							<span class="text-sm font-medium">{cmd.command}</span>
 							<span class="text-xs text-text-secondary">{cmd.description}</span>
+						</span>
+					</button>
+				{/each}
+				<div class="border-t border-border/50 px-3 py-1.5 text-[10px] text-text-secondary">
+					<kbd class="rounded bg-surface-secondary px-1 py-0.5 font-mono">↑↓</kbd> navigate
+					<kbd class="ml-2 rounded bg-surface-secondary px-1 py-0.5 font-mono">Tab</kbd> select
+					<kbd class="ml-2 rounded bg-surface-secondary px-1 py-0.5 font-mono">Esc</kbd> dismiss
+				</div>
+			</div>
+		{/if}
+
+		<!-- Mention autocomplete popover -->
+		{#if showMentionMenu && mentionItems.length > 0}
+			<div class="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+				<div class="px-3 py-2 text-xs font-medium uppercase tracking-wider text-text-secondary">
+					{#if mentionType === 'knowledge'}
+						<BookOpen size={12} class="mr-1 inline" />
+						Knowledge Documents
+					{:else}
+						<Server size={12} class="mr-1 inline" />
+						Catalog Systems
+					{/if}
+				</div>
+				{#each mentionItems as item, i (item.id)}
+					<button
+						type="button"
+						onclick={() => selectMention(item)}
+						class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors {i === selectedMentionIdx ? 'bg-accent/10 text-accent' : 'text-text-primary hover:bg-surface-secondary'}"
+					>
+						<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md {i === selectedMentionIdx ? 'bg-accent/20' : 'bg-surface-secondary'}">
+							{#if mentionType === 'knowledge'}
+								<BookOpen size={14} />
+							{:else}
+								<Server size={14} />
+							{/if}
+						</span>
+						<span class="flex flex-col">
+							<span class="text-sm font-medium">{item.name}</span>
+							<span class="text-xs text-text-secondary">{item.type}</span>
 						</span>
 					</button>
 				{/each}
