@@ -472,27 +472,30 @@ class ToolExecutor:
         )
 
         # Resolve auth headers (with optional SSO claim forwarding).
-        _user_session_obj = (
-            user_session
-            if hasattr(user_session, "raw_claims")
-            else None
-        )
-        try:
-            auth_headers = await self._auth_resolver.resolve_headers(
-                system,
-                user_session=_user_session_obj,
-                sso_mappings=self._sso_mappings or None,
+        if system.auth_config is None:
+            auth_headers: dict[str, str] = {}
+        else:
+            _user_session_obj = (
+                user_session
+                if hasattr(user_session, "raw_claims")
+                else None
             )
-        except Exception as exc:
-            return ToolResult(
-                call_id=call.call_id,
-                tool_name=call.tool_name,
-                success=False,
-                data=None,
-                error=f"Auth resolution failed: {exc}",
-                duration_ms=round((time.monotonic() - start) * 1000, 1),
-                status_code=None,
-            )
+            try:
+                auth_headers = await self._auth_resolver.resolve_headers(
+                    system,
+                    user_session=_user_session_obj,
+                    sso_mappings=self._sso_mappings or None,
+                )
+            except Exception as exc:
+                return ToolResult(
+                    call_id=call.call_id,
+                    tool_name=call.tool_name,
+                    success=False,
+                    data=None,
+                    error=f"Auth resolution failed: {exc}",
+                    duration_ms=round((time.monotonic() - start) * 1000, 1),
+                    status_code=None,
+                )
 
         # Configure rate limiter if endpoint has rate limiting.
         if endpoint.rate_limit:

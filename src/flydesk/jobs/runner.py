@@ -78,10 +78,31 @@ class JobRunner:
     # -- Lifecycle -----------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the background consumer loop."""
+        """Start the background consumer loop and recover interrupted jobs."""
         self._running = True
         self._task = asyncio.create_task(self._consume_loop())
         logger.info("JobRunner started")
+
+        # Recover jobs that were pending/running when the server last shut down.
+        recovered = 0
+        for status in (JobStatus.PENDING, JobStatus.RUNNING):
+            stale = await self._repo.list(status=status, limit=200)
+            for job in stale:
+                if job.job_type in self._handlers:
+                    if status == JobStatus.RUNNING:
+                        # Reset to pending — it was interrupted mid-execution
+                        await self._repo.update_status(job.id, JobStatus.PENDING)
+                    await self._queue.put(job.id)
+                    recovered += 1
+                else:
+                    # No handler registered — mark as failed
+                    await self._repo.update_status(
+                        job.id,
+                        JobStatus.FAILED,
+                        error=f"No handler for '{job.job_type}' after restart",
+                    )
+        if recovered:
+            logger.info("Recovered %d interrupted job(s)", recovered)
 
     async def stop(self) -> None:
         """Gracefully stop the consumer loop."""

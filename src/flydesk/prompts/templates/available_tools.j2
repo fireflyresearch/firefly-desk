@@ -1,11 +1,15 @@
 {%- if not tool_summaries %}
 # Available Tools
 
-No tools are currently available.
+No tools are currently available. Answer questions using only the knowledge context provided.
 {%- else %}
 # Available Tools
+
+You have the following tools that you MUST use to answer user questions. When a user asks about systems, data, or operations, invoke the appropriate tool to retrieve real data. Never fabricate or assume data that a tool could provide.
 
 {% for tool in tool_summaries -%}
 - **{{ tool.get("name", "Unknown") }}** ({{ tool.get("risk_level", "read") }}): {{ tool.get("description", "") }}
 {% endfor -%}
+
+When answering a question, determine which tool(s) can provide the needed data and call them. Present the tool results clearly using appropriate formatting (tables, lists, cards). If no tool matches the question, use the knowledge context instead.
 {%- endif %}

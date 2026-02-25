@@ -24,6 +24,11 @@ dependencies = [
     "PyJWT[crypto]>=2.8",
     "html2text>=2024.2",
     "bcrypt>=4.0.0",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "reportlab>=4.0",
+    "PyPDF2>=3.0",
 ]
 
 [project.scripts]
@@ -33,6 +38,10 @@ flydesk-seed = "flydesk.seeds.cli:main"
 [project.optional-dependencies]
 chromadb = ["chromadb>=0.5"]
 pinecone = ["pinecone>=5.0"]
+aws-kms = ["boto3>=1.34"]
+gcp-kms = ["google-cloud-kms>=2.21"]
+azure-kms = ["azure-keyvault-keys>=4.9", "azure-identity>=1.15"]
+vault = ["hvac>=2.1"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

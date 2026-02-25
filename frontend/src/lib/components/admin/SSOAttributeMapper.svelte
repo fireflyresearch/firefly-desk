@@ -22,6 +22,16 @@
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	interface Props {
+		embedded?: boolean;
+	}
+
+	let { embedded = false }: Props = $props();
+
+	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
 
@@ -208,28 +218,41 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
 	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">SSO Attribute Mappings</h1>
-			<p class="text-sm text-text-secondary">
-				Map SSO claims to HTTP headers for API impersonation
-			</p>
+	{#if !embedded}
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">SSO Attribute Mappings</h1>
+				<p class="text-sm text-text-secondary">
+					Map SSO claims to HTTP headers for API impersonation
+				</p>
+			</div>
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add Mapping
+			</button>
 		</div>
-		<button
-			type="button"
-			onclick={openAddForm}
-			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			<Plus size={16} />
-			Add Mapping
-		</button>
-	</div>
+	{:else}
+		<div class="flex justify-end">
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add Mapping
+			</button>
+		</div>
+	{/if}
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}

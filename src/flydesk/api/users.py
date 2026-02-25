@@ -6,20 +6,26 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""User Management REST API -- user list and profile endpoints."""
+"""User Management REST API -- user list, profile, and CRUD endpoints."""
 
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from flydesk.auth.local_user_repository import LocalUserRepository
+from flydesk.auth.password import hash_password
 from flydesk.models.audit import AuditEventRow
 from flydesk.models.conversation import ConversationRow
+from flydesk.models.oidc import OIDCProviderRow
+from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.rbac.guards import AdminUsers
 from flydesk.config import get_config
 from flydesk.settings.models import UserSettings
@@ -49,8 +55,16 @@ def get_settings_repo() -> SettingsRepository:
     )
 
 
+def get_local_user_repo() -> LocalUserRepository:
+    """Provide a LocalUserRepository instance."""
+    raise NotImplementedError(
+        "get_local_user_repo must be overridden via app.dependency_overrides"
+    )
+
+
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
+LocalUserRepo = Annotated[LocalUserRepository, Depends(get_local_user_repo)]
 
 
 # ---------------------------------------------------------------------------
@@ -92,20 +106,131 @@ class UpdatePreferencesRequest(BaseModel):
     notifications_enabled: bool | None = None
 
 
+class UpdateUserRolesRequest(BaseModel):
+    """Request body for assigning roles to a user."""
+
+    role_ids: list[str] = Field(default_factory=list)
+
+
+class CreateUserRequest(BaseModel):
+    """Request body for creating a new local user."""
+
+    username: str
+    email: str
+    display_name: str
+    password: str
+    role: str = "user"
+
+
+class UpdateUserRequest(BaseModel):
+    """Request body for updating an existing local user."""
+
+    email: str | None = None
+    display_name: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request body for resetting a user's password."""
+
+    password: str
+
+
+class LocalUserResponse(BaseModel):
+    """Response schema for a local user (never exposes password_hash)."""
+
+    id: str
+    username: str
+    email: str
+    display_name: str
+    role: str
+    is_active: bool
+    created_at: str
+    updated_at: str
+    last_login_at: str | None = None
+
+
+class LinkSSOBody(BaseModel):
+    """Request body for linking an SSO identity to a local user."""
+
+    provider_id: str
+    subject: str
+    email: str | None = None
+
+
+class SSOIdentityResponse(BaseModel):
+    """Response schema for an SSO identity link."""
+
+    id: str
+    provider_id: str
+    provider_name: str | None = None
+    subject: str
+    email: str | None = None
+    local_user_id: str
+    linked_at: str
+
+
 # ---------------------------------------------------------------------------
 # Admin endpoints
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/admin/users", dependencies=[AdminUsers])
-async def list_users(session_factory: SessionFactory) -> list[UserSummary]:
-    """List users derived from conversation and audit activity.
+def _row_to_response(row) -> LocalUserResponse:
+    """Convert a LocalUserRow ORM instance to an API response."""
+    return LocalUserResponse(
+        id=row.id,
+        username=row.username,
+        email=row.email,
+        display_name=row.display_name,
+        role=row.role,
+        is_active=row.is_active,
+        created_at=row.created_at.isoformat() if row.created_at else "",
+        updated_at=row.updated_at.isoformat() if row.updated_at else "",
+        last_login_at=row.last_login_at.isoformat() if row.last_login_at else None,
+    )
 
-    In dev mode, users are gathered from distinct user_ids in conversations
-    and audit events since there is no dedicated user table.
+
+@router.get("/api/admin/users", dependencies=[AdminUsers])
+async def list_users(
+    session_factory: SessionFactory,
+    local_user_repo: LocalUserRepo,
+) -> list[UserSummary]:
+    """List users by merging local_users with activity-derived users.
+
+    Local users are always included. Activity-derived users (from conversations
+    and audit events) that do not correspond to a local user are appended.
+    In dev mode the synthetic dev user is included when no local users exist.
     """
     users: dict[str, UserSummary] = {}
 
+    # 1. Include all local users
+    try:
+        local_users = await local_user_repo.get_all_users()
+        for lu in local_users:
+            users[lu.id] = UserSummary(
+                user_id=lu.id,
+                display_name=lu.display_name,
+                email=lu.email,
+                roles=[lu.role],
+                last_active=lu.last_login_at.isoformat() if lu.last_login_at else (
+                    lu.updated_at.isoformat() if lu.updated_at else None
+                ),
+            )
+    except Exception:
+        logger.debug("Failed to query local users.", exc_info=True)
+
+    # 2. Show dev user when in dev mode and no local users
+    config = get_config()
+    if config.dev_mode and not users:
+        users["dev-user-001"] = UserSummary(
+            user_id="dev-user-001",
+            display_name="Dev Admin",
+            email="admin@localhost",
+            roles=["admin"],
+        )
+
+    # 3. Merge activity-derived users
     try:
         async with session_factory() as session:
             # Gather distinct user_ids from conversations
@@ -118,11 +243,18 @@ async def list_users(session_factory: SessionFactory) -> list[UserSummary]:
             )
             for row in result.all():
                 user_id = row[0]
-                users[user_id] = UserSummary(
-                    user_id=user_id,
-                    conversation_count=row[1],
-                    last_active=row[2].isoformat() if row[2] else None,
-                )
+                if user_id in users:
+                    users[user_id].conversation_count = row[1]
+                    if row[2]:
+                        activity_ts = row[2].isoformat()
+                        if users[user_id].last_active is None or activity_ts > users[user_id].last_active:
+                            users[user_id].last_active = activity_ts
+                else:
+                    users[user_id] = UserSummary(
+                        user_id=user_id,
+                        conversation_count=row[1],
+                        last_active=row[2].isoformat() if row[2] else None,
+                    )
 
             # Gather distinct user_ids from audit events
             result = await session.execute(
@@ -147,7 +279,264 @@ async def list_users(session_factory: SessionFactory) -> list[UserSummary]:
     except Exception:
         logger.debug("Failed to query users from database.", exc_info=True)
 
+    # Enrich with role assignments
+    try:
+        from flydesk.models.user_role import UserRoleRow
+
+        async with session_factory() as session:
+            result = await session.execute(
+                select(UserRoleRow.user_id, UserRoleRow.role_id)
+            )
+            for row in result.all():
+                uid, rid = row[0], row[1]
+                if uid in users:
+                    users[uid].roles.append(rid)
+    except Exception:
+        logger.debug("Failed to load role assignments", exc_info=True)
+
     return list(users.values())
+
+
+@router.get("/api/admin/users/{user_id}/roles", dependencies=[AdminUsers])
+async def get_user_roles(user_id: str, session_factory: SessionFactory) -> list[str]:
+    """Get role IDs assigned to a user."""
+    from flydesk.models.user_role import UserRoleRow
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(UserRoleRow.role_id).where(UserRoleRow.user_id == user_id)
+        )
+        return [row[0] for row in result.all()]
+
+
+@router.put("/api/admin/users/{user_id}/roles", dependencies=[AdminUsers])
+async def update_user_roles(
+    user_id: str, body: UpdateUserRolesRequest, session_factory: SessionFactory
+) -> list[str]:
+    """Replace all role assignments for a user."""
+    from flydesk.models.user_role import UserRoleRow
+
+    async with session_factory() as session:
+        # Delete existing assignments
+        await session.execute(
+            delete(UserRoleRow).where(UserRoleRow.user_id == user_id)
+        )
+        # Insert new assignments
+        for role_id in body.role_ids:
+            session.add(UserRoleRow(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                role_id=role_id,
+            ))
+        await session.commit()
+
+        # Return the updated role IDs
+        result = await session.execute(
+            select(UserRoleRow.role_id).where(UserRoleRow.user_id == user_id)
+        )
+        return [row[0] for row in result.all()]
+
+
+# ---------------------------------------------------------------------------
+# User CRUD endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/api/admin/users",
+    dependencies=[AdminUsers],
+    status_code=201,
+)
+async def create_user(
+    body: CreateUserRequest,
+    local_user_repo: LocalUserRepo,
+) -> LocalUserResponse:
+    """Create a new local user account."""
+    # Check for duplicate username
+    existing = await local_user_repo.get_by_username(body.username)
+    if existing:
+        raise HTTPException(status_code=409, detail="Username already exists")
+
+    hashed = hash_password(body.password)
+    row = await local_user_repo.create_user(
+        username=body.username,
+        email=body.email,
+        display_name=body.display_name,
+        password_hash=hashed,
+        role=body.role,
+    )
+    return _row_to_response(row)
+
+
+@router.get("/api/admin/users/{user_id}", dependencies=[AdminUsers])
+async def get_user(
+    user_id: str,
+    local_user_repo: LocalUserRepo,
+) -> LocalUserResponse:
+    """Get a local user by ID."""
+    row = await local_user_repo.get_by_id(user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _row_to_response(row)
+
+
+@router.put("/api/admin/users/{user_id}", dependencies=[AdminUsers])
+async def update_user(
+    user_id: str,
+    body: UpdateUserRequest,
+    local_user_repo: LocalUserRepo,
+) -> LocalUserResponse:
+    """Update an existing local user's fields."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        # Nothing to update -- just return the current user
+        row = await local_user_repo.get_by_id(user_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return _row_to_response(row)
+
+    row = await local_user_repo.update_user(user_id, **updates)
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _row_to_response(row)
+
+
+@router.delete(
+    "/api/admin/users/{user_id}",
+    dependencies=[AdminUsers],
+    status_code=204,
+)
+async def delete_user(
+    user_id: str,
+    local_user_repo: LocalUserRepo,
+) -> Response:
+    """Deactivate a local user (soft-delete)."""
+    ok = await local_user_repo.deactivate_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return Response(status_code=204)
+
+
+@router.post("/api/admin/users/{user_id}/reset-password", dependencies=[AdminUsers])
+async def reset_password(
+    user_id: str,
+    body: ResetPasswordRequest,
+    local_user_repo: LocalUserRepo,
+) -> dict[str, str]:
+    """Reset a local user's password."""
+    hashed = hash_password(body.password)
+    ok = await local_user_repo.update_password(user_id, hashed)
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"detail": "Password updated"}
+
+
+# ---------------------------------------------------------------------------
+# SSO Identity linking endpoints
+# ---------------------------------------------------------------------------
+
+
+def _identity_to_response(row: SSOIdentityRow) -> SSOIdentityResponse:
+    """Convert an SSOIdentityRow ORM instance to an API response."""
+    provider_name = row.provider.display_name if row.provider else None
+    return SSOIdentityResponse(
+        id=row.id,
+        provider_id=row.provider_id,
+        provider_name=provider_name,
+        subject=row.subject,
+        email=row.email,
+        local_user_id=row.local_user_id,
+        linked_at=row.linked_at.isoformat() if row.linked_at else "",
+    )
+
+
+@router.get(
+    "/api/admin/users/{user_id}/sso-identities",
+    dependencies=[AdminUsers],
+)
+async def list_sso_identities(
+    user_id: str,
+    session_factory: SessionFactory,
+) -> list[SSOIdentityResponse]:
+    """List SSO identities linked to a user."""
+    async with session_factory() as session:
+        result = await session.execute(
+            select(SSOIdentityRow).where(SSOIdentityRow.local_user_id == user_id)
+        )
+        rows = result.scalars().all()
+        return [_identity_to_response(row) for row in rows]
+
+
+@router.post(
+    "/api/admin/users/{user_id}/sso-identities",
+    dependencies=[AdminUsers],
+    status_code=201,
+)
+async def link_sso_identity(
+    user_id: str,
+    body: LinkSSOBody,
+    session_factory: SessionFactory,
+    local_user_repo: LocalUserRepo,
+) -> SSOIdentityResponse:
+    """Link an SSO identity to a local user."""
+    # Validate that the user exists
+    user = await local_user_repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    async with session_factory() as session:
+        # Validate that the provider exists
+        provider = await session.get(OIDCProviderRow, body.provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="OIDC provider not found")
+
+        # Check for duplicate (provider_id, subject)
+        existing = await session.execute(
+            select(SSOIdentityRow).where(
+                SSOIdentityRow.provider_id == body.provider_id,
+                SSOIdentityRow.subject == body.subject,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail="This SSO identity is already linked",
+            )
+
+        row = SSOIdentityRow(
+            id=str(uuid.uuid4()),
+            provider_id=body.provider_id,
+            subject=body.subject,
+            email=body.email,
+            local_user_id=user_id,
+        )
+        session.add(row)
+        await session.commit()
+
+        # Re-fetch to populate relationships
+        await session.refresh(row)
+        return _identity_to_response(row)
+
+
+@router.delete(
+    "/api/admin/users/{user_id}/sso-identities/{identity_id}",
+    dependencies=[AdminUsers],
+    status_code=204,
+)
+async def unlink_sso_identity(
+    user_id: str,
+    identity_id: str,
+    session_factory: SessionFactory,
+) -> Response:
+    """Remove an SSO identity link."""
+    async with session_factory() as session:
+        row = await session.get(SSOIdentityRow, identity_id)
+        if not row or row.local_user_id != user_id:
+            raise HTTPException(status_code=404, detail="SSO identity not found")
+
+        await session.delete(row)
+        await session.commit()
+        return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

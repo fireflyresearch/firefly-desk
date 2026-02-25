@@ -19,6 +19,7 @@
 	import TokenUsage from './TokenUsage.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
+	import FileViewerModal from './FileViewerModal.svelte';
 	import MessageActions from './MessageActions.svelte';
 	import { agentSettings } from '$lib/stores/agent.js';
 
@@ -79,8 +80,15 @@
 		return name.slice(0, maxLen - 3) + '...';
 	}
 
+	// Safety-net: strip any remaining raw widget directives that were not
+	// cleaned by the backend content_replace event (e.g. race condition or
+	// historical messages loaded from persistence).
+	const WIDGET_PATTERN = /:::widget\{[^}]+\}[\s\S]*?:::/g;
+	let cleanContent = $derived((message.content ?? '').replace(WIDGET_PATTERN, '').trim());
+
 	let lightboxSrc = $state('');
 	let lightboxAlt = $state('');
+	let viewerFile: { id: string; filename: string; content_type: string } | null = $state(null);
 
 	function openLightbox(src: string, alt: string) {
 		lightboxSrc = src;
@@ -105,7 +113,7 @@
 							<div
 								class="group/file flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 transition-colors hover:bg-surface-secondary"
 							>
-								<button type="button" class="block shrink-0" onclick={() => openLightbox(`/api/files/${file.id}/download`, file.filename)}>
+								<button type="button" class="block shrink-0" onclick={() => { viewerFile = { id: file.id, filename: file.filename, content_type: file.content_type }; }}>
 									<img
 										src="/api/files/{file.id}/download"
 										alt={file.filename}
@@ -126,19 +134,18 @@
 								</a>
 							</div>
 						{:else}
-							<a
-								href="/api/files/{file.id}/download"
-								target="_blank"
-								rel="noopener noreferrer"
+							<button
+								type="button"
 								class="group/file flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 transition-colors hover:bg-surface-secondary"
+								onclick={() => { viewerFile = { id: file.id, filename: file.filename, content_type: file.content_type }; }}
 							>
 								<FileText size={16} class="shrink-0 text-text-secondary" />
-								<div class="flex flex-col">
+								<div class="flex flex-col text-left">
 									<span class="text-xs font-medium text-text-primary">{truncateName(file.filename)}</span>
 									<span class="text-xs text-text-secondary">{formatSize(file.file_size)}</span>
 								</div>
 								<Download size={14} class="shrink-0 text-text-secondary opacity-0 transition-opacity group-hover/file:opacity-100" />
-							</a>
+							</button>
 						{/if}
 					{/each}
 				</div>
@@ -184,13 +191,18 @@
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
 				<div class="border-l-2 border-l-ember/30 pl-3 text-sm leading-relaxed">
-					<MarkdownContent content={message.content} />
+					<MarkdownContent content={cleanContent} />
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
 					<ToolSummary tools={message.toolExecutions} />
 				{/if}
 				{#if !message.isStreaming && message.usage}
 					<TokenUsage usage={message.usage} />
+				{/if}
+				{#if !message.isStreaming && $currentUser?.devMode && message.toolCount !== undefined}
+					<span class="mt-0.5 rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary" title="Number of tools available to the agent">
+						{message.toolCount} tools
+					</span>
 				{/if}
 				<div class="mt-1 flex items-center gap-2">
 					<span
@@ -209,4 +221,13 @@
 
 {#if lightboxSrc}
 	<ImageLightbox src={lightboxSrc} alt={lightboxAlt} onclose={() => { lightboxSrc = ''; }} />
+{/if}
+
+{#if viewerFile}
+	<FileViewerModal
+		fileId={viewerFile.id}
+		fileName={viewerFile.filename}
+		contentType={viewerFile.content_type}
+		onClose={() => { viewerFile = null; }}
+	/>
 {/if}

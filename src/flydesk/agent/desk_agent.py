@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -35,7 +36,9 @@ if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
+    from flydesk.files.models import FileUpload
     from flydesk.files.repository import FileUploadRepository
+    from flydesk.files.storage import FileStorageProvider
     from flydesk.settings.repository import SettingsRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
 
@@ -91,6 +94,7 @@ class DeskAgent:
         tool_executor: ToolExecutor | None = None,
         builtin_executor: BuiltinToolExecutor | None = None,
         file_repo: FileUploadRepository | None = None,
+        file_storage: FileStorageProvider | None = None,
         confirmation_service: ConfirmationService | None = None,
         conversation_repo: ConversationRepository | None = None,
         agent_factory: DeskAgentFactory | None = None,
@@ -108,6 +112,7 @@ class DeskAgent:
         self._tool_executor = tool_executor
         self._builtin_executor = builtin_executor
         self._file_repo = file_repo
+        self._file_storage = file_storage
         self._confirmation_service = confirmation_service
         self._conversation_repo = conversation_repo
         self._agent_factory = agent_factory
@@ -139,9 +144,10 @@ class DeskAgent:
         turn_id = str(uuid.uuid4())
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
         adapted = self._adapt_tools(tools, session, conversation_id)
@@ -212,9 +218,10 @@ class DeskAgent:
         start = time.monotonic()
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
 
         elapsed_ms = round((time.monotonic() - start) * 1000)
 
@@ -246,6 +253,14 @@ class DeskAgent:
         # Post-processing: parse widget directives from full response
         parse_result = self._widget_parser.parse(full_text)
 
+        # Replace streamed content with clean text (widget directives stripped)
+        clean_text = "\n\n".join(parse_result.text_segments)
+        if clean_text != full_text:
+            yield SSEEvent(
+                event=SSEEventType.CONTENT_REPLACE,
+                data={"content": clean_text},
+            )
+
         # Emit widget events
         for widget in parse_result.widgets:
             yield SSEEvent(
@@ -261,7 +276,6 @@ class DeskAgent:
             )
 
         # Audit logging
-        clean_text = "\n\n".join(parse_result.text_segments)
         audit_event = AuditEvent(
             event_type=AuditEventType.AGENT_RESPONSE,
             user_id=session.user_id,
@@ -276,15 +290,16 @@ class DeskAgent:
         )
         await self._audit_logger.log(audit_event)
 
-        # Emit TOOL_SUMMARY (no tool calls executed in this flow, but
-        # the event is always emitted so the frontend can rely on its presence).
+        # Emit TOOL_SUMMARY with actual tool call data from the LLM run.
+        agent_tool_calls = usage_data.pop("tool_calls", [])
+        success_count = sum(1 for tc in agent_tool_calls if tc.get("success"))
         yield SSEEvent(
             event=SSEEventType.TOOL_SUMMARY,
             data={
-                "tool_calls": [],
+                "tool_calls": agent_tool_calls,
                 "total_duration_ms": 0,
-                "success_count": 0,
-                "failure_count": 0,
+                "success_count": success_count,
+                "failure_count": len(agent_tool_calls) - success_count,
             },
         )
 
@@ -301,6 +316,7 @@ class DeskAgent:
             data={
                 "conversation_id": conversation_id,
                 "turn_id": turn_id,
+                "tool_count": len(adapted or []),
             },
         )
 
@@ -318,9 +334,10 @@ class DeskAgent:
         turn_id = str(uuid.uuid4())
 
         # Shared context enrichment + prompt building
-        tools, system_prompt = await self._prepare_turn(
+        tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
+        self._last_multimodal_parts = multimodal_parts
         adapted = self._adapt_tools(tools, session, conversation_id)
 
         # Create agent
@@ -377,6 +394,15 @@ class DeskAgent:
 
             # Parse widgets from output
             parse_result = self._widget_parser.parse(output_text)
+
+            # Replace streamed content with clean text (widget directives stripped)
+            reasoning_clean_text = "\n\n".join(parse_result.text_segments)
+            if reasoning_clean_text != output_text:
+                yield SSEEvent(
+                    event=SSEEventType.CONTENT_REPLACE,
+                    data={"content": reasoning_clean_text},
+                )
+
             for widget in parse_result.widgets:
                 yield SSEEvent(
                     event=SSEEventType.WIDGET,
@@ -640,24 +666,44 @@ class DeskAgent:
             lines.append(f"{role}: {content}")
         return "Recent conversation:\n" + "\n".join(lines)
 
-    async def _build_file_context(self, file_ids: list[str] | None) -> str:
-        """Fetch uploaded files by ID and concatenate their extracted text.
+    async def _build_file_context(
+        self, file_ids: list[str] | None,
+    ) -> tuple[str, list]:
+        """Fetch uploaded files by ID and build text context + multimodal parts.
 
-        Returns an empty string when no file IDs are provided or the file
+        Returns a tuple of ``(text_context, multimodal_parts)``.  The text
+        context is the same concatenated extracted-text string used historically.
+        The multimodal parts list contains :class:`BinaryContent` objects for
+        images and string descriptions for text/document files, suitable for
+        passing to multimodal LLMs.
+
+        Returns ``("", [])`` when no file IDs are provided or the file
         repository is not configured.
         """
         if not file_ids or self._file_repo is None:
-            return ""
+            return "", []
 
+        uploads: list[FileUpload] = []
         parts: list[str] = []
         for file_id in file_ids:
             upload = await self._file_repo.get(file_id)
             if upload is None:
                 continue
+            uploads.append(upload)
             text = upload.extracted_text or ""
             if text:
                 parts.append(f"- [{upload.filename}]: {text}")
-        return "\n".join(parts)
+
+        text_context = "\n".join(parts)
+
+        # Build multimodal parts when file storage is available.
+        multimodal_parts: list = []
+        if self._file_storage is not None and uploads:
+            multimodal_parts = await _build_multimodal_parts(
+                uploads, self._file_storage,
+            )
+
+        return text_context, multimodal_parts
 
     async def _prepare_turn(
         self,
@@ -666,11 +712,14 @@ class DeskAgent:
         conversation_id: str,
         tools: list[ToolDefinition] | None,
         file_ids: list[str] | None,
-    ) -> tuple[list[ToolDefinition], str]:
+    ) -> tuple[list[ToolDefinition], str, list]:
         """Shared context enrichment + prompt building for run() and stream().
 
         Returns:
-            A tuple of (resolved_tools, system_prompt).
+            A tuple of (resolved_tools, system_prompt, multimodal_parts).
+            ``multimodal_parts`` contains :class:`BinaryContent` objects for
+            images and string descriptions for documents when file storage
+            is configured, otherwise an empty list.
         """
         # 0. Auto-load tools from catalog + built-ins if not provided
         scopes = session.access_scopes
@@ -711,6 +760,12 @@ class DeskAgent:
             tools.extend(builtin_tools)
             _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
 
+            catalog_tool_count = len(tools) - len(builtin_tools)
+            _logger.info(
+                "Prepared turn: %d catalog tools, %d builtin tools, total=%d",
+                catalog_tool_count, len(builtin_tools), len(tools),
+            )
+
         # Resolve knowledge tag filter from access scopes (admin bypasses)
         knowledge_tag_filter: list[str] | None = None
         if not admin_user and scopes.knowledge_tags:
@@ -729,7 +784,7 @@ class DeskAgent:
         # 2. Prompt assembly
         tool_summaries = self._build_tool_summaries(tools or [])
         knowledge_context = self._format_knowledge_context(enriched)
-        file_context = await self._build_file_context(file_ids)
+        file_context, multimodal_parts = await self._build_file_context(file_ids)
         conversation_summary = self._format_conversation_history(
             enriched.conversation_history,
         )
@@ -765,6 +820,7 @@ class DeskAgent:
             knowledge_context=knowledge_context,
             file_context=file_context,
             conversation_summary=conversation_summary,
+            process_context=enriched.relevant_processes,
             personality=personality,
             tone=tone,
             behavior_rules=behavior_rules,
@@ -773,7 +829,7 @@ class DeskAgent:
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 
-        return tools, system_prompt
+        return tools, system_prompt, multimodal_parts
 
     def _adapt_tools(
         self,
@@ -789,7 +845,10 @@ class DeskAgent:
         """
         if not tools or self._tool_executor is None:
             return None
-        return adapt_tools(tools, self._tool_executor, session, conversation_id)
+        return adapt_tools(
+            tools, self._tool_executor, session, conversation_id,
+            builtin_executor=self._builtin_executor,
+        )
 
     async def _stream_llm(
         self,
@@ -828,17 +887,42 @@ class DeskAgent:
                 yield chunk
             return
 
+        _logger.info(
+            "LLM agent streaming with %d tools (model=%s)",
+            len(tools or []),
+            str(getattr(agent, "_model_identifier", "unknown")),
+        )
+
+        # Log tool registration state for diagnostics
         try:
-            async with await agent.run_stream(
-                message,
-                streaming_mode="incremental",
-                conversation_id=conversation_id,
-            ) as stream:
-                async for token in stream.stream_tokens():
-                    yield token
-                # After streaming completes, extract usage from the underlying stream
-                if usage_out is not None:
-                    self._extract_stream_usage(stream, agent, usage_out)
+            inner_agent = agent.agent  # pydantic_ai.Agent
+            toolset = getattr(inner_agent, "_function_toolset", None)
+            if toolset is not None:
+                tools_attr = getattr(toolset, "tools", {})
+                if isinstance(tools_attr, dict):
+                    tool_names = list(tools_attr.keys())
+                    _logger.info(
+                        "LLM agent created with %d tools: %s (model=%s)",
+                        len(tool_names), tool_names[:5],
+                        getattr(inner_agent, "model", "?"),
+                    )
+        except Exception:
+            _logger.debug("Could not inspect agent tools.", exc_info=True)
+
+        try:
+            async with asyncio.timeout(120):
+                async with await agent.run_stream(
+                    message,
+                    streaming_mode="incremental",
+                    conversation_id=conversation_id,
+                ) as stream:
+                    async for token in stream.stream_tokens():
+                        yield token
+                    # After streaming completes, extract usage from the underlying stream
+                    if usage_out is not None:
+                        self._extract_stream_usage(stream, agent, usage_out)
+                        # Also extract tool call info from the message history
+                        self._extract_tool_calls(stream, usage_out)
         except _BUDGET_EXCEEDED_ERROR as exc:
             _logger.warning("Budget exceeded during streaming: %s", exc)
             yield (
@@ -850,6 +934,12 @@ class DeskAgent:
             yield (
                 "The language model provider is temporarily unavailable. "
                 "Please try again in a few moments."
+            )
+        except TimeoutError:
+            _logger.warning("LLM streaming timed out after 120s")
+            yield (
+                "The language model took too long to respond. "
+                "Please try again or check your LLM provider configuration."
             )
         except Exception as exc:
             _logger.error("LLM streaming failed: %s", exc, exc_info=True)
@@ -969,6 +1059,48 @@ class DeskAgent:
             _logger.debug("Failed to extract stream usage.", exc_info=True)
 
     @staticmethod
+    def _extract_tool_calls(stream: object, usage_out: dict[str, Any]) -> None:
+        """Extract tool call info from the completed pydantic-ai stream.
+
+        Inspects the message history on the underlying stream to find any
+        tool calls and tool returns that occurred during the agent run.
+        """
+        try:
+            inner_stream = getattr(stream, "_stream", stream)
+            all_messages = getattr(inner_stream, "all_messages", None)
+            if callable(all_messages):
+                messages = all_messages()
+            elif isinstance(all_messages, (list, tuple)):
+                messages = all_messages
+            else:
+                return
+
+            tool_calls_info: list[dict[str, Any]] = []
+            for msg in messages:
+                parts = getattr(msg, "parts", [])
+                for part in parts:
+                    part_type = type(part).__name__
+                    if "ToolCall" in part_type:
+                        tool_calls_info.append({
+                            "tool_name": getattr(part, "tool_name", "unknown"),
+                            "tool_call_id": getattr(part, "tool_call_id", ""),
+                        })
+                    elif "ToolReturn" in part_type:
+                        # Match return to call by ID
+                        call_id = getattr(part, "tool_call_id", "")
+                        for tc in tool_calls_info:
+                            if tc.get("tool_call_id") == call_id:
+                                tc["success"] = True
+
+            if tool_calls_info:
+                _logger.info("Agent made %d tool call(s): %s",
+                             len(tool_calls_info),
+                             [tc["tool_name"] for tc in tool_calls_info])
+            usage_out["tool_calls"] = tool_calls_info
+        except Exception:
+            _logger.debug("Failed to extract tool calls.", exc_info=True)
+
+    @staticmethod
     def _extract_result_usage(
         result: object,
         agent: object,
@@ -1056,3 +1188,37 @@ class DeskAgent:
             parts.append("Knowledge:\n" + "\n".join(snippet_lines))
 
         return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Module-level multimodal helpers
+# ---------------------------------------------------------------------------
+
+_IMAGE_CONTENT_TYPES = frozenset({
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+})
+
+
+async def _build_multimodal_parts(
+    uploads: list[FileUpload],
+    storage: FileStorageProvider,
+) -> list:
+    """Build multimodal content parts from file uploads.
+
+    - Images -> :class:`BinaryContent` (for multimodal LLMs)
+    - Text/docs with ``extracted_text`` -> string context
+    """
+    from fireflyframework_genai.types import BinaryContent
+
+    parts: list = []
+    for upload in uploads:
+        if upload.content_type in _IMAGE_CONTENT_TYPES:
+            raw = await storage.retrieve(upload.storage_path)
+            parts.append(BinaryContent(data=raw, media_type=upload.content_type))
+        elif upload.extracted_text:
+            parts.append(f"[{upload.filename}]: {upload.extracted_text}")
+    return parts

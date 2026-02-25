@@ -50,6 +50,8 @@ export interface Message {
 	fileIds?: string[];
 	files?: MessageFile[];
 	usage?: TokenUsage;
+	/** Number of tools available to the agent for this turn (diagnostic). */
+	toolCount?: number;
 }
 
 export interface ReasoningStep {
@@ -106,6 +108,21 @@ export function updateStreamingMessage(content: string): void {
 }
 
 /**
+ * Replace the entire content of the last streaming assistant message.
+ * Used after widget parsing to strip raw widget directives from the content.
+ * If no streaming message exists this is a no-op.
+ */
+export function replaceStreamingContent(content: string): void {
+	messages.update((msgs) => {
+		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
+		if (idx === -1) return msgs;
+		const updated = [...msgs];
+		updated[idx] = { ...updated[idx], content };
+		return updated;
+	});
+}
+
+/**
  * Append a widget directive to the last assistant message that is currently
  * streaming. If no streaming message exists this is a no-op.
  */
@@ -115,6 +132,31 @@ export function appendWidget(widget: WidgetDirective): void {
 		if (idx === -1) return msgs;
 		const updated = [...msgs];
 		updated[idx] = { ...updated[idx], widgets: [...updated[idx].widgets, widget] };
+		return updated;
+	});
+}
+
+/**
+ * Upsert a widget directive into the last streaming assistant message.
+ * If a widget with the same `widget_id` already exists, its props are merged.
+ * Otherwise the widget is appended.
+ */
+export function upsertWidget(widget: WidgetDirective): void {
+	messages.update((msgs) => {
+		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
+		if (idx === -1) return msgs;
+		const updated = [...msgs];
+		const existingWidgets = [...updated[idx].widgets];
+		const widgetIdx = existingWidgets.findIndex((w) => w.widget_id === widget.widget_id);
+		if (widgetIdx >= 0) {
+			existingWidgets[widgetIdx] = {
+				...existingWidgets[widgetIdx],
+				props: { ...existingWidgets[widgetIdx].props, ...widget.props }
+			};
+		} else {
+			existingWidgets.push(widget);
+		}
+		updated[idx] = { ...updated[idx], widgets: existingWidgets };
 		return updated;
 	});
 }
@@ -150,11 +192,16 @@ export function setUsage(usage: TokenUsage): void {
 }
 
 /** Mark the currently-streaming assistant message as complete. */
-export function finishStreaming(toolExecutions?: ToolExecution[]): void {
+export function finishStreaming(toolExecutions?: ToolExecution[], toolCount?: number): void {
 	messages.update((msgs) =>
 		msgs.map((m) =>
 			m.isStreaming
-				? { ...m, isStreaming: false, ...(toolExecutions?.length ? { toolExecutions } : {}) }
+				? {
+						...m,
+						isStreaming: false,
+						...(toolExecutions?.length ? { toolExecutions } : {}),
+						...(toolCount !== undefined ? { toolCount } : {})
+					}
 				: m
 		)
 	);

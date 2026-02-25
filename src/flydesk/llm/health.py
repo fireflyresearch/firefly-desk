@@ -97,3 +97,38 @@ class LLMHealthChecker:
                 error=str(exc),
                 checked_at=datetime.now(timezone.utc),
             )
+
+    async def list_models(self, provider: LLMProvider) -> list[str]:
+        """Fetch available model IDs from the provider's models endpoint."""
+        base = provider.base_url or _DEFAULT_URLS.get(provider.provider_type, "")
+        if not base:
+            return []
+
+        path = _HEALTH_PATHS.get(provider.provider_type, "/models")
+        url = f"{base.rstrip('/')}{path}"
+
+        headers: dict[str, str] = {}
+        if provider.api_key:
+            if provider.provider_type == ProviderType.ANTHROPIC:
+                headers["x-api-key"] = provider.api_key
+                headers["anthropic-version"] = "2023-06-01"
+            elif provider.provider_type == ProviderType.GOOGLE:
+                url = f"{url}?key={provider.api_key}"
+            else:
+                headers["Authorization"] = f"Bearer {provider.api_key}"
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code >= 400:
+                    return []
+                data = resp.json()
+                # OpenAI-compatible: {"data": [{"id": "gpt-4"}, ...]}
+                if "data" in data:
+                    return [m.get("id", "") for m in data["data"] if isinstance(m, dict)]
+                # Ollama: {"models": [{"name": "llama3"}, ...]}
+                if "models" in data:
+                    return [m.get("name", "") for m in data["models"] if isinstance(m, dict)]
+                return []
+        except Exception:
+            return []

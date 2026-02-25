@@ -14,11 +14,13 @@
 		Trash2,
 		ChevronDown,
 		ChevronRight,
-		Loader2
+		Loader2,
+		FileUp
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
+	import OpenAPIImportWizard from './OpenAPIImportWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -79,6 +81,9 @@
 	let showForm = $state(false);
 	let saving = $state(false);
 	let editingSystemFull = $state<SystemFull | null>(null);
+
+	// OpenAPI Import Wizard state
+	let showImportWizard = $state(false);
 
 	// Endpoint Wizard state
 	let showEndpointWizard = $state(false);
@@ -214,6 +219,8 @@
 	// -----------------------------------------------------------------------
 
 	let confirmingDeleteId = $state<string | null>(null);
+	let confirmingDeprecateId = $state<string | null>(null);
+	let transitioning = $state(false);
 
 	function startDelete(id: string) {
 		confirmingDeleteId = id;
@@ -232,12 +239,54 @@
 		switch (status) {
 			case 'active':
 				return 'bg-success/10 text-success';
-			case 'inactive':
+			case 'draft':
+				return 'bg-warning/10 text-warning';
+			case 'disabled':
 				return 'bg-text-secondary/10 text-text-secondary';
-			case 'error':
+			case 'deprecated':
 				return 'bg-danger/10 text-danger';
+			case 'degraded':
+				return 'bg-orange-400/10 text-orange-400';
 			default:
 				return 'bg-text-secondary/10 text-text-secondary';
+		}
+	}
+
+	// Note: 'active -> degraded' is omitted intentionally. The 'degraded'
+	// status is set automatically by health-check monitoring, not by manual
+	// user action. Only recovery transitions (degraded -> active/disabled)
+	// are exposed in the UI.
+	const STATUS_TRANSITIONS: Record<string, { label: string; target: string }[]> = {
+		draft: [{ label: 'Activate', target: 'active' }],
+		active: [
+			{ label: 'Disable', target: 'disabled' },
+			{ label: 'Deprecate', target: 'deprecated' },
+		],
+		disabled: [
+			{ label: 'Re-activate', target: 'active' },
+			{ label: 'Deprecate', target: 'deprecated' },
+		],
+		deprecated: [],
+		degraded: [
+			{ label: 'Mark Active', target: 'active' },
+			{ label: 'Disable', target: 'disabled' },
+		],
+	};
+
+	async function transitionStatus(systemId: string, newStatus: string) {
+		if (transitioning) return;
+		transitioning = true;
+		error = '';
+		try {
+			await apiJson(`/catalog/systems/${systemId}/status`, {
+				method: 'PUT',
+				body: JSON.stringify({ status: newStatus }),
+			});
+			await loadSystems();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Status transition failed';
+		} finally {
+			transitioning = false;
 		}
 	}
 
@@ -265,19 +314,29 @@
 			<h1 class="text-lg font-semibold text-text-primary">System Catalog</h1>
 			<p class="text-sm text-text-secondary">Manage external systems and their endpoints</p>
 		</div>
-		<button
-			type="button"
-			onclick={openAddForm}
-			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			<Plus size={16} />
-			Add System
-		</button>
+		<div class="flex items-center gap-2">
+			<button
+				type="button"
+				onclick={() => showImportWizard = true}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
+			>
+				<FileUp size={16} />
+				Import from OpenAPI
+			</button>
+			<button
+				type="button"
+				onclick={openAddForm}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Add System
+			</button>
+		</div>
 	</div>
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}
@@ -298,6 +357,14 @@
 			editingEndpoint={editingEndpoint}
 			onClose={closeEndpointWizard}
 			onSaved={onEndpointSaved}
+		/>
+	{/if}
+
+	<!-- OpenAPI Import Wizard modal -->
+	{#if showImportWizard}
+		<OpenAPIImportWizard
+			onClose={() => showImportWizard = false}
+			onImported={() => { showImportWizard = false; loadSystems(); }}
 		/>
 	{/if}
 
@@ -346,11 +413,59 @@
 									{system.base_url}
 								</td>
 								<td class="px-4 py-2">
-									<span
-										class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
-									>
-										{system.status}
-									</span>
+									<div class="flex items-center gap-2">
+										<span
+											class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
+										>
+											{system.status}
+										</span>
+										{#if STATUS_TRANSITIONS[system.status]?.length > 0}
+											<div class="flex gap-1">
+												{#each STATUS_TRANSITIONS[system.status] as action}
+													{#if action.target === 'deprecated' && confirmingDeprecateId === system.id}
+														<div class="flex items-center gap-1.5">
+															<span class="text-xs text-danger">Deprecate?</span>
+															<button
+																type="button"
+																onclick={() => { confirmingDeprecateId = null; transitionStatus(system.id, 'deprecated'); }}
+																class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
+																disabled={transitioning}
+															>
+																Yes
+															</button>
+															<button
+																type="button"
+																onclick={() => { confirmingDeprecateId = null; }}
+																class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
+															>
+																No
+															</button>
+														</div>
+													{:else if action.target === 'deprecated'}
+														<button
+															type="button"
+															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+															onclick={() => { confirmingDeprecateId = system.id; }}
+															title="{action.label} {system.name}"
+															disabled={transitioning}
+														>
+															{action.label}
+														</button>
+													{:else}
+														<button
+															type="button"
+															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+															onclick={() => transitionStatus(system.id, action.target)}
+															title="{action.label} {system.name}"
+															disabled={transitioning}
+														>
+															{action.label}
+														</button>
+													{/if}
+												{/each}
+											</div>
+										{/if}
+									</div>
 								</td>
 								<td class="px-4 py-2">
 									{#if system.tags.length > 0}

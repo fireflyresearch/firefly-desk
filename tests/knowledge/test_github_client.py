@@ -1,0 +1,313 @@
+# Copyright 2026 Firefly Software Solutions Inc
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+"""Tests for the GitHub REST API client."""
+
+from __future__ import annotations
+
+import base64
+import importlib
+import json
+import os
+import sys
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+
+from flydesk.knowledge.github import (
+    GITHUB_API_BASE,
+    GitHubClient,
+    exchange_oauth_code,
+)
+
+
+def _get_worktree_client():
+    """Return GitHubClient from the worktree source (for testing new methods)."""
+    worktree_src = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "src")
+    )
+    if worktree_src not in sys.path:
+        sys.path.insert(0, worktree_src)
+    # Clear ALL flydesk modules to force a clean re-import from the worktree.
+    for key in list(sys.modules):
+        if key.startswith("flydesk"):
+            del sys.modules[key]
+    import flydesk.knowledge.github as gh
+    return gh
+
+
+# ---------------------------------------------------------------------------
+# Header / auth tests
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubClientHeaders:
+    def test_headers_with_token(self):
+        client = GitHubClient(token="ghp_test123")
+        assert client._client.headers["Authorization"] == "Bearer ghp_test123"
+        assert "application/vnd.github+json" in client._client.headers["Accept"]
+
+    def test_headers_without_token(self):
+        client = GitHubClient(token=None)
+        assert "Authorization" not in client._client.headers
+        assert "application/vnd.github+json" in client._client.headers["Accept"]
+
+    def test_is_authenticated_with_token(self):
+        client = GitHubClient(token="ghp_test123")
+        assert client.is_authenticated is True
+
+    def test_is_authenticated_without_token(self):
+        client = GitHubClient(token=None)
+        assert client.is_authenticated is False
+
+
+# ---------------------------------------------------------------------------
+# list_user_repos
+# ---------------------------------------------------------------------------
+
+
+class TestListUserRepos:
+    @pytest.mark.anyio
+    async def test_list_user_repos_success(self):
+        mock_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "full_name": "octocat/Hello-World",
+                    "name": "Hello-World",
+                    "owner": {"login": "octocat"},
+                    "private": False,
+                    "default_branch": "main",
+                    "description": "My first repo",
+                    "html_url": "https://github.com/octocat/Hello-World",
+                }
+            ],
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/user/repos"),
+        )
+        client = GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        repos = await client.list_user_repos()
+        assert len(repos) == 1
+        assert repos[0].full_name == "octocat/Hello-World"
+        assert repos[0].owner == "octocat"
+        assert repos[0].private is False
+
+    @pytest.mark.anyio
+    async def test_list_user_repos_requires_token(self):
+        client = GitHubClient(token=None)
+        with pytest.raises(ValueError, match="token is required"):
+            await client.list_user_repos()
+
+
+# ---------------------------------------------------------------------------
+# list_tree (filters importable files)
+# ---------------------------------------------------------------------------
+
+
+class TestListTree:
+    @pytest.mark.anyio
+    async def test_list_tree_filters_importable_files(self):
+        mock_response = httpx.Response(
+            200,
+            json={
+                "sha": "abc123",
+                "tree": [
+                    {"path": "README.md", "sha": "a1", "size": 100, "type": "blob"},
+                    {"path": "src/main.py", "sha": "a2", "size": 200, "type": "blob"},
+                    {"path": "docs/guide.yaml", "sha": "a3", "size": 50, "type": "blob"},
+                    {"path": "config.json", "sha": "a4", "size": 30, "type": "blob"},
+                    {"path": "notes.yml", "sha": "a5", "size": 20, "type": "blob"},
+                    {"path": "images", "sha": "a6", "size": 0, "type": "tree"},
+                    {"path": "logo.png", "sha": "a7", "size": 500, "type": "blob"},
+                ],
+            },
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/repos/o/r/git/trees/main"),
+        )
+        client = GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        entries = await client.list_tree("o", "r", "main")
+        paths = [e.path for e in entries]
+        assert "README.md" in paths
+        assert "docs/guide.yaml" in paths
+        assert "config.json" in paths
+        assert "notes.yml" in paths
+        # Non-importable files should be excluded
+        assert "src/main.py" not in paths
+        assert "logo.png" not in paths
+        # Directories should be excluded
+        assert "images" not in paths
+
+
+# ---------------------------------------------------------------------------
+# get_file_content (base64 decode)
+# ---------------------------------------------------------------------------
+
+
+class TestGetFileContent:
+    @pytest.mark.anyio
+    async def test_get_file_content_decodes_base64(self):
+        original = "# Hello World\n\nThis is a test."
+        encoded = base64.b64encode(original.encode()).decode()
+        mock_response = httpx.Response(
+            200,
+            json={
+                "path": "README.md",
+                "sha": "abc123",
+                "content": encoded,
+                "size": len(original),
+            },
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/repos/o/r/contents/README.md"),
+        )
+        client = GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        fc = await client.get_file_content("o", "r", "README.md", ref="main")
+        assert fc.content == original
+        assert fc.path == "README.md"
+        assert fc.sha == "abc123"
+
+
+# ---------------------------------------------------------------------------
+# exchange_oauth_code
+# ---------------------------------------------------------------------------
+
+
+class TestExchangeOAuthCode:
+    @pytest.mark.anyio
+    async def test_exchange_oauth_code_success(self):
+        mock_response = httpx.Response(
+            200,
+            json={"access_token": "gho_abc123", "token_type": "bearer", "scope": "repo"},
+            request=httpx.Request("POST", "https://github.com/login/oauth/access_token"),
+        )
+        with patch("flydesk.knowledge.github.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.post = AsyncMock(return_value=mock_response)
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_instance
+
+            token = await exchange_oauth_code("client-id", "client-secret", "code-123")
+            assert token == "gho_abc123"
+
+    @pytest.mark.anyio
+    async def test_exchange_oauth_code_error(self):
+        mock_response = httpx.Response(
+            200,
+            json={"error": "bad_verification_code", "error_description": "The code is invalid"},
+            request=httpx.Request("POST", "https://github.com/login/oauth/access_token"),
+        )
+        with patch("flydesk.knowledge.github.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.post = AsyncMock(return_value=mock_response)
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_instance
+
+            with pytest.raises(ValueError, match="code is invalid"):
+                await exchange_oauth_code("client-id", "client-secret", "bad-code")
+
+
+# ---------------------------------------------------------------------------
+# list_user_organizations
+# ---------------------------------------------------------------------------
+
+
+class TestListUserOrganizations:
+    @pytest.mark.anyio
+    async def test_list_user_organizations_success(self):
+        gh = _get_worktree_client()
+        mock_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "login": "firefly-org",
+                    "avatar_url": "https://avatars.example.com/1",
+                    "description": "Firefly Org",
+                    "id": 12345,
+                },
+                {
+                    "login": "acme-corp",
+                    "avatar_url": "https://avatars.example.com/2",
+                    "description": None,
+                    "id": 67890,
+                },
+            ],
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/user/orgs"),
+        )
+        client = gh.GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        orgs = await client.list_user_organizations()
+        assert len(orgs) == 2
+        assert orgs[0]["login"] == "firefly-org"
+        assert orgs[0]["avatar_url"] == "https://avatars.example.com/1"
+        assert orgs[0]["description"] == "Firefly Org"
+        assert orgs[1]["login"] == "acme-corp"
+        assert orgs[1]["description"] == ""
+
+    @pytest.mark.anyio
+    async def test_list_user_organizations_requires_token(self):
+        gh = _get_worktree_client()
+        client = gh.GitHubClient(token=None)
+        with pytest.raises(ValueError, match="token is required"):
+            await client.list_user_organizations()
+
+
+# ---------------------------------------------------------------------------
+# list_org_repos
+# ---------------------------------------------------------------------------
+
+
+class TestListOrgRepos:
+    @pytest.mark.anyio
+    async def test_list_org_repos_success(self):
+        gh = _get_worktree_client()
+        mock_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "full_name": "firefly-org/api-gateway",
+                    "name": "api-gateway",
+                    "owner": {"login": "firefly-org"},
+                    "private": False,
+                    "default_branch": "main",
+                    "description": "API Gateway service",
+                    "html_url": "https://github.com/firefly-org/api-gateway",
+                },
+                {
+                    "full_name": "firefly-org/web-app",
+                    "name": "web-app",
+                    "owner": {"login": "firefly-org"},
+                    "private": True,
+                    "default_branch": "develop",
+                    "description": "Web application",
+                    "html_url": "https://github.com/firefly-org/web-app",
+                },
+            ],
+            request=httpx.Request("GET", f"{GITHUB_API_BASE}/orgs/firefly-org/repos"),
+        )
+        client = gh.GitHubClient(token="ghp_test")
+        client._client = AsyncMock(spec=httpx.AsyncClient)
+        client._client.get = AsyncMock(return_value=mock_response)
+
+        repos = await client.list_org_repos("firefly-org")
+        assert len(repos) == 2
+        assert repos[0].full_name == "firefly-org/api-gateway"
+        assert repos[0].owner == "firefly-org"
+        assert repos[0].private is False
+        assert repos[1].full_name == "firefly-org/web-app"
+        assert repos[1].private is True
+        assert repos[1].default_branch == "develop"

@@ -25,6 +25,7 @@
 		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import { parseSSEStream } from '$lib/services/sse.js';
 	import KnowledgeAddDocument from './KnowledgeAddDocument.svelte';
 	import KnowledgeDocumentDetail from './KnowledgeDocumentDetail.svelte';
 	import KnowledgeGraphExplorer from './KnowledgeGraphExplorer.svelte';
@@ -69,6 +70,11 @@
 	// Statistics
 	let stats = $state<GraphStats | null>(null);
 	let loadingStats = $state(true);
+
+	// KG recompute
+	let recomputingKG = $state(false);
+	let kgRecomputeMessage = $state('');
+	let kgRecomputeProgress = $state(0);
 
 	// -----------------------------------------------------------------------
 	// Derived
@@ -129,6 +135,47 @@
 			stats = null;
 		} finally {
 			loadingStats = false;
+		}
+	}
+
+	async function triggerKGRecompute() {
+		recomputingKG = true;
+		kgRecomputeProgress = 0;
+		kgRecomputeMessage = 'Submitting KG recompute job...';
+		error = '';
+		try {
+			const resp = await apiJson<{ job_id: string; status: string }>(
+				'/knowledge/graph/recompute',
+				{ method: 'POST' }
+			);
+			kgRecomputeMessage = 'Recomputing knowledge graph...';
+			const response = await apiFetch(`/jobs/${resp.job_id}/stream`);
+			await parseSSEStream(
+				response,
+				(msg) => {
+					if (msg.event === 'job_progress') {
+						kgRecomputeProgress =
+							(msg.data.progress_pct as number) ?? kgRecomputeProgress;
+						if (msg.data.progress_message)
+							kgRecomputeMessage = msg.data.progress_message as string;
+					} else if (msg.event === 'done') {
+						if (msg.data.error) error = `KG recompute failed: ${msg.data.error}`;
+					}
+				},
+				(err) => {
+					error = `Stream error: ${err.message}`;
+				},
+				async () => {
+					recomputingKG = false;
+					kgRecomputeMessage = '';
+					kgRecomputeProgress = 0;
+					await loadStats();
+				}
+			);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to trigger KG recompute';
+			recomputingKG = false;
+			kgRecomputeMessage = '';
 		}
 	}
 
@@ -250,13 +297,13 @@
 	}
 
 	const typeBadgeColors: Record<string, string> = {
-		text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-		markdown: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-		html: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
-		pdf: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-		code: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-		api_spec: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
-		other: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+		text: 'bg-accent/10 text-accent',
+		markdown: 'bg-purple-500/10 text-purple-500',
+		html: 'bg-warning/10 text-warning',
+		pdf: 'bg-danger/10 text-danger',
+		code: 'bg-success/10 text-success',
+		api_spec: 'bg-cyan-500/10 text-cyan-500',
+		other: 'bg-text-secondary/10 text-text-secondary'
 	};
 
 	function formatDate(dateStr?: string): string {
@@ -290,7 +337,7 @@
 		<!-- Error banner -->
 		{#if error}
 			<div
-				class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+				class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				{error}
 			</div>
@@ -436,7 +483,7 @@
 		<!-- Add Document Tab                                                   -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'add'}
-			<div class="max-w-3xl">
+			<div class="w-full">
 				<KnowledgeAddDocument onDocumentAdded={handleDocumentAdded} />
 			</div>
 
@@ -444,8 +491,38 @@
 		<!-- Graph Explorer Tab                                                 -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'graph'}
-			<div class="flex-1 overflow-hidden">
-				<KnowledgeGraphExplorer />
+			<div class="flex flex-1 flex-col overflow-hidden">
+				<!-- KG recompute bar -->
+				<div class="flex items-center gap-3 border-b border-border px-4 py-2">
+					<button
+						type="button"
+						onclick={triggerKGRecompute}
+						disabled={recomputingKG}
+						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+					>
+						{#if recomputingKG}
+							<Loader2 size={14} class="animate-spin" />
+							Recomputing...
+						{:else}
+							<RefreshCw size={14} />
+							Regenerate Knowledge Graph
+						{/if}
+					</button>
+					{#if kgRecomputeMessage}
+						<span class="text-xs text-text-secondary">{kgRecomputeMessage}</span>
+					{/if}
+				</div>
+				{#if recomputingKG}
+					<div class="h-1.5 w-full overflow-hidden bg-surface">
+						<div
+							class="h-full rounded-full bg-accent transition-all duration-500"
+							style="width: {kgRecomputeProgress}%"
+						></div>
+					</div>
+				{/if}
+				<div class="flex-1 overflow-hidden">
+					<KnowledgeGraphExplorer />
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -656,10 +733,31 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="10" class="px-4 py-8 text-center text-sm text-text-secondary">
-								{searchQuery
-									? 'No documents match your search.'
-									: 'No documents in the knowledge base. Add one to get started.'}
+							<td colspan="10" class="px-4 py-12 text-center">
+								{#if searchQuery || statusFilter !== 'all'}
+									<div class="flex flex-col items-center gap-2">
+										<Search size={32} class="text-text-secondary/40" />
+										<p class="text-sm text-text-secondary">No documents match your search.</p>
+									</div>
+								{:else}
+									<div class="flex flex-col items-center gap-3">
+										<div class="rounded-full bg-accent/10 p-3">
+											<BookOpen size={32} class="text-accent" />
+										</div>
+										<div class="flex flex-col items-center gap-1">
+											<p class="text-sm font-medium text-text-primary">No documents yet</p>
+											<p class="text-sm text-text-secondary">Add your first document to start building your knowledge base.</p>
+										</div>
+										<button
+											type="button"
+											onclick={() => (activeTab = 'add')}
+											class="mt-1 inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+										>
+											<Plus size={14} />
+											Add Document
+										</button>
+									</div>
+								{/if}
 							</td>
 						</tr>
 					{/each}

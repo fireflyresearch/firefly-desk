@@ -1,8 +1,8 @@
 <!--
   KnowledgeAddDocument.svelte - Multi-method document ingestion form.
 
-  Provides four sub-tabs for adding documents to the knowledge base:
-  Text input, File upload, URL import, and OpenAPI import.
+  Provides five sub-tabs for adding documents to the knowledge base:
+  Text input, File upload, URL import, OpenAPI import, and GitHub import.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -13,13 +13,16 @@
 		Upload,
 		Globe,
 		Code2,
+		GitBranch,
 		Loader2,
 		Save,
 		X,
+		Plus,
 		CheckCircle2,
 		AlertCircle
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch, getToken } from '$lib/services/api.js';
+	import GitImporter from './GitImporter.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -35,7 +38,7 @@
 	// Types
 	// -----------------------------------------------------------------------
 
-	type SubTab = 'text' | 'file' | 'url' | 'openapi';
+	type SubTab = 'text' | 'file' | 'url' | 'openapi' | 'github';
 
 	interface DocumentType {
 		value: string;
@@ -75,11 +78,16 @@
 
 	// File upload
 	let fileForm = $state({
-		title: '',
 		tags: ''
 	});
-	let selectedFile = $state<File | null>(null);
+	let selectedFiles = $state<File[]>([]);
 	let dragOver = $state(false);
+	let uploadResults = $state<{
+		documents: { filename: string; document_id: string; status: string }[];
+		errors: { filename: string; error: string }[];
+	} | null>(null);
+
+	let totalFileSize = $derived(selectedFiles.reduce((sum, f) => sum + f.size, 0));
 
 	// URL import
 	let urlForm = $state({
@@ -91,13 +99,19 @@
 	let fetchingPreview = $state(false);
 
 	// OpenAPI import
-	let openapiForm = $state({
-		spec: '',
-		title: '',
-		tags: ''
-	});
-	let openapiFile = $state<File | null>(null);
-	let openapiPreview = $state<{ endpoints: number; title?: string } | null>(null);
+	interface OpenapiEntry {
+		spec: string;
+		title: string;
+		preview: { endpoints: number; title?: string } | null;
+	}
+
+	let openapiEntries = $state<OpenapiEntry[]>([{ spec: '', title: '', preview: null }]);
+	let openapiTags = $state('');
+	let openapiImportResults = $state<
+		{ title: string; success: boolean; error?: string }[] | null
+	>(null);
+
+	let validOpenapiCount = $derived(openapiEntries.filter((e) => e.spec.trim().length > 0).length);
 
 	// -----------------------------------------------------------------------
 	// Sub-tab definitions
@@ -107,7 +121,8 @@
 		{ id: 'text', label: 'Text', icon: FileText },
 		{ id: 'file', label: 'File Upload', icon: Upload },
 		{ id: 'url', label: 'URL Import', icon: Globe },
-		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 }
+		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 },
+		{ id: 'github', label: 'Git Import', icon: GitBranch }
 	];
 
 	// -----------------------------------------------------------------------
@@ -151,40 +166,53 @@
 	function handleFileDrop(event: DragEvent) {
 		event.preventDefault();
 		dragOver = false;
-		const file = event.dataTransfer?.files[0];
-		if (file) {
-			selectedFile = file;
-			if (!fileForm.title) {
-				fileForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
+		const files = event.dataTransfer?.files;
+		if (files && files.length > 0) {
+			selectedFiles = [...selectedFiles, ...Array.from(files)];
+			uploadResults = null;
 		}
 	}
 
 	function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) {
-			selectedFile = file;
-			if (!fileForm.title) {
-				fileForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
+		const files = input.files;
+		if (files && files.length > 0) {
+			selectedFiles = [...selectedFiles, ...Array.from(files)];
+			uploadResults = null;
+		}
+		// Reset input so re-selecting the same files triggers onchange
+		input.value = '';
+	}
+
+	function removeFile(index: number) {
+		selectedFiles = selectedFiles.filter((_, i) => i !== index);
+		if (selectedFiles.length === 0) {
+			uploadResults = null;
 		}
 	}
 
-	function clearFile() {
-		selectedFile = null;
-		fileForm.title = '';
+	function clearFiles() {
+		selectedFiles = [];
+		uploadResults = null;
 	}
 
-	async function submitFile() {
-		if (!selectedFile) return;
+	function formatFileSize(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
+	async function submitFiles() {
+		if (selectedFiles.length === 0) return;
 		saving = true;
 		error = '';
 		success = '';
+		uploadResults = null;
 
 		const formData = new FormData();
-		formData.append('file', selectedFile);
-		formData.append('title', fileForm.title);
+		for (const file of selectedFiles) {
+			formData.append('files', file);
+		}
 		if (fileForm.tags) {
 			formData.append('tags', fileForm.tags);
 		}
@@ -196,7 +224,7 @@
 				headers['Authorization'] = `Bearer ${token}`;
 			}
 
-			const response = await fetch('/api/knowledge/documents/import-file', {
+			const response = await fetch('/api/knowledge/documents/import-files', {
 				method: 'POST',
 				headers,
 				body: formData
@@ -207,12 +235,25 @@
 				throw new Error(`API ${response.status}: ${body}`);
 			}
 
-			success = 'File imported successfully.';
-			selectedFile = null;
-			fileForm = { title: '', tags: '' };
+			const result = await response.json();
+			uploadResults = result;
+
+			const successCount = result.documents?.length ?? 0;
+			const errorCount = result.errors?.length ?? 0;
+
+			if (errorCount === 0) {
+				success = `${successCount} file${successCount !== 1 ? 's' : ''} imported successfully.`;
+			} else if (successCount === 0) {
+				error = `All ${errorCount} file${errorCount !== 1 ? 's' : ''} failed to import.`;
+			} else {
+				success = `${successCount} file${successCount !== 1 ? 's' : ''} imported, ${errorCount} failed.`;
+			}
+
+			selectedFiles = [];
+			fileForm = { tags: '' };
 			onDocumentAdded?.();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to upload file';
+			error = e instanceof Error ? e.message : 'Failed to upload files';
 		} finally {
 			saving = false;
 		}
@@ -256,24 +297,17 @@
 	// OpenAPI import
 	// -----------------------------------------------------------------------
 
-	function handleOpenapiFileSelect(event: Event) {
-		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) {
-			openapiFile = file;
-			if (!openapiForm.title) {
-				openapiForm.title = file.name.replace(/\.[^.]+$/, '');
-			}
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				openapiForm.spec = (e.target?.result as string) || '';
-				parseOpenapiPreview(openapiForm.spec);
-			};
-			reader.readAsText(file);
-		}
+	function addOpenapiEntry() {
+		openapiEntries = [...openapiEntries, { spec: '', title: '', preview: null }];
 	}
 
-	function parseOpenapiPreview(spec: string) {
+	function removeOpenapiEntry(index: number) {
+		if (openapiEntries.length <= 1) return;
+		openapiEntries = openapiEntries.filter((_, i) => i !== index);
+	}
+
+	function parseOpenapiPreview(spec: string): { endpoints: number; title?: string } | null {
+		if (spec.trim().length < 10) return null;
 		try {
 			const parsed = JSON.parse(spec);
 			const paths = parsed.paths ? Object.keys(parsed.paths) : [];
@@ -283,51 +317,125 @@
 					['get', 'post', 'put', 'delete', 'patch'].includes(m)
 				).length;
 			}
-			openapiPreview = {
+			return {
 				endpoints: endpointCount,
 				title: parsed.info?.title
 			};
-			if (!openapiForm.title && parsed.info?.title) {
-				openapiForm.title = parsed.info.title;
-			}
 		} catch {
 			// Try YAML-ish parsing for basic preview
 			const pathMatches = spec.match(/^\s{2}\/[^\s:]+:/gm);
-			openapiPreview = {
+			return {
 				endpoints: pathMatches?.length ?? 0
 			};
 		}
 	}
 
-	async function submitOpenapi() {
+	function updateOpenapiPreview(index: number) {
+		const entry = openapiEntries[index];
+		if (!entry) return;
+		const preview = parseOpenapiPreview(entry.spec);
+		openapiEntries[index].preview = preview;
+		if (preview?.title && !entry.title) {
+			openapiEntries[index].title = preview.title;
+		}
+	}
+
+	function handleOpenapiFilesSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = input.files;
+		if (!files || files.length === 0) return;
+
+		// If the only entry is blank, remove it before appending
+		const hasOnlyBlank =
+			openapiEntries.length === 1 &&
+			!openapiEntries[0].spec.trim() &&
+			!openapiEntries[0].title.trim();
+
+		const newEntries: OpenapiEntry[] = [];
+
+		let filesRead = 0;
+		const totalFiles = files.length;
+
+		for (const file of Array.from(files)) {
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				const content = (e.target?.result as string) || '';
+				const preview = parseOpenapiPreview(content);
+				const title = preview?.title || file.name.replace(/\.[^.]+$/, '');
+				newEntries.push({ spec: content, title, preview });
+				filesRead++;
+
+				if (filesRead === totalFiles) {
+					if (hasOnlyBlank) {
+						openapiEntries = newEntries;
+					} else {
+						openapiEntries = [...openapiEntries, ...newEntries];
+					}
+					openapiImportResults = null;
+				}
+			};
+			reader.readAsText(file);
+		}
+
+		// Reset input so re-selecting the same files triggers onchange
+		input.value = '';
+	}
+
+	async function submitAllOpenapi() {
+		if (validOpenapiCount === 0) return;
 		saving = true;
 		error = '';
 		success = '';
+		openapiImportResults = null;
 
-		const payload = {
-			spec: openapiForm.spec,
-			title: openapiForm.title || undefined,
-			tags: openapiForm.tags
-				.split(',')
-				.map((t) => t.trim())
-				.filter(Boolean)
-		};
+		const tags = openapiTags
+			.split(',')
+			.map((t) => t.trim())
+			.filter(Boolean);
 
-		try {
-			await apiJson('/knowledge/documents/import-openapi', {
-				method: 'POST',
-				body: JSON.stringify(payload)
-			});
-			success = 'OpenAPI spec imported successfully.';
-			openapiForm = { spec: '', title: '', tags: '' };
-			openapiFile = null;
-			openapiPreview = null;
-			onDocumentAdded?.();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to import OpenAPI spec';
-		} finally {
-			saving = false;
+		const results: { title: string; success: boolean; error?: string }[] = [];
+
+		for (const entry of openapiEntries) {
+			if (!entry.spec.trim()) continue;
+
+			const label = entry.title || 'Untitled Spec';
+			try {
+				await apiJson('/knowledge/documents/import-openapi', {
+					method: 'POST',
+					body: JSON.stringify({
+						spec: entry.spec,
+						title: entry.title || undefined,
+						tags
+					})
+				});
+				results.push({ title: label, success: true });
+			} catch (e) {
+				results.push({
+					title: label,
+					success: false,
+					error: e instanceof Error ? e.message : 'Import failed'
+				});
+			}
 		}
+
+		openapiImportResults = results;
+
+		const successCount = results.filter((r) => r.success).length;
+		const errorCount = results.filter((r) => !r.success).length;
+
+		if (errorCount === 0) {
+			success = `${successCount} spec${successCount !== 1 ? 's' : ''} imported successfully.`;
+			openapiEntries = [{ spec: '', title: '', preview: null }];
+			openapiTags = '';
+			onDocumentAdded?.();
+		} else if (successCount === 0) {
+			error = `All ${errorCount} spec${errorCount !== 1 ? 's' : ''} failed to import.`;
+		} else {
+			success = `${successCount} spec${successCount !== 1 ? 's' : ''} imported, ${errorCount} failed.`;
+			onDocumentAdded?.();
+		}
+
+		saving = false;
 	}
 </script>
 
@@ -356,7 +464,7 @@
 	<!-- Feedback banners -->
 	{#if error}
 		<div
-			class="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+			class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 		>
 			<AlertCircle size={16} />
 			{error}
@@ -365,7 +473,7 @@
 
 	{#if success}
 		<div
-			class="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success"
+			class="flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success"
 		>
 			<CheckCircle2 size={16} />
 			{success}
@@ -452,7 +560,7 @@
 		<form
 			onsubmit={(e) => {
 				e.preventDefault();
-				submitFile();
+				submitFiles();
 			}}
 			class="flex flex-col gap-3"
 		>
@@ -478,31 +586,52 @@
 					? 'border-accent bg-accent/5'
 					: 'border-border hover:border-accent/50 hover:bg-surface-secondary/50'}"
 			>
-				{#if selectedFile}
-					<div class="flex items-center gap-2">
-						<FileText size={20} class="text-accent" />
-						<span class="text-sm font-medium text-text-primary">{selectedFile.name}</span>
-						<span class="text-xs text-text-secondary">
-							({(selectedFile.size / 1024).toFixed(1)} KB)
-						</span>
+				{#if selectedFiles.length > 0}
+					<!-- File list -->
+					<div
+						class="flex w-full flex-col gap-1"
+						onclick={(e) => e.stopPropagation()}
+						onkeydown={(e) => e.stopPropagation()}
+						role="list"
+					>
+						{#each selectedFiles as file, index}
+							<div class="flex items-center gap-2 rounded-md bg-surface px-3 py-1.5" role="listitem">
+								<FileText size={16} class="shrink-0 text-accent" />
+								<span class="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
+									{file.name}
+								</span>
+								<span class="shrink-0 text-xs text-text-secondary">
+									{formatFileSize(file.size)}
+								</span>
+								<button
+									type="button"
+									onclick={() => removeFile(index)}
+									class="shrink-0 rounded p-0.5 text-text-secondary hover:bg-danger/10 hover:text-danger"
+									title="Remove file"
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						<div class="flex items-center justify-between px-3 pt-1 text-xs text-text-secondary">
+							<span>{selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected</span>
+							<span>{formatFileSize(totalFileSize)} total</span>
+						</div>
 						<button
 							type="button"
-							onclick={(e) => {
-								e.stopPropagation();
-								clearFile();
-							}}
-							class="ml-2 rounded p-0.5 text-text-secondary hover:bg-danger/10 hover:text-danger"
+							onclick={() => clearFiles()}
+							class="mt-1 self-center text-xs text-text-secondary hover:text-danger"
 						>
-							<X size={14} />
+							Clear all
 						</button>
 					</div>
 				{:else}
 					<Upload size={24} class="text-text-secondary" />
 					<p class="text-sm text-text-secondary">
-						Drop a file here or <span class="text-accent">browse</span>
+						Drop files here or <span class="text-accent">browse</span>
 					</p>
 					<p class="text-xs text-text-secondary">
-						Supported: PDF, TXT, MD, HTML, JSON, YAML
+						Supported: PDF, TXT, MD, HTML, JSON, YAML. Multiple files allowed.
 					</p>
 				{/if}
 			</div>
@@ -510,21 +639,11 @@
 			<input
 				id="file-upload-input"
 				type="file"
+				multiple
 				accept=".pdf,.txt,.md,.html,.json,.yaml,.yml,.csv,.xml"
 				onchange={handleFileSelect}
 				class="hidden"
 			/>
-
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">Title</span>
-				<input
-					type="text"
-					bind:value={fileForm.title}
-					required
-					placeholder="Auto-populated from filename"
-					class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-				/>
-			</label>
 
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
@@ -539,7 +658,7 @@
 			<div class="flex justify-end pt-1">
 				<button
 					type="submit"
-					disabled={saving || !selectedFile}
+					disabled={saving || selectedFiles.length === 0}
 					class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
 				>
 					{#if saving}
@@ -547,9 +666,34 @@
 					{:else}
 						<Upload size={14} />
 					{/if}
-					Upload File
+					Upload {selectedFiles.length || ''} File{selectedFiles.length !== 1 ? 's' : ''}
 				</button>
 			</div>
+
+			<!-- Per-file upload results -->
+			{#if uploadResults}
+				<div class="flex flex-col gap-1.5 rounded-lg border border-border bg-surface-secondary p-3">
+					<span class="text-xs font-medium text-text-secondary">Upload Results</span>
+					{#if uploadResults.documents && uploadResults.documents.length > 0}
+						{#each uploadResults.documents as doc}
+							<div class="flex items-center gap-2 text-sm">
+								<CheckCircle2 size={14} class="shrink-0 text-success" />
+								<span class="text-text-primary">{doc.filename}</span>
+								<span class="text-xs text-text-secondary">({doc.status})</span>
+							</div>
+						{/each}
+					{/if}
+					{#if uploadResults.errors && uploadResults.errors.length > 0}
+						{#each uploadResults.errors as err}
+							<div class="flex items-center gap-2 text-sm">
+								<AlertCircle size={14} class="shrink-0 text-danger" />
+								<span class="text-text-primary">{err.filename}</span>
+								<span class="text-xs text-danger">{err.error}</span>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{/if}
 		</form>
 
 	<!-- ================================================================= -->
@@ -618,84 +762,103 @@
 		<form
 			onsubmit={(e) => {
 				e.preventDefault();
-				submitOpenapi();
+				submitAllOpenapi();
 			}}
 			class="flex flex-col gap-3"
 		>
-			<div class="flex items-center gap-3">
-				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary"
-						>Title (optional, auto-detected)</span
-					>
+			<!-- Upload files button -->
+			<div class="flex items-center gap-2">
+				<label
+					class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+				>
+					<Upload size={14} />
+					Upload files
 					<input
-						type="text"
-						bind:value={openapiForm.title}
-						placeholder="API spec title"
-						class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						type="file"
+						multiple
+						accept=".json,.yaml,.yml"
+						onchange={handleOpenapiFilesSelect}
+						class="hidden"
 					/>
 				</label>
-
-				<div class="flex flex-col gap-1">
-					<span class="text-xs font-medium text-text-secondary">Or upload file</span>
-					<label
-						class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-					>
-						<Upload size={14} />
-						{openapiFile ? openapiFile.name : 'Choose file'}
-						<input
-							type="file"
-							accept=".json,.yaml,.yml"
-							onchange={handleOpenapiFileSelect}
-							class="hidden"
-						/>
-					</label>
-				</div>
+				<span class="text-xs text-text-secondary">.json / .yaml files</span>
 			</div>
 
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">OpenAPI Spec (JSON or YAML)</span>
-				<textarea
-					bind:value={openapiForm.spec}
-					required
-					rows={12}
-					oninput={() => {
-						if (openapiForm.spec.length > 10) {
-							parseOpenapiPreview(openapiForm.spec);
-						}
-					}}
-					class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-					placeholder={'{"openapi": "3.0.0", "info": {...}, "paths": {...}}'}
-				></textarea>
-			</label>
+			<!-- Entry cards list -->
+			<div class="flex flex-col gap-3">
+				{#each openapiEntries as entry, index}
+					<div class="relative flex flex-col gap-2 rounded-lg border border-border p-3">
+						<!-- Entry header: number + title + remove -->
+						<div class="flex items-center gap-2">
+							<span class="text-xs font-medium text-text-secondary">
+								Spec {index + 1}
+							</span>
+							<div class="flex-1">
+								<input
+									type="text"
+									bind:value={entry.title}
+									placeholder="Title (optional, auto-detected)"
+									class="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+								/>
+							</div>
+							{#if entry.preview}
+								<span
+									class="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/5 px-2 py-0.5 text-xs text-accent"
+								>
+									<Code2 size={12} />
+									{entry.preview.endpoints} endpoint{entry.preview.endpoints !== 1 ? 's' : ''}
+								</span>
+							{/if}
+							{#if openapiEntries.length > 1}
+								<button
+									type="button"
+									onclick={() => removeOpenapiEntry(index)}
+									class="shrink-0 rounded p-1 text-text-secondary hover:bg-danger/10 hover:text-danger"
+									title="Remove spec"
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
 
-			{#if openapiPreview}
-				<div
-					class="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-sm"
-				>
-					<Code2 size={14} class="text-accent" />
-					<span class="text-text-primary">
-						{#if openapiPreview.title}
-							<strong>{openapiPreview.title}</strong> &mdash;
-						{/if}
-						{openapiPreview.endpoints} endpoint{openapiPreview.endpoints !== 1 ? 's' : ''} detected
-					</span>
-				</div>
-			{/if}
+						<!-- Spec textarea -->
+						<textarea
+							bind:value={entry.spec}
+							rows={8}
+							oninput={() => updateOpenapiPreview(index)}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+							placeholder={'{"openapi": "3.0.0", "info": {...}, "paths": {...}}'}
+						></textarea>
+					</div>
+				{/each}
+			</div>
 
+			<!-- Add Spec button -->
+			<button
+				type="button"
+				onclick={addOpenapiEntry}
+				class="inline-flex items-center gap-1.5 self-start rounded-md border border-dashed border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:border-accent hover:text-accent"
+			>
+				<Plus size={14} />
+				Add Spec
+			</button>
+
+			<!-- Shared tags -->
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
+				<span class="text-xs font-medium text-text-secondary">Tags (comma-separated, applied to all)</span>
 				<input
 					type="text"
-					bind:value={openapiForm.tags}
+					bind:value={openapiTags}
 					placeholder="e.g. api, openapi, rest"
 					class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 				/>
 			</label>
 
+			<!-- Submit button -->
 			<div class="flex justify-end pt-1">
 				<button
 					type="submit"
-					disabled={saving || !openapiForm.spec}
+					disabled={saving || validOpenapiCount === 0}
 					class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
 				>
 					{#if saving}
@@ -703,9 +866,39 @@
 					{:else}
 						<Code2 size={14} />
 					{/if}
-					Import OpenAPI Spec
+					Import {validOpenapiCount} Spec{validOpenapiCount !== 1 ? 's' : ''}
 				</button>
 			</div>
+
+			<!-- Per-spec import results -->
+			{#if openapiImportResults}
+				<div class="flex flex-col gap-1.5 rounded-lg border border-border bg-surface-secondary p-3">
+					<span class="text-xs font-medium text-text-secondary">Import Results</span>
+					{#each openapiImportResults as result}
+						<div class="flex items-center gap-2 text-sm">
+							{#if result.success}
+								<CheckCircle2 size={14} class="shrink-0 text-success" />
+								<span class="text-text-primary">{result.title}</span>
+							{:else}
+								<AlertCircle size={14} class="shrink-0 text-danger" />
+								<span class="text-text-primary">{result.title}</span>
+								<span class="text-xs text-danger">{result.error}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</form>
+
+	<!-- ================================================================= -->
+	<!-- GitHub Import Tab                                                  -->
+	<!-- ================================================================= -->
+	{:else if activeSubTab === 'github'}
+		<GitImporter
+			onsuccess={() => {
+				success = 'Files imported successfully.';
+				onDocumentAdded?.();
+			}}
+		/>
 	{/if}
 </div>

@@ -25,6 +25,9 @@ if TYPE_CHECKING:
     from flydesk.audit.logger import AuditLogger
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.knowledge.retriever import KnowledgeRetriever
+    from flydesk.processes.repository import ProcessRepository
+    from flydesk.tools.document_tools import DocumentToolExecutor
+    from flydesk.tools.transform_tools import TransformToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,26 @@ def _platform_status_tool() -> ToolDefinition:
     )
 
 
+def _search_processes_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__search_processes",
+        name="search_processes",
+        description=(
+            "Search business processes by name or description. "
+            "Returns matching processes with their steps as reference material. "
+            "Use when: the user asks about business processes, workflows, or "
+            "how a procedure works."
+        ),
+        risk_level=RiskLevel.READ,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.GET.value,
+        path="/__builtin__/processes/search",
+        parameters={
+            "query": {"type": "string", "description": "Search term to find matching processes", "required": True},
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -161,9 +184,40 @@ class BuiltinToolRegistry:
             tools.append(_list_catalog_systems_tool())
             tools.append(_list_system_endpoints_tool())
 
+        # Process tools (require processes:read or *)
+        if has_all or "processes:read" in user_permissions:
+            tools.append(_search_processes_tool())
+
         # Audit tools (admin only, require audit:read or *)
         if has_all or "audit:read" in user_permissions:
             tools.append(_query_audit_log_tool())
+
+        # Document tools (require knowledge:read or *)
+        if has_all or "knowledge:read" in user_permissions:
+            from flydesk.tools.document_tools import (
+                document_convert_tool,
+                document_create_tool,
+                document_modify_tool,
+                document_read_tool,
+            )
+
+            tools.append(document_read_tool())
+            tools.append(document_create_tool())
+            tools.append(document_modify_tool())
+            tools.append(document_convert_tool())
+
+        # Transform tools (always available — no permission requirement)
+        from flydesk.tools.transform_tools import (
+            filter_rows_tool,
+            grep_result_tool,
+            parse_json_tool,
+            transform_data_tool,
+        )
+
+        tools.append(grep_result_tool())
+        tools.append(parse_json_tool())
+        tools.append(filter_rows_tool())
+        tools.append(transform_data_tool())
 
         return tools
 
@@ -186,19 +240,41 @@ class BuiltinToolExecutor:
         catalog_repo: CatalogRepository,
         audit_logger: AuditLogger,
         knowledge_retriever: KnowledgeRetriever | None = None,
+        process_repo: ProcessRepository | None = None,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._audit_logger = audit_logger
         self._knowledge_retriever = knowledge_retriever
+        self._process_repo = process_repo
+        self._doc_executor: DocumentToolExecutor | None = None
+
+        from flydesk.tools.transform_tools import (
+            TransformToolExecutor as _TransformExec,
+        )
+
+        self._transform_executor: TransformToolExecutor = _TransformExec()
+
+    def set_document_executor(self, executor: DocumentToolExecutor) -> None:
+        """Attach a :class:`DocumentToolExecutor` for document operations."""
+        self._doc_executor = executor
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a built-in tool and return a result dict."""
+        # Delegate document_* tools to the dedicated executor
+        if tool_name.startswith("document_") and self._doc_executor is not None:
+            return await self._doc_executor.execute(tool_name, arguments)
+
+        # Delegate transform tools to the dedicated executor
+        if self._transform_executor.is_transform_tool(tool_name):
+            return await self._transform_executor.execute(tool_name, arguments)
+
         handlers = {
             "search_knowledge": self._search_knowledge,
             "list_catalog_systems": self._list_systems,
             "list_system_endpoints": self._list_endpoints,
             "query_audit_log": self._query_audit,
             "get_platform_status": self._platform_status,
+            "search_processes": self._search_processes,
         }
 
         handler = handlers.get(tool_name)
@@ -317,3 +393,46 @@ class BuiltinToolExecutor:
                 for s in systems
             ],
         }
+
+    async def _search_processes(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = arguments.get("query", "")
+
+        if not query:
+            return {"error": "Query is required"}
+
+        if self._process_repo is None:
+            return {"error": "Process repository not configured", "processes": []}
+
+        processes = await self._process_repo.list()
+
+        # Simple text search: match query against name, description, and step descriptions
+        query_lower = query.lower()
+        matches: list[tuple[float, Any]] = []
+        for proc in processes:
+            score = 0.0
+            if query_lower in proc.name.lower():
+                score += 2
+            if query_lower in proc.description.lower():
+                score += 1
+            for step in proc.steps:
+                if query_lower in step.description.lower():
+                    score += 0.5
+            if score > 0:
+                matches.append((score, proc))
+
+        matches.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for score, proc in matches[:3]:
+            results.append({
+                "id": proc.id,
+                "name": proc.name,
+                "description": proc.description,
+                "steps": [
+                    {"name": s.name, "description": s.description, "endpoint_id": s.endpoint_id}
+                    for s in proc.steps
+                ],
+                "confidence": score,
+            })
+
+        return {"processes": results, "total_matches": len(matches)}

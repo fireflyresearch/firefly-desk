@@ -29,9 +29,15 @@
 		Sparkles,
 		Clock,
 		ArrowRight,
-		Filter
+		Filter,
+		Brain,
+		Database,
+		Merge,
+		CircleCheck,
+		CircleX
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { parseSSEStream } from '$lib/services/sse.js';
 	import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
 	import {
@@ -69,13 +75,10 @@
 		auto_analyze: boolean;
 	}
 
-	interface Job {
-		id: string;
-		job_type: string;
+	interface DiscoverResponse {
+		job_id: string;
 		status: string;
-		progress: number;
-		result?: unknown;
-		error?: string;
+		progress_pct: number;
 	}
 
 	type ProcessStatus = 'discovered' | 'verified' | 'modified' | 'archived';
@@ -119,6 +122,16 @@
 	let discoveryJobStatus = $state<string | null>(null);
 	let discoveryJobProgress = $state(0);
 	let discoveryProgressMessage = $state('');
+
+	// Discovery conversation log
+	interface DiscoveryLogEntry {
+		message: string;
+		pct: number;
+		timestamp: Date;
+		type: 'scan' | 'context' | 'llm' | 'result' | 'merge' | 'done' | 'error' | 'info';
+	}
+	let discoveryLog = $state<DiscoveryLogEntry[]>([]);
+	let discoveryLogEl: HTMLDivElement | null = $state(null);
 
 	// Auto-analyze toggle
 	let autoAnalyze = $state(false);
@@ -335,29 +348,74 @@
 	// Re-discover
 	// -----------------------------------------------------------------------
 
+	function classifyLogEntry(message: string): DiscoveryLogEntry['type'] {
+		const lower = message.toLowerCase();
+		if (lower.includes('scanning') || lower.includes('gathering')) return 'scan';
+		if (lower.includes('context gathered')) return 'context';
+		if (lower.includes('sending') && lower.includes('llm')) return 'llm';
+		if (lower.includes('calling llm') || lower.includes('analysis')) return 'llm';
+		if (lower.includes('identified')) return 'result';
+		if (lower.includes('merging') || lower.includes('merge complete')) return 'merge';
+		if (lower.includes('complete') || lower.includes('discovery complete')) return 'done';
+		if (lower.includes('failed') || lower.includes('error')) return 'error';
+		if (lower.includes('skipped') || lower.includes('no llm')) return 'error';
+		return 'info';
+	}
+
 	async function triggerRediscover() {
 		error = '';
 		discoveryProgressMessage = '';
+		discoveryLog = [];
 		try {
-			const job = await apiJson<Job>('/processes/discover', { method: 'POST' });
-			discoveryJobId = job.id;
-			discoveryJobStatus = job.status;
-			discoveryJobProgress = job.progress ?? 0;
+			const resp = await apiJson<DiscoverResponse>('/processes/discover', { method: 'POST' });
+			discoveryJobId = resp.job_id;
+			discoveryJobStatus = resp.status;
+			discoveryJobProgress = resp.progress_pct ?? 0;
 
-			const response = await apiFetch(`/jobs/${job.id}/stream`);
+			const response = await apiFetch(`/jobs/${resp.job_id}/stream`);
 			await parseSSEStream(
 				response,
 				(msg) => {
 					if (msg.event === 'job_progress') {
 						discoveryJobStatus = (msg.data.status as string) ?? discoveryJobStatus;
-						discoveryJobProgress = (msg.data.progress as number) ?? discoveryJobProgress;
-						if (msg.data.message) {
-							discoveryProgressMessage = msg.data.message as string;
+						discoveryJobProgress = (msg.data.progress_pct as number) ?? discoveryJobProgress;
+						if (msg.data.progress_message) {
+							const message = msg.data.progress_message as string;
+							discoveryProgressMessage = message;
+							// Accumulate into conversation log (skip duplicates)
+							if (!discoveryLog.some((e) => e.message === message)) {
+								discoveryLog = [
+									...discoveryLog,
+									{
+										message,
+										pct: msg.data.progress_pct as number,
+										timestamp: new Date(),
+										type: classifyLogEntry(message)
+									}
+								];
+								// Auto-scroll to bottom
+								requestAnimationFrame(() => {
+									discoveryLogEl?.scrollTo({
+										top: discoveryLogEl.scrollHeight,
+										behavior: 'smooth'
+									});
+								});
+							}
 						}
 					} else if (msg.event === 'done') {
-						const result = msg.data.result as Record<string, unknown> | undefined;
-						if (result?.error) {
-							error = `Discovery failed: ${result.error as string}`;
+						discoveryJobStatus = msg.data.status as string;
+						if (msg.data.error) {
+							const errMsg = `Discovery failed: ${msg.data.error as string}`;
+							error = errMsg;
+							discoveryLog = [
+								...discoveryLog,
+								{
+									message: errMsg,
+									pct: 100,
+									timestamp: new Date(),
+									type: 'error'
+								}
+							];
 						}
 					}
 				},
@@ -459,6 +517,57 @@
 		if (lower === 'system' || lower === 'integration') return Monitor;
 		if (lower === 'document' || lower === 'form') return FileText;
 		return Cog;
+	}
+
+	function logEntryIcon(type: DiscoveryLogEntry['type']): typeof Cog {
+		switch (type) {
+			case 'scan':
+				return Search;
+			case 'context':
+				return Database;
+			case 'llm':
+				return Brain;
+			case 'result':
+				return Sparkles;
+			case 'merge':
+				return Merge;
+			case 'done':
+				return CircleCheck;
+			case 'error':
+				return CircleX;
+			default:
+				return Cog;
+		}
+	}
+
+	function logEntryColor(type: DiscoveryLogEntry['type']): string {
+		switch (type) {
+			case 'scan':
+				return 'text-accent';
+			case 'context':
+				return 'text-accent';
+			case 'llm':
+				return 'text-warning';
+			case 'result':
+				return 'text-success';
+			case 'merge':
+				return 'text-accent';
+			case 'done':
+				return 'text-success';
+			case 'error':
+				return 'text-danger';
+			default:
+				return 'text-text-secondary';
+		}
+	}
+
+	function formatTime(date: Date): string {
+		return date.toLocaleTimeString('en-US', {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			hour12: false
+		});
 	}
 </script>
 
@@ -619,7 +728,7 @@
 					<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface">
 						<div
 							class="h-full rounded-full bg-accent transition-all duration-500"
-							style="width: {discoveryJobProgress * 100}%"
+							style="width: {discoveryJobProgress}%"
 						></div>
 					</div>
 				</div>
@@ -634,7 +743,7 @@
 		<!-- Error banner -->
 		{#if error}
 			<div
-				class="mx-4 mt-3 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2 text-sm text-danger"
+				class="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				<AlertCircle size={16} />
 				<span class="flex-1">{error}</span>
@@ -648,7 +757,111 @@
 			</div>
 		{/if}
 
-		{#if !selectedProcess}
+		{#if !selectedProcess && discoveryLog.length > 0}
+			<!-- Discovery conversation timeline -->
+			<div class="flex flex-1 flex-col overflow-hidden">
+				<div class="border-b border-border px-5 py-3">
+					<div class="flex items-center gap-2">
+						<Brain size={18} class="text-accent" />
+						<h2 class="text-base font-semibold text-text-primary">Process Discovery</h2>
+						{#if isDiscovering}
+							<span
+								class="ml-2 inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
+							>
+								<Loader2 size={12} class="animate-spin" />
+								Running
+							</span>
+						{:else if discoveryJobStatus === 'completed'}
+							<span
+								class="ml-2 inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
+							>
+								<CircleCheck size={12} />
+								Complete
+							</span>
+						{:else if discoveryJobStatus === 'failed'}
+							<span
+								class="ml-2 inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger"
+							>
+								<CircleX size={12} />
+								Failed
+							</span>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Scrollable log -->
+				<div
+					bind:this={discoveryLogEl}
+					class="flex-1 overflow-y-auto px-5 py-4"
+				>
+					<div class="mx-auto max-w-2xl space-y-1">
+						{#each discoveryLog as entry, i}
+							{@const Icon = logEntryIcon(entry.type)}
+							{@const color = logEntryColor(entry.type)}
+							<div
+								class="group flex gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface-hover/50"
+							>
+								<!-- Icon column -->
+								<div class="flex flex-col items-center pt-0.5">
+									<div
+										class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-secondary {color}"
+									>
+										<Icon size={14} />
+									</div>
+									{#if i < discoveryLog.length - 1}
+										<div class="mt-1 w-px flex-1 bg-border/50"></div>
+									{/if}
+								</div>
+
+								<!-- Content -->
+								<div class="min-w-0 flex-1 pb-2">
+									<p class="text-sm leading-relaxed text-text-primary">
+										{entry.message}
+									</p>
+									<p class="mt-0.5 text-[10px] text-text-secondary/60">
+										{formatTime(entry.timestamp)} · {entry.pct}%
+									</p>
+								</div>
+							</div>
+						{/each}
+
+						{#if isDiscovering}
+							<!-- Typing indicator -->
+							<div class="flex gap-3 px-3 py-2.5">
+								<div
+									class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-secondary text-accent"
+								>
+									<Loader2 size={14} class="animate-spin" />
+								</div>
+								<div class="flex items-center pt-1">
+									<span class="text-xs text-text-secondary/60">Processing...</span>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Progress bar at bottom -->
+				{#if isDiscovering || discoveryJobStatus === 'completed'}
+					<div class="border-t border-border px-5 py-3">
+						<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary">
+							<div
+								class="h-full rounded-full transition-all duration-500 {discoveryJobStatus === 'completed'
+									? 'bg-success'
+									: discoveryJobStatus === 'failed'
+										? 'bg-danger'
+										: 'bg-accent'}"
+								style="width: {discoveryJobProgress}%"
+							></div>
+						</div>
+						<div class="mt-1 flex items-center justify-between text-[10px] text-text-secondary/60">
+							<span>{discoveryProgressMessage || (discoveryJobStatus === 'completed' ? 'Discovery complete' : '')}</span>
+							<span>{discoveryJobProgress}%</span>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{:else if !selectedProcess}
 			<!-- Empty state -->
 			<div class="flex flex-1 flex-col items-center justify-center gap-3 text-text-secondary">
 				<GitBranch size={48} strokeWidth={1} class="opacity-30" />
@@ -859,11 +1072,13 @@
 								<!-- Description -->
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-medium text-text-secondary">Description</span>
-									<textarea
-										bind:value={stepForm.description}
-										rows={3}
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-									></textarea>
+									<RichEditor
+										value={stepForm.description}
+										placeholder="Step description..."
+										mode="compact"
+										minHeight="80px"
+										onchange={(md) => (stepForm.description = md)}
+									/>
 								</label>
 
 								<!-- System ID -->

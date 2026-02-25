@@ -123,6 +123,26 @@ def _strip_encrypted(credential: Credential) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/kms-status", dependencies=[CredentialsRead])
+async def kms_status(kms: KMS) -> dict[str, Any]:
+    """Return current KMS provider status."""
+    provider_name = type(kms).__name__
+    # Map class names to friendly names
+    friendly = {
+        "FernetKMSProvider": "fernet",
+        "NoOpKMSProvider": "noop",
+        "AWSKMSProvider": "aws",
+        "GCPKMSProvider": "gcp",
+        "AzureKeyVaultProvider": "azure",
+        "VaultKMSProvider": "vault",
+    }
+    return {
+        "provider": friendly.get(provider_name, provider_name.lower()),
+        "is_dev_key": getattr(kms, "is_dev_key", False),
+        "provider_class": provider_name,
+    }
+
+
 @router.get("", dependencies=[CredentialsRead])
 async def list_credentials(store: Store) -> list[dict[str, Any]]:
     """List all credentials (metadata only, encrypted values stripped)."""

@@ -16,7 +16,8 @@ import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, To
 import {
 	addMessage,
 	updateStreamingMessage,
-	appendWidget,
+	replaceStreamingContent,
+	upsertWidget,
 	appendReasoningStep,
 	setReasoningPlan,
 	clearReasoningState,
@@ -230,6 +231,14 @@ function handleSSEEvent(msg: SSEMessage): void {
 			break;
 		}
 
+		case 'content_replace': {
+			const content = msg.data.content as string;
+			if (typeof content === 'string') {
+				replaceStreamingContent(content);
+			}
+			break;
+		}
+
 		case 'widget': {
 			const widget: WidgetDirective = {
 				widget_id: msg.data.widget_id as string,
@@ -237,7 +246,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 				props: (msg.data.props as Record<string, unknown>) ?? {},
 				display: (msg.data.display as 'inline' | 'panel') ?? 'inline'
 			};
-			appendWidget(widget);
+			upsertWidget(widget);
 
 			if (widget.display === 'panel') {
 				pushPanel({
@@ -280,7 +289,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 				},
 				display: 'inline'
 			};
-			appendWidget(widget);
+			upsertWidget(widget);
 			break;
 		}
 
@@ -325,7 +334,8 @@ function handleSSEEvent(msg: SSEMessage): void {
 
 		case 'done': {
 			const tools = get(completedTools);
-			finishStreaming(tools.length > 0 ? tools : undefined);
+			const toolCount = typeof msg.data.tool_count === 'number' ? msg.data.tool_count : undefined;
+			finishStreaming(tools.length > 0 ? tools : undefined, toolCount);
 			clearToolState();
 			clearReasoningState();
 			break;

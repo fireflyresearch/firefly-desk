@@ -27,6 +27,11 @@ import MetricCard from '$lib/components/widgets/MetricCard.svelte';
 import CodeBlock from '$lib/components/widgets/CodeBlock.svelte';
 import ActionButtons from '$lib/components/widgets/ActionButtons.svelte';
 import FlowDiagram from '$lib/components/widgets/FlowDiagram.svelte';
+import FileViewer from '$lib/components/widgets/FileViewer.svelte';
+import EditableDataTable from '$lib/components/widgets/EditableDataTable.svelte';
+import PaginatedTable from '$lib/components/widgets/PaginatedTable.svelte';
+import DynamicFilter from '$lib/components/widgets/DynamicFilter.svelte';
+import EntityView from '$lib/components/widgets/EntityView.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -53,7 +58,12 @@ export const widgetRegistry: Record<string, Component<any>> = {
 	'metric-card': MetricCard,
 	'code-block': CodeBlock,
 	'action-buttons': ActionButtons,
-	'flow-diagram': FlowDiagram
+	'flow-diagram': FlowDiagram,
+	'file_viewer': FileViewer,
+	'editable-table': EditableDataTable,
+	'paginated-table': PaginatedTable,
+	'dynamic-filter': DynamicFilter,
+	'entity-view': EntityView
 };
 
 // ---------------------------------------------------------------------------

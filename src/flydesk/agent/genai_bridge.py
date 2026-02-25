@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fireflyframework_genai.agents import FireflyAgent
 
@@ -115,6 +115,7 @@ class DeskAgentFactory:
         self,
         system_prompt: str,
         tools: list[object] | None = None,
+        model_settings_override: dict[str, Any] | None = None,
     ) -> FireflyAgent | None:
         """Create a FireflyAgent from the default LLM provider.
 
@@ -137,6 +138,22 @@ class DeskAgentFactory:
 
         middleware = self._build_middleware()
 
+        # Determine max_tokens from provider capabilities or use sensible default.
+        # The Anthropic API requires max_tokens; without it tool-use responses
+        # may be truncated before the model can emit tool_use blocks.
+        max_tokens = 4096
+        if provider.models:
+            caps = provider.models[0].capabilities
+            if caps.max_output_tokens:
+                max_tokens = caps.max_output_tokens
+
+        settings: dict[str, Any] = {"max_tokens": max_tokens}
+        if model_settings_override:
+            settings.update(model_settings_override)
+
+        if not tools:
+            _logger.warning("Creating agent with NO tools — agent won't be able to call APIs")
+
         return FireflyAgent(
             name="ember",
             model=model_str,
@@ -146,6 +163,7 @@ class DeskAgentFactory:
             default_middleware=False,  # We handle our own audit/logging
             memory=self._memory_manager,
             middleware=middleware if middleware else None,
+            model_settings=settings,
         )
 
 

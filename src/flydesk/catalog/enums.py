@@ -10,12 +10,24 @@ from enum import StrEnum
 
 
 class SystemStatus(StrEnum):
+    DRAFT = "draft"
     ACTIVE = "active"
-    INACTIVE = "inactive"
+    DISABLED = "disabled"
+    DEPRECATED = "deprecated"
     DEGRADED = "degraded"
 
 
+VALID_TRANSITIONS: dict[SystemStatus, set[SystemStatus]] = {
+    SystemStatus.DRAFT: {SystemStatus.ACTIVE},
+    SystemStatus.ACTIVE: {SystemStatus.DISABLED, SystemStatus.DEPRECATED, SystemStatus.DEGRADED},
+    SystemStatus.DISABLED: {SystemStatus.ACTIVE, SystemStatus.DEPRECATED},
+    SystemStatus.DEPRECATED: set(),  # terminal state
+    SystemStatus.DEGRADED: {SystemStatus.ACTIVE, SystemStatus.DISABLED},
+}
+
+
 class AuthType(StrEnum):
+    NONE = "none"
     OAUTH2 = "oauth2"
     API_KEY = "api_key"
     BASIC = "basic"

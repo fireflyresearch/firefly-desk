@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from flydesk.knowledge.graph import KnowledgeGraph
@@ -431,6 +431,38 @@ async def import_from_url(body: ImportURLRequest, importer: Importer) -> dict[st
     return _strip_content(doc)
 
 
+@router.post("/documents/import-files", status_code=201, dependencies=[KnowledgeWrite])
+async def import_multiple_files(
+    files: list[UploadFile],
+    importer: Importer,
+    tags: str | None = Form(default=None),
+) -> dict:
+    """Import multiple knowledge documents from uploaded files.
+
+    Each file is imported independently so that a single failure does not
+    block the remaining uploads.  Returns 400 if the file list is empty.
+    Tags (comma-separated) are applied to every imported document.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for file in files:
+        try:
+            content = await file.read()
+            tag_list = [t.strip() for t in tags.split(",")] if tags else None
+            doc = await importer.import_file(
+                filename=file.filename or "uploaded_file",
+                content=content,
+                content_type=file.content_type or "text/plain",
+                tags=tag_list,
+            )
+            results.append({"filename": file.filename, "document_id": doc.id, "status": "indexed"})
+        except Exception as exc:
+            errors.append({"filename": file.filename, "error": str(exc)})
+    return {"documents": results, "errors": errors}
+
+
 @router.post("/documents/import-file", status_code=201, dependencies=[KnowledgeWrite])
 async def import_from_file(
     file: UploadFile,
@@ -587,3 +619,26 @@ async def get_graph_stats(graph: Graph) -> GraphStatsResponse:
     """Get knowledge graph statistics."""
     stats = await graph.get_stats()
     return GraphStatsResponse(**stats)
+
+
+@router.post("/graph/recompute", dependencies=[KnowledgeWrite])
+async def trigger_kg_recompute(request: Request) -> dict:
+    """Trigger a background knowledge graph recompute job.
+
+    Extracts entities and relations from all indexed documents using
+    the configured LLM.  Returns a job ID for progress tracking.
+    """
+    job_runner = getattr(request.app.state, "job_runner", None)
+    if job_runner is None:
+        raise HTTPException(status_code=503, detail="Job runner not available")
+    kg_extractor = getattr(request.app.state, "kg_extractor", None)
+    if kg_extractor is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KG extractor not available — ensure an LLM provider is configured",
+        )
+    try:
+        job = await job_runner.submit("kg_recompute", {})
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"job_id": job.id, "status": job.status.value}

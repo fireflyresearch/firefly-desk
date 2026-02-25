@@ -36,7 +36,8 @@ async def client():
         "FLYDESK_AGENT_NAME": "Ember",
     }
     with patch.dict(os.environ, env):
-        from flydesk.api.users import get_session_factory, get_settings_repo
+        from flydesk.api.users import get_local_user_repo, get_session_factory, get_settings_repo
+        from flydesk.auth.local_user_repository import LocalUserRepository
         from flydesk.server import create_app
 
         app = create_app()
@@ -52,8 +53,11 @@ async def client():
         audit_logger = AuditLogger(session_factory)
         settings_repo = SettingsRepository(session_factory)
 
+        local_user_repo = LocalUserRepository(session_factory)
+
         app.dependency_overrides[get_session_factory] = lambda: session_factory
         app.dependency_overrides[get_settings_repo] = lambda: settings_repo
+        app.dependency_overrides[get_local_user_repo] = lambda: local_user_repo
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -63,12 +67,15 @@ async def client():
 
 
 class TestUserList:
-    async def test_list_users_empty(self, client):
-        """GET /api/admin/users returns empty list on fresh DB."""
+    async def test_list_users_empty_shows_dev_user(self, client):
+        """GET /api/admin/users returns the dev user on fresh DB in dev mode."""
         ac, _, _, _ = client
         response = await ac.get("/api/admin/users")
         assert response.status_code == 200
-        assert response.json() == []
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["user_id"] == "dev-user-001"
+        assert data[0]["display_name"] == "Dev Admin"
 
     async def test_list_users_from_conversations(self, client):
         """Users are discovered from conversation user_ids."""

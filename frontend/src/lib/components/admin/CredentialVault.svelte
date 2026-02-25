@@ -15,7 +15,9 @@
 		X,
 		Save,
 		Loader2,
-		ShieldCheck
+		ShieldCheck,
+		Shield,
+		ChevronDown
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
@@ -45,6 +47,10 @@
 	let systems = $state<CatalogSystem[]>([]);
 	let loading = $state(true);
 	let error = $state('');
+
+	// KMS status
+	let kmsStatus = $state<{ provider: string; is_dev_key: boolean } | null>(null);
+	let showEncryption = $state(false);
 
 	// Form state
 	let showForm = $state(false);
@@ -81,9 +87,20 @@
 		}
 	}
 
+	async function loadKmsStatus() {
+		try {
+			kmsStatus = await apiJson<{ provider: string; is_dev_key: boolean }>(
+				'/credentials/kms-status'
+			);
+		} catch {
+			/* ignore -- non-critical */
+		}
+	}
+
 	$effect(() => {
 		loadCredentials();
 		loadSystems();
+		loadKmsStatus();
 	});
 
 	// -----------------------------------------------------------------------
@@ -223,10 +240,48 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}
+
+	<!-- Encryption Settings (collapsible) -->
+	<div class="rounded-lg border border-border bg-surface">
+		<button
+			type="button"
+			onclick={() => (showEncryption = !showEncryption)}
+			class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
+		>
+			<div class="flex items-center gap-2">
+				<Shield size={16} class="text-accent" />
+				<span>Encryption Settings</span>
+			</div>
+			<ChevronDown
+				size={16}
+				class="text-text-secondary transition-transform {showEncryption ? 'rotate-180' : ''}"
+			/>
+		</button>
+		{#if showEncryption && kmsStatus}
+			<div class="border-t border-border px-4 py-4">
+				{#if kmsStatus.is_dev_key}
+					<div
+						class="mb-3 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
+					>
+						Using development encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY for
+						production.
+					</div>
+				{/if}
+				<div class="flex items-center gap-3 text-sm">
+					<span class="text-text-secondary">Provider:</span>
+					<span class="font-medium capitalize">{kmsStatus.provider}</span>
+				</div>
+				<p class="mt-2 text-xs text-text-secondary">
+					Provider configuration requires environment variable changes and application
+					restart.
+				</p>
+			</div>
+		{/if}
+	</div>
 
 	<!-- Inline form -->
 	{#if showForm}

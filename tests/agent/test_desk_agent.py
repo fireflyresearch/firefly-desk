@@ -547,13 +547,15 @@ class TestDeskAgentFileIds:
         self, desk_agent_with_files, file_repo
     ):
         """_build_file_context fetches each file and formats the text."""
-        result = await desk_agent_with_files._build_file_context(["f-a", "f-b"])
+        text_context, multimodal_parts = await desk_agent_with_files._build_file_context(["f-a", "f-b"])
 
         assert file_repo.get.await_count == 2
         file_repo.get.assert_any_await("f-a")
         file_repo.get.assert_any_await("f-b")
-        assert "- [report-f-a.pdf]: Text from f-a" in result
-        assert "- [report-f-b.pdf]: Text from f-b" in result
+        assert "- [report-f-a.pdf]: Text from f-a" in text_context
+        assert "- [report-f-b.pdf]: Text from f-b" in text_context
+        # No file_storage configured, so multimodal_parts should be empty
+        assert multimodal_parts == []
 
 
 # ---------------------------------------------------------------------------

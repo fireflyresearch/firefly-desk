@@ -23,6 +23,8 @@
 		RefreshCw
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
+	import MarkdownContent from '$lib/components/shared/MarkdownContent.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -206,13 +208,13 @@
 	}
 
 	const typeBadgeColors: Record<string, string> = {
-		text: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-		markdown: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
-		html: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
-		pdf: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-		code: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-		api_spec: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
-		other: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+		text: 'bg-accent/10 text-accent',
+		markdown: 'bg-purple-500/10 text-purple-500',
+		html: 'bg-warning/10 text-warning',
+		pdf: 'bg-danger/10 text-danger',
+		code: 'bg-success/10 text-success',
+		api_spec: 'bg-cyan-500/10 text-cyan-500',
+		other: 'bg-text-secondary/10 text-text-secondary'
 	};
 
 	function formatDate(dateStr?: string): string {
@@ -291,7 +293,7 @@
 			</div>
 		{:else if error}
 			<div
-				class="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+				class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				<AlertCircle size={16} />
 				{error}
@@ -299,7 +301,7 @@
 		{:else if doc}
 			{#if success}
 				<div
-					class="mb-3 flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-success"
+					class="mb-3 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-3 py-2 text-sm text-success"
 				>
 					<CheckCircle2 size={14} />
 					{success}
@@ -343,14 +345,16 @@
 						/>
 					</label>
 
-					<label class="flex flex-col gap-1">
+					<div class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Content</span>
-						<textarea
-							bind:value={editForm.content}
-							rows={12}
-							class="rounded-md border border-border bg-surface px-3 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
-						></textarea>
-					</label>
+						<RichEditor
+							value={editForm.content}
+							placeholder="Enter document content..."
+							mode="full"
+							minHeight="300px"
+							onchange={(md) => (editForm.content = md)}
+						/>
+					</div>
 
 					<div class="flex justify-end gap-2 pt-1">
 						<button
@@ -380,74 +384,82 @@
 					<!-- Title and type -->
 					<div>
 						<h2 class="text-base font-semibold text-text-primary">{doc.title}</h2>
-						<span
-							class="mt-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
-								doc.type
-							] ?? typeBadgeColors.other}"
-						>
-							{doc.type}
-						</span>
-						{#if doc.status}
-							{@const badge = statusBadge(doc.status)}
+						<div class="mt-1.5 flex items-center gap-1.5">
 							<span
-								class="mt-1 ml-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium {badge.color}"
+								class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {typeBadgeColors[
+									doc.type
+								] ?? typeBadgeColors.other}"
 							>
-								{badge.label}
+								{doc.type}
 							</span>
-						{/if}
+							{#if doc.status}
+								{@const badge = statusBadge(doc.status)}
+								<span
+									class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {badge.color}"
+								>
+									{badge.label}
+								</span>
+							{/if}
+						</div>
 					</div>
 
 					<!-- Metadata grid -->
 					<div class="grid grid-cols-2 gap-3">
-						<div class="flex items-center gap-2 text-sm">
-							<Tag size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Source:</span>
-							<span class="text-text-primary">{doc.source || '--'}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Tag size={12} />
+								Source
+							</span>
+							<span class="text-sm font-medium text-text-primary">{doc.source || '--'}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Hash size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Chunks:</span>
-							<span class="text-text-primary">{doc.chunk_count ?? '--'}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Hash size={12} />
+								Chunks
+							</span>
+							<span class="text-sm font-medium text-text-primary">{doc.chunk_count ?? '--'}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Clock size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Created:</span>
-							<span class="text-text-primary">{formatDate(doc.created_at)}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Clock size={12} />
+								Created
+							</span>
+							<span class="text-sm font-medium text-text-primary">{formatDate(doc.created_at)}</span>
 						</div>
 
-						<div class="flex items-center gap-2 text-sm">
-							<Clock size={14} class="text-text-secondary" />
-							<span class="text-text-secondary">Updated:</span>
-							<span class="text-text-primary">{formatDate(doc.updated_at)}</span>
+						<div class="flex flex-col gap-1 rounded-md bg-surface-secondary/50 px-3 py-2">
+							<span class="flex items-center gap-1.5 text-xs text-text-secondary">
+								<Clock size={12} />
+								Updated
+							</span>
+							<span class="text-sm font-medium text-text-primary">{formatDate(doc.updated_at)}</span>
 						</div>
 					</div>
 
 					<!-- Tags -->
 					{#if doc.tags.length > 0}
-						<div class="flex flex-wrap gap-1.5">
-							{#each doc.tags as tag}
-								<span
-									class="rounded-full bg-surface-secondary px-2.5 py-0.5 text-xs text-text-secondary"
-								>
-									{tag}
-								</span>
-							{/each}
+						<div class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-text-secondary">Tags</span>
+							<div class="flex flex-wrap gap-1.5">
+								{#each doc.tags as tag}
+									<span
+										class="rounded-full bg-surface-secondary px-2.5 py-0.5 text-xs text-text-secondary"
+									>
+										{tag}
+									</span>
+								{/each}
+							</div>
 						</div>
 					{/if}
 
 					<!-- Content preview -->
 					{#if doc.content}
-						<div class="flex flex-col gap-1">
+						<div class="flex min-h-0 flex-1 flex-col gap-1.5">
 							<span class="text-xs font-medium text-text-secondary">Content Preview</span>
-							<div
-								class="max-h-64 overflow-y-auto rounded-md border border-border bg-surface-secondary p-3 font-mono text-xs text-text-primary"
-							>
-								<pre class="whitespace-pre-wrap">{doc.content.slice(0, 5000)}{doc.content
-										.length > 5000
-										? '\n\n... (truncated)'
-										: ''}</pre>
+							<div class="min-h-0 flex-1">
+								<MarkdownContent content={doc.content} />
 							</div>
 						</div>
 					{/if}

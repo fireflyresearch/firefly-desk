@@ -13,7 +13,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 
+from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
@@ -104,6 +106,44 @@ async def delete_system(system_id: str, repo: Repo) -> Response:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
     await repo.delete_system(system_id)
     return Response(status_code=204)
+
+
+class StatusTransitionRequest(BaseModel):
+    status: str
+
+
+@router.put("/systems/{system_id}/status", dependencies=[CatalogWrite])
+async def update_system_status(
+    system_id: str, body: StatusTransitionRequest, repo: Repo
+) -> dict:
+    """Transition a system's status according to the state machine."""
+    try:
+        target = SystemStatus(body.status)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid status '{body.status}'"
+        )
+
+    system = await repo.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    current = system.status
+    allowed = VALID_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition from '{current}' to '{target}'. "
+            f"Allowed: {', '.join(sorted(allowed)) or 'none (terminal state)'}",
+        )
+
+    updated = system.model_copy(update={"status": target})
+    await repo.update_system(updated)
+    return {
+        "id": updated.id,
+        "name": updated.name,
+        "status": updated.status.value,
+    }
 
 
 # ---------------------------------------------------------------------------

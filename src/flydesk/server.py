@@ -28,6 +28,15 @@ from flydesk.api.auth import router as auth_router
 from flydesk.api.catalog import get_auto_trigger as catalog_get_auto_trigger
 from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
+from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
+from flydesk.api.custom_tools import router as custom_tools_router
+from flydesk.api.git_import import router as git_import_router
+from flydesk.api.git_providers import get_git_provider_repo
+from flydesk.api.git_providers import router as git_providers_router
+from flydesk.api.github import router as github_router
+from flydesk.api.help_docs import router as help_docs_router
+from flydesk.api.openapi_import import get_catalog_repo as openapi_get_catalog
+from flydesk.api.openapi_import import router as openapi_import_router
 from flydesk.api.chat import router as chat_router
 from flydesk.api.conversations import get_conversation_repo
 from flydesk.api.conversations import router as conversations_router
@@ -68,14 +77,13 @@ from flydesk.api.roles import get_role_repo
 from flydesk.api.roles import router as roles_router
 from flydesk.api.settings import get_settings_repo
 from flydesk.api.settings import router as settings_router
-from flydesk.api.skills import get_skill_repo
-from flydesk.api.skills import router as skills_router
 from flydesk.api.setup import router as setup_router
 from flydesk.api.sso_mappings import get_settings_repo as sso_mappings_get_settings
 from flydesk.api.sso_mappings import router as sso_mappings_router
 from flydesk.api.tools_admin import get_catalog_repo as tools_get_catalog
 from flydesk.api.tools_admin import get_settings_repo as tools_get_settings
 from flydesk.api.tools_admin import router as tools_admin_router
+from flydesk.api.users import get_local_user_repo as users_get_local_user_repo
 from flydesk.api.users import get_session_factory as users_get_session
 from flydesk.api.users import get_settings_repo as users_get_settings
 from flydesk.api.users import router as users_router
@@ -133,14 +141,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[tools_get_settings] = lambda: settings_repo
     app.dependency_overrides[sso_mappings_get_settings] = lambda: settings_repo
 
-    # Skills repository
-    from flydesk.skills.repository import SkillRepository
+    # Custom tools repository and sandbox executor
+    from flydesk.tools.custom_repository import CustomToolRepository
+    from flydesk.tools.sandbox import SandboxExecutor
 
-    skill_repo = SkillRepository(session_factory)
-    app.dependency_overrides[get_skill_repo] = lambda: skill_repo
+    custom_tool_repo = CustomToolRepository(session_factory)
+    sandbox_executor = SandboxExecutor()
+    app.dependency_overrides[get_custom_tool_repo] = lambda: custom_tool_repo
+    app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[tools_get_catalog] = lambda: catalog_repo
+    app.dependency_overrides[openapi_get_catalog] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
     app.dependency_overrides[feedback_get_audit] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
@@ -175,10 +187,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_export_storage] = lambda: file_storage
 
     # KMS provider for credential encryption
-    from flydesk.security.kms import FernetKMSProvider
+    from flydesk.security.kms import FernetKMSProvider, create_kms_provider
 
-    kms = FernetKMSProvider(config.credential_encryption_key)
-    if kms.is_dev_key:
+    kms = create_kms_provider(config)
+    if isinstance(kms, FernetKMSProvider) and kms.is_dev_key:
         logger.warning(
             "Using dev encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY "
             "for production."
@@ -352,13 +364,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     confirmation_service = ConfirmationService()
     app.state.confirmation_service = confirmation_service
 
+    from flydesk.processes.repository import ProcessRepository
+
+    process_repo = ProcessRepository(session_factory)
+
     from flydesk.tools.builtin import BuiltinToolExecutor
 
     builtin_executor = BuiltinToolExecutor(
         catalog_repo=catalog_repo,
         audit_logger=audit_logger,
         knowledge_retriever=retriever,
+        process_repo=process_repo,
     )
+
+    # Wire document tool executor into built-in tools
+    from flydesk.tools.document_tools import DocumentToolExecutor
+
+    doc_executor = DocumentToolExecutor(file_storage)
+    builtin_executor.set_document_executor(doc_executor)
 
     from fireflyframework_genai.memory import MemoryManager
     from fireflyframework_genai.memory.store import InMemoryStore
@@ -389,9 +412,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Process discovery engine -- analyses catalog, KG, and KB to find processes.
     from flydesk.jobs.handlers import ProcessDiscoveryHandler
     from flydesk.processes.discovery import ProcessDiscoveryEngine
-    from flydesk.processes.repository import ProcessRepository
 
-    process_repo = ProcessRepository(session_factory)
     discovery_engine = ProcessDiscoveryEngine(
         agent_factory=agent_factory,
         process_repo=process_repo,
@@ -411,6 +432,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     kg_recompute_handler = KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor)
     job_runner.register_handler("kg_recompute", kg_recompute_handler)
     app.state.kg_extractor = kg_extractor
+
+    # Document analyser for GitHub import enrichment
+    from flydesk.api.github import get_document_analyzer
+    from flydesk.knowledge.analyzer import DocumentAnalyzer
+
+    document_analyzer = DocumentAnalyzer(agent_factory)
+    app.dependency_overrides[get_document_analyzer] = lambda: document_analyzer
 
     # Auto-trigger service (debounced triggers for KG recompute and process discovery)
     from flydesk.triggers.auto_trigger import AutoTriggerService
@@ -436,6 +464,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_executor=tool_executor,
         builtin_executor=builtin_executor,
         file_repo=file_repo,
+        file_storage=file_storage,
         confirmation_service=confirmation_service,
         conversation_repo=conversation_repo,
         agent_factory=agent_factory,
@@ -460,6 +489,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[admin_get_oidc_repo] = lambda: oidc_repo
     app.state.oidc_repo = oidc_repo
 
+    # Git provider repository
+    from flydesk.knowledge.git_provider_repository import GitProviderRepository
+
+    git_provider_repo = GitProviderRepository(session_factory, config.credential_encryption_key)
+    app.dependency_overrides[get_git_provider_repo] = lambda: git_provider_repo
+
     # Provide a default OIDCClient from config (may be overridden per-request)
     if config.oidc_issuer_url:
         _default_oidc_client = _OIDCClientCls(
@@ -480,6 +515,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Users API dependency overrides
     app.dependency_overrides[users_get_session] = lambda: session_factory
     app.dependency_overrides[users_get_settings] = lambda: settings_repo
+    app.dependency_overrides[users_get_local_user_repo] = lambda: local_user_repo
 
     # Store config, session factory, and conversation repo in app state
     app.state.config = config
@@ -650,11 +686,16 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router)
     app.include_router(users_router)
     app.include_router(roles_router)
-    app.include_router(skills_router)
     app.include_router(prompts_router)
     app.include_router(tools_admin_router)
     app.include_router(sso_mappings_router)
     app.include_router(jobs_router)
     app.include_router(processes_router)
+    app.include_router(custom_tools_router)
+    app.include_router(openapi_import_router)
+    app.include_router(github_router)
+    app.include_router(git_import_router)
+    app.include_router(git_providers_router)
+    app.include_router(help_docs_router)
 
     return app

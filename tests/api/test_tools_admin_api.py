@@ -19,7 +19,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from flydesk.auth.models import UserSession
-from flydesk.catalog.enums import HttpMethod, RiskLevel
+from flydesk.catalog.enums import HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import (
     AuthConfig,
     ExternalSystem,
@@ -57,6 +57,7 @@ def _sample_system() -> ExternalSystem:
         name="Jira",
         description="Jira issue tracker",
         base_url="https://jira.example.com",
+        status=SystemStatus.ACTIVE,
         auth_config=AuthConfig(
             auth_type="api_key",
             credential_id="cred-jira",

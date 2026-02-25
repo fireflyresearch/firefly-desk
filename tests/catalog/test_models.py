@@ -25,7 +25,7 @@ class TestExternalSystem:
             tags=["crm", "customers"],
         )
         assert system.id == "crm-salesforce"
-        assert system.status == SystemStatus.ACTIVE
+        assert system.status == SystemStatus.DRAFT
         assert system.auth_config.auth_type == AuthType.OAUTH2
 
     def test_system_defaults(self):
@@ -36,7 +36,7 @@ class TestExternalSystem:
             base_url="https://test.example.com",
             auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="c1"),
         )
-        assert system.status == SystemStatus.ACTIVE
+        assert system.status == SystemStatus.DRAFT
         assert system.tags == []
         assert system.health_check_path is None
         assert system.metadata == {}
@@ -81,3 +81,50 @@ class TestServiceEndpoint:
         assert endpoint.examples == []
         assert endpoint.timeout_seconds == 30.0
         assert endpoint.tags == []
+
+
+class TestNoneAuthType:
+    def test_none_auth_type_exists(self):
+        from flydesk.catalog.enums import AuthType
+        assert AuthType.NONE == "none"
+
+    def test_system_without_auth(self):
+        from flydesk.catalog.models import ExternalSystem
+        system = ExternalSystem(
+            id="public-api",
+            name="Public API",
+            description="No auth needed",
+            base_url="https://api.example.com",
+        )
+        assert system.auth_config is None
+
+    def test_system_with_none_auth(self):
+        from flydesk.catalog.enums import AuthType
+        from flydesk.catalog.models import AuthConfig, ExternalSystem
+        system = ExternalSystem(
+            id="public-api",
+            name="Public API",
+            description="No auth needed",
+            base_url="https://api.example.com",
+            auth_config=AuthConfig(auth_type=AuthType.NONE),
+        )
+        assert system.auth_config.auth_type == AuthType.NONE
+        assert system.auth_config.credential_id is None
+
+
+class TestSystemStatusStateMachine:
+    def test_all_statuses_exist(self):
+        from flydesk.catalog.enums import SystemStatus
+        assert SystemStatus.DRAFT == "draft"
+        assert SystemStatus.ACTIVE == "active"
+        assert SystemStatus.DISABLED == "disabled"
+        assert SystemStatus.DEPRECATED == "deprecated"
+        assert SystemStatus.DEGRADED == "degraded"
+
+    def test_new_system_defaults_to_draft(self):
+        from flydesk.catalog.enums import SystemStatus
+        from flydesk.catalog.models import ExternalSystem
+        system = ExternalSystem(
+            id="new-sys", name="New", description="New system", base_url="http://localhost",
+        )
+        assert system.status == SystemStatus.DRAFT

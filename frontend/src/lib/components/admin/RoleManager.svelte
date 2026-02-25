@@ -25,6 +25,16 @@
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	interface Props {
+		embedded?: boolean;
+	}
+
+	let { embedded = false }: Props = $props();
+
+	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
 
@@ -245,20 +255,22 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
 	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">Roles &amp; Permissions</h1>
-			<p class="text-sm text-text-secondary">
-				Manage RBAC roles and view available permissions
-			</p>
+	{#if !embedded}
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Roles &amp; Permissions</h1>
+				<p class="text-sm text-text-secondary">
+					Manage RBAC roles and view available permissions
+				</p>
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}

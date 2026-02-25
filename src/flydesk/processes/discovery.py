@@ -190,35 +190,69 @@ class ProcessDiscoveryEngine:
         Returns a summary dict to be stored as the job result.
         """
         trigger = payload.get("trigger", "")
-        await on_progress(5, "Gathering enterprise context")
+        await on_progress(5, "Scanning catalog systems, knowledge graph, and documents...")
 
         # 1. Gather context
         context = await self._gather_context()
-        await on_progress(20, "Context gathered; building prompt")
+        # Build a descriptive summary of what was gathered
+        total_endpoints = sum(len(s.endpoints) for s in context.systems)
+        await on_progress(
+            20,
+            f"Context gathered: {len(context.systems)} systems, "
+            f"{total_endpoints} endpoints, "
+            f"{len(context.entities)} entities, "
+            f"{len(context.relations)} relations, "
+            f"{len(context.documents)} documents",
+        )
 
         # 2. Build prompt
         system_prompt = self._render_system_prompt(trigger)
         user_prompt = self._render_context_prompt(context)
-        await on_progress(25, "Calling LLM for process discovery")
+        prompt_size = len(system_prompt) + len(user_prompt)
+        await on_progress(
+            25,
+            f"Sending {prompt_size:,} characters of context to LLM for analysis...",
+        )
 
         # 3. Call LLM
         discovery_result = await self._call_llm(system_prompt, user_prompt)
         if discovery_result is None:
-            await on_progress(100, "No LLM provider configured; discovery skipped")
+            await on_progress(100, "No LLM provider configured — discovery skipped")
             return {
                 "status": "skipped",
                 "reason": "no_llm_configured",
                 "processes_discovered": 0,
             }
-        await on_progress(60, f"LLM identified {len(discovery_result.processes)} processes")
+
+        # Build a summary of discovered processes with names and confidence
+        proc_count = len(discovery_result.processes)
+        if proc_count > 0:
+            proc_summaries = [
+                f"{p.name} ({int(p.confidence * 100)}%)"
+                for p in discovery_result.processes[:8]
+            ]
+            proc_list = ", ".join(proc_summaries)
+            if proc_count > 8:
+                proc_list += f", ... and {proc_count - 8} more"
+            await on_progress(60, f"LLM identified {proc_count} processes: {proc_list}")
+        else:
+            await on_progress(60, "LLM analysis complete — no processes identified")
 
         # 4. Convert to domain models
         discovered = self._to_business_processes(discovery_result)
-        await on_progress(70, "Merging with existing processes")
+        await on_progress(70, "Merging discovered processes with existing data...")
 
         # 5. Merge with existing
         stats = await self._merge_processes(discovered)
-        await on_progress(95, "Processes persisted")
+        merge_parts = []
+        if stats["created"]:
+            merge_parts.append(f"{stats['created']} new")
+        if stats["updated"]:
+            merge_parts.append(f"{stats['updated']} updated")
+        if stats["skipped"]:
+            merge_parts.append(f"{stats['skipped']} unchanged (verified)")
+        merge_summary = ", ".join(merge_parts) if merge_parts else "no changes"
+        await on_progress(95, f"Merge complete: {merge_summary}")
 
         result = {
             "status": "completed",
@@ -228,7 +262,11 @@ class ProcessDiscoveryEngine:
             "processes_updated": stats["updated"],
             "processes_skipped": stats["skipped"],
         }
-        await on_progress(100, "Process discovery complete")
+        await on_progress(
+            100,
+            f"Discovery complete — {stats['discovered']} processes discovered, "
+            f"{stats['created']} created, {stats['updated']} updated",
+        )
         return result
 
     # ------------------------------------------------------------------
@@ -351,7 +389,12 @@ class ProcessDiscoveryEngine:
         Returns ``None`` if no LLM provider is configured.
         Raises no exceptions -- returns an empty result on parse errors.
         """
-        agent = await self._agent_factory.create_agent(system_prompt)
+        # Process discovery generates large JSON responses -- use a higher token
+        # limit than the default chat agent to avoid truncation.
+        agent = await self._agent_factory.create_agent(
+            system_prompt,
+            model_settings_override={"max_tokens": 16384},
+        )
         if agent is None:
             logger.warning("No LLM provider configured; process discovery skipped.")
             return None

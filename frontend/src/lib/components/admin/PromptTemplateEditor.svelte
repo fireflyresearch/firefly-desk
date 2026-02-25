@@ -18,6 +18,7 @@
 		AlertCircle
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import CodeEditor from '$lib/components/shared/CodeEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -155,7 +156,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			<div class="flex items-center gap-2">
 				<AlertCircle size={14} />
 				{error}
@@ -165,7 +166,7 @@
 
 	<!-- Success banner -->
 	{#if successMessage}
-		<div class="rounded-md border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success">
+		<div class="rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success">
 			<div class="flex items-center gap-2">
 				<CheckCircle2 size={14} />
 				{successMessage}
@@ -280,12 +281,16 @@
 						</div>
 					</div>
 
-					<!-- Textarea -->
-					<textarea
-						bind:value={editedSource}
-						spellcheck={false}
-						class="flex-1 resize-none bg-surface p-4 font-mono text-sm leading-relaxed text-text-primary outline-none"
-					></textarea>
+					<!-- Template source editor -->
+					<div class="flex-1 overflow-auto">
+						<CodeEditor
+							value={editedSource}
+							language="jinja2"
+							placeholder="Enter Jinja2 template..."
+							onchange={(v) => (editedSource = v)}
+							minHeight="100%"
+						/>
+					</div>
 				{:else}
 					<div class="flex flex-1 flex-col items-center justify-center gap-2 text-text-secondary">
 						<FileCode size={32} strokeWidth={1} />

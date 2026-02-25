@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Protocol
 
@@ -59,6 +60,7 @@ class KnowledgeIndexer:
         self._embedding_provider = embedding_provider
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
+        self._chunking_mode: str = "fixed"
         self._vector_store = vector_store
 
     async def index_document(self, document: KnowledgeDocument) -> list[DocumentChunk]:
@@ -129,6 +131,118 @@ class KnowledgeIndexer:
             start += self._chunk_size - self._chunk_overlap
             index += 1
         return chunks
+
+    @staticmethod
+    def _split_by_headings(text: str) -> list[dict[str, str]]:
+        """Split Markdown text on H1 and H2 ATX headings.
+
+        Returns a list of dicts with ``heading_path`` (the heading text
+        including ``#`` prefix) and ``content`` (the body below that heading).
+        Content appearing before the first heading is preserved with an empty
+        heading_path.
+        """
+        # Match lines that start with "# " or "## " (H1 / H2 ATX headings).
+        # We do NOT split on H3+ (### …).
+        pattern = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
+
+        sections: list[dict[str, str]] = []
+        last_end = 0
+        current_heading = ""
+
+        for match in pattern.finditer(text):
+            # Capture content before this heading
+            content_before = text[last_end : match.start()].strip()
+            if content_before or sections:
+                # Only add a section if there is content, or if we already
+                # started collecting (to avoid empty leading sections).
+                if not sections and content_before:
+                    # Content before the first heading
+                    sections.append({"heading_path": "", "content": content_before})
+                elif sections:
+                    sections[-1]["content"] = content_before
+
+            current_heading = match.group(0).strip()
+            sections.append({"heading_path": current_heading, "content": ""})
+            last_end = match.end()
+
+        # Remaining content after the last heading
+        trailing = text[last_end:].strip()
+        if sections:
+            sections[-1]["content"] = trailing
+        else:
+            # No headings found at all
+            sections.append({"heading_path": "", "content": text.strip()})
+
+        return sections
+
+    def _chunk_text_structural(
+        self, document_id: str, text: str
+    ) -> list[DocumentChunk]:
+        """Chunk text respecting Markdown heading structure.
+
+        Each H1/H2 section becomes one or more chunks.  Sections smaller than
+        ``chunk_size * 2`` are kept as a single chunk; larger sections are
+        sub-chunked using the fixed sliding-window strategy.  Every chunk
+        receives ``metadata = {"section_path": heading_path}``.
+        """
+        sections = self._split_by_headings(text)
+
+        # Fall back to fixed chunking when there is no meaningful structure
+        if len(sections) <= 1:
+            return self._chunk_text(document_id, text)
+
+        chunks: list[DocumentChunk] = []
+        index = 0
+
+        for section in sections:
+            heading_path = section["heading_path"]
+            content = section["content"]
+
+            # Prepend heading to content so it appears in the chunk text
+            full_text = f"{heading_path}\n{content}".strip() if heading_path else content
+            if not full_text:
+                continue
+
+            if len(full_text) > self._chunk_size * 2:
+                # Sub-chunk large sections with the fixed strategy
+                sub_chunks = self._chunk_text(document_id, full_text)
+                for sc in sub_chunks:
+                    sc.chunk_index = index
+                    sc.metadata = {"section_path": heading_path}
+                    chunks.append(sc)
+                    index += 1
+            else:
+                chunks.append(
+                    DocumentChunk(
+                        chunk_id=str(uuid.uuid4()),
+                        document_id=document_id,
+                        content=full_text,
+                        chunk_index=index,
+                        metadata={"section_path": heading_path},
+                    )
+                )
+                index += 1
+
+        return chunks
+
+    def chunk_document(
+        self,
+        document_id: str,
+        text: str,
+        mode: str | None = None,
+    ) -> list[DocumentChunk]:
+        """Public entry point for chunking a document.
+
+        Parameters:
+            document_id: Identifier for the parent document.
+            text: The full document text.
+            mode: ``"fixed"`` or ``"structural"``.  Falls back to
+                ``self._chunking_mode`` when *None*.
+        """
+        effective_mode = mode or self._chunking_mode
+        if effective_mode == "structural":
+            return self._chunk_text_structural(document_id, text)
+        return self._chunk_text(document_id, text)
 
     async def index_document_async(
         self,

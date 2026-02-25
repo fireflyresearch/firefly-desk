@@ -97,6 +97,9 @@ export interface GraphEntity {
 	type: string;
 	properties: Record<string, unknown>;
 	source_documents?: string[];
+	confidence?: number;
+	source_system?: string | null;
+	mention_count?: number;
 }
 
 /** Knowledge-graph relation as returned by the API. */
