@@ -96,7 +96,15 @@ def mock_git_provider():
 
 
 @pytest.fixture
-async def client(mock_repo):
+def mock_producer():
+    """AsyncMock that mimics IndexingQueueProducer."""
+    producer = AsyncMock()
+    producer.enqueue = AsyncMock()
+    return producer
+
+
+@pytest.fixture
+async def client(mock_repo, mock_producer):
     """AsyncClient with an admin user session and mocked dependencies."""
     env = {
         "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -107,10 +115,12 @@ async def client(mock_repo):
     }
     with patch.dict(os.environ, env):
         from flydesk.api.git_providers import get_git_provider_repo
+        from flydesk.api.knowledge import get_indexing_producer
         from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_git_provider_repo] = lambda: mock_repo
+        app.dependency_overrides[get_indexing_producer] = lambda: mock_producer
 
         admin_session = _make_user_session()
 
@@ -128,7 +138,7 @@ async def client(mock_repo):
 
 
 @pytest.fixture
-async def reader_client(mock_repo):
+async def reader_client(mock_repo, mock_producer):
     """AsyncClient with only knowledge:read permission."""
     env = {
         "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -139,10 +149,12 @@ async def reader_client(mock_repo):
     }
     with patch.dict(os.environ, env):
         from flydesk.api.git_providers import get_git_provider_repo
+        from flydesk.api.knowledge import get_indexing_producer
         from flydesk.server import create_app
 
         app = create_app()
         app.dependency_overrides[get_git_provider_repo] = lambda: mock_repo
+        app.dependency_overrides[get_indexing_producer] = lambda: mock_producer
 
         reader_session = _make_user_session(permissions=["knowledge:read"])
 
@@ -488,6 +500,11 @@ class TestPreviewFiles:
 class TestImportRepos:
     async def test_import_returns_accepted(self, client, mock_repo, mock_git_provider):
         mock_repo.get_provider.return_value = _sample_provider_row()
+        mock_git_provider.get_file_content = AsyncMock(
+            return_value=GitFileContent(
+                path="f.md", sha="sha1", content="content", size=7
+            )
+        )
 
         with patch(
             "flydesk.api.git_import.GitProviderFactory"
@@ -520,10 +537,10 @@ class TestImportRepos:
         assert data["status"] == "accepted"
         assert len(data["items"]) == 3
         assert data["items"][0]["path"] == "README.md"
-        assert data["items"][0]["repo"] == "octocat/hello"
         assert data["items"][0]["status"] == "queued"
+        assert "document_id" in data["items"][0]
         assert data["items"][2]["path"] == "api.json"
-        assert data["items"][2]["repo"] == "octocat/world"
+        assert data["items"][2]["status"] == "queued"
 
     async def test_import_provider_not_found(self, client, mock_repo):
         mock_repo.get_provider.return_value = None

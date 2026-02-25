@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from flydesk.knowledge.git_provider import GitFileContent
 from flydesk.knowledge.github import GitHubBranch, GitHubTreeEntry
 
 
@@ -25,7 +26,15 @@ from flydesk.knowledge.github import GitHubBranch, GitHubTreeEntry
 
 
 @pytest.fixture
-async def client():
+def mock_producer():
+    """AsyncMock that mimics IndexingQueueProducer."""
+    producer = AsyncMock()
+    producer.enqueue = AsyncMock()
+    return producer
+
+
+@pytest.fixture
+async def client(mock_producer):
     """AsyncClient wired to a minimal app with the GitHub router."""
     env = {
         "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -37,11 +46,13 @@ async def client():
         "FLYDESK_GITHUB_CLIENT_SECRET": "gh-client-secret",
     }
     with patch.dict(os.environ, env):
+        from flydesk.api.knowledge import get_indexing_producer
         from flydesk.config import get_config
         from flydesk.server import create_app
 
         get_config.cache_clear()
         app = create_app()
+        app.dependency_overrides[get_indexing_producer] = lambda: mock_producer
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -124,10 +135,19 @@ class TestTree:
 class TestImport:
     @pytest.mark.anyio
     async def test_import_returns_accepted(self, client):
-        response = await client.post(
-            "/api/github/repos/octocat/Hello-World/import",
-            json={"paths": ["README.md", "docs/guide.yaml"], "branch": "main"},
+        mock_gh = AsyncMock()
+        mock_gh.get_file_content = AsyncMock(
+            return_value=GitFileContent(
+                path="f.md", sha="sha1", content="content", size=7
+            )
         )
+        mock_gh.aclose = AsyncMock()
+
+        with patch("flydesk.api.github._make_client", return_value=mock_gh):
+            response = await client.post(
+                "/api/github/repos/octocat/Hello-World/import",
+                json={"paths": ["README.md", "docs/guide.yaml"], "branch": "main"},
+            )
         assert response.status_code == 202
         data = response.json()
         assert data["status"] == "accepted"
