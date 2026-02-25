@@ -19,6 +19,7 @@
 	import TokenUsage from './TokenUsage.svelte';
 	import EmberAvatar from './EmberAvatar.svelte';
 	import ImageLightbox from './ImageLightbox.svelte';
+	import FileViewerModal from './FileViewerModal.svelte';
 	import MessageActions from './MessageActions.svelte';
 	import { agentSettings } from '$lib/stores/agent.js';
 
@@ -87,6 +88,7 @@
 
 	let lightboxSrc = $state('');
 	let lightboxAlt = $state('');
+	let viewerFile: { id: string; filename: string; content_type: string } | null = $state(null);
 
 	function openLightbox(src: string, alt: string) {
 		lightboxSrc = src;
@@ -111,7 +113,7 @@
 							<div
 								class="group/file flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 transition-colors hover:bg-surface-secondary"
 							>
-								<button type="button" class="block shrink-0" onclick={() => openLightbox(`/api/files/${file.id}/download`, file.filename)}>
+								<button type="button" class="block shrink-0" onclick={() => { viewerFile = { id: file.id, filename: file.filename, content_type: file.content_type }; }}>
 									<img
 										src="/api/files/{file.id}/download"
 										alt={file.filename}
@@ -132,19 +134,18 @@
 								</a>
 							</div>
 						{:else}
-							<a
-								href="/api/files/{file.id}/download"
-								target="_blank"
-								rel="noopener noreferrer"
+							<button
+								type="button"
 								class="group/file flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 transition-colors hover:bg-surface-secondary"
+								onclick={() => { viewerFile = { id: file.id, filename: file.filename, content_type: file.content_type }; }}
 							>
 								<FileText size={16} class="shrink-0 text-text-secondary" />
-								<div class="flex flex-col">
+								<div class="flex flex-col text-left">
 									<span class="text-xs font-medium text-text-primary">{truncateName(file.filename)}</span>
 									<span class="text-xs text-text-secondary">{formatSize(file.file_size)}</span>
 								</div>
 								<Download size={14} class="shrink-0 text-text-secondary opacity-0 transition-opacity group-hover/file:opacity-100" />
-							</a>
+							</button>
 						{/if}
 					{/each}
 				</div>
@@ -220,4 +221,13 @@
 
 {#if lightboxSrc}
 	<ImageLightbox src={lightboxSrc} alt={lightboxAlt} onclose={() => { lightboxSrc = ''; }} />
+{/if}
+
+{#if viewerFile}
+	<FileViewerModal
+		fileId={viewerFile.id}
+		fileName={viewerFile.filename}
+		contentType={viewerFile.content_type}
+		onClose={() => { viewerFile = null; }}
+	/>
 {/if}

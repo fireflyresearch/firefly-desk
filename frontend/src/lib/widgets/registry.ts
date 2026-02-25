@@ -27,6 +27,7 @@ import MetricCard from '$lib/components/widgets/MetricCard.svelte';
 import CodeBlock from '$lib/components/widgets/CodeBlock.svelte';
 import ActionButtons from '$lib/components/widgets/ActionButtons.svelte';
 import FlowDiagram from '$lib/components/widgets/FlowDiagram.svelte';
+import FileViewer from '$lib/components/widgets/FileViewer.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -53,7 +54,8 @@ export const widgetRegistry: Record<string, Component<any>> = {
 	'metric-card': MetricCard,
 	'code-block': CodeBlock,
 	'action-buttons': ActionButtons,
-	'flow-diagram': FlowDiagram
+	'flow-diagram': FlowDiagram,
+	'file_viewer': FileViewer
 };
 
 // ---------------------------------------------------------------------------
