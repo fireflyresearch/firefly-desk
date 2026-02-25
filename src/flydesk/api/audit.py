@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent
@@ -55,3 +55,12 @@ async def query_events(
     """Query audit events with optional filters."""
     capped = min(limit, 500)
     return await logger.query(user_id=user_id, event_type=event_type, limit=capped)
+
+
+@router.get("/events/{event_id}", dependencies=[AuditRead])
+async def get_event_detail(event_id: str, logger: Logger) -> AuditEvent:
+    """Retrieve a single audit event by ID."""
+    event = await logger.get_event(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Audit event not found")
+    return event

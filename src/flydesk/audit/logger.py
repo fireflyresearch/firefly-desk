@@ -63,6 +63,14 @@ class AuditLogger:
             await session.commit()
             return row.id
 
+    async def get_event(self, event_id: str) -> AuditEvent | None:
+        """Retrieve a single audit event by ID."""
+        async with self._session_factory() as session:
+            row = await session.get(AuditEventRow, event_id)
+            if row is None:
+                return None
+            return self._row_to_event(row)
+
     async def query(
         self,
         *,
