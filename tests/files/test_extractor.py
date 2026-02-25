@@ -218,7 +218,6 @@ class TestContentExtractorPPTX:
     async def test_extract_pptx(self, extractor):
         """PPTX files have slide text extracted."""
         from pptx import Presentation
-        from pptx.util import Inches
 
         prs = Presentation()
         slide_layout = prs.slide_layouts[1]  # Title and Content
