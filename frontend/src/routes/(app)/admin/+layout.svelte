@@ -25,7 +25,9 @@
 		ShieldAlert,
 		FileCode,
 		Wrench,
-		GitBranch
+		GitBranch,
+		GitFork,
+		HelpCircle
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -44,7 +46,9 @@
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
-		{ href: '/admin/sso', label: 'Single Sign-On', icon: Shield }
+		{ href: '/admin/sso', label: 'Single Sign-On', icon: Shield },
+		{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },
+		{ href: '/admin/help', label: 'Help & Guides', icon: HelpCircle }
 	];
 
 	let currentPath = $derived($page.url.pathname);
