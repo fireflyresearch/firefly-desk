@@ -37,7 +37,8 @@ async def client():
     }
     with patch.dict(os.environ, env):
         from flydesk.api.roles import get_role_repo
-        from flydesk.api.users import get_session_factory, get_settings_repo
+        from flydesk.api.users import get_local_user_repo, get_session_factory, get_settings_repo
+        from flydesk.auth.local_user_repository import LocalUserRepository
         from flydesk.server import create_app
 
         app = create_app()
@@ -53,9 +54,12 @@ async def client():
         role_repo = RoleRepository(session_factory)
         await role_repo.seed_builtin_roles()
 
+        local_user_repo = LocalUserRepository(session_factory)
+
         app.dependency_overrides[get_session_factory] = lambda: session_factory
         app.dependency_overrides[get_settings_repo] = lambda: settings_repo
         app.dependency_overrides[get_role_repo] = lambda: role_repo
+        app.dependency_overrides[get_local_user_repo] = lambda: local_user_repo
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
