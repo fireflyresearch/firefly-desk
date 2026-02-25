@@ -310,6 +310,7 @@ class DeskAgent:
             data={
                 "conversation_id": conversation_id,
                 "turn_id": turn_id,
+                "tool_count": len(adapted or []),
             },
         )
 
@@ -729,6 +730,12 @@ class DeskAgent:
             tools.extend(builtin_tools)
             _logger.debug("Added %d built-in tools for user %s", len(builtin_tools), session.user_id)
 
+            catalog_tool_count = len(tools) - len(builtin_tools)
+            _logger.info(
+                "Prepared turn: %d catalog tools, %d builtin tools, total=%d",
+                catalog_tool_count, len(builtin_tools), len(tools),
+            )
+
         # Resolve knowledge tag filter from access scopes (admin bypasses)
         knowledge_tag_filter: list[str] | None = None
         if not admin_user and scopes.knowledge_tags:
@@ -849,6 +856,12 @@ class DeskAgent:
             for chunk in self._echo_fallback_chunks(message):
                 yield chunk
             return
+
+        _logger.info(
+            "LLM agent streaming with %d tools (model=%s)",
+            len(tools or []),
+            str(getattr(agent, "_model_identifier", "unknown")),
+        )
 
         # Log tool registration state for diagnostics
         try:

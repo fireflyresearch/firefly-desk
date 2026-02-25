@@ -50,6 +50,8 @@ export interface Message {
 	fileIds?: string[];
 	files?: MessageFile[];
 	usage?: TokenUsage;
+	/** Number of tools available to the agent for this turn (diagnostic). */
+	toolCount?: number;
 }
 
 export interface ReasoningStep {
@@ -190,11 +192,16 @@ export function setUsage(usage: TokenUsage): void {
 }
 
 /** Mark the currently-streaming assistant message as complete. */
-export function finishStreaming(toolExecutions?: ToolExecution[]): void {
+export function finishStreaming(toolExecutions?: ToolExecution[], toolCount?: number): void {
 	messages.update((msgs) =>
 		msgs.map((m) =>
 			m.isStreaming
-				? { ...m, isStreaming: false, ...(toolExecutions?.length ? { toolExecutions } : {}) }
+				? {
+						...m,
+						isStreaming: false,
+						...(toolExecutions?.length ? { toolExecutions } : {}),
+						...(toolCount !== undefined ? { toolCount } : {})
+					}
 				: m
 		)
 	);

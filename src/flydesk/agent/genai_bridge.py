@@ -151,6 +151,9 @@ class DeskAgentFactory:
         if model_settings_override:
             settings.update(model_settings_override)
 
+        if not tools:
+            _logger.warning("Creating agent with NO tools — agent won't be able to call APIs")
+
         return FireflyAgent(
             name="ember",
             model=model_str,

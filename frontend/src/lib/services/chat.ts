@@ -334,7 +334,8 @@ function handleSSEEvent(msg: SSEMessage): void {
 
 		case 'done': {
 			const tools = get(completedTools);
-			finishStreaming(tools.length > 0 ? tools : undefined);
+			const toolCount = typeof msg.data.tool_count === 'number' ? msg.data.tool_count : undefined;
+			finishStreaming(tools.length > 0 ? tools : undefined, toolCount);
 			clearToolState();
 			clearReasoningState();
 			break;

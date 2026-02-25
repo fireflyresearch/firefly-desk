@@ -198,6 +198,11 @@
 				{#if !message.isStreaming && message.usage}
 					<TokenUsage usage={message.usage} />
 				{/if}
+				{#if !message.isStreaming && $currentUser?.devMode && message.toolCount !== undefined}
+					<span class="mt-0.5 rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary" title="Number of tools available to the agent">
+						{message.toolCount} tools
+					</span>
+				{/if}
 				<div class="mt-1 flex items-center gap-2">
 					<span
 						class="px-1 text-xs text-text-secondary opacity-0 transition-opacity group-hover:opacity-100"
