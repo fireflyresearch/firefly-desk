@@ -431,6 +431,38 @@ async def import_from_url(body: ImportURLRequest, importer: Importer) -> dict[st
     return _strip_content(doc)
 
 
+@router.post("/documents/import-files", status_code=201, dependencies=[KnowledgeWrite])
+async def import_multiple_files(
+    files: list[UploadFile],
+    importer: Importer,
+    tags: str | None = Form(default=None),
+) -> dict:
+    """Import multiple knowledge documents from uploaded files.
+
+    Each file is imported independently so that a single failure does not
+    block the remaining uploads.  Returns 400 if the file list is empty.
+    Tags (comma-separated) are applied to every imported document.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for file in files:
+        try:
+            content = await file.read()
+            tag_list = [t.strip() for t in tags.split(",")] if tags else None
+            doc = await importer.import_file(
+                filename=file.filename or "uploaded_file",
+                content=content,
+                content_type=file.content_type or "text/plain",
+                tags=tag_list,
+            )
+            results.append({"filename": file.filename, "document_id": doc.id, "status": "indexed"})
+        except Exception as exc:
+            errors.append({"filename": file.filename, "error": str(exc)})
+    return {"documents": results, "errors": errors}
+
+
 @router.post("/documents/import-file", status_code=201, dependencies=[KnowledgeWrite])
 async def import_from_file(
     file: UploadFile,
