@@ -348,7 +348,7 @@
 			</div>
 		{/if}
 
-		<div class="rounded-2xl border border-border/60 bg-surface p-1 shadow-sm transition-all duration-200 focus-within:border-transparent focus-within:ring-0 focus-within:shadow-md">
+		<div class="rounded-2xl border border-border/60 bg-surface p-1 shadow-sm transition-all duration-200 focus-within:ring-0 focus-within:shadow-md">
 			<div class="flex items-end gap-1">
 				<button
 					type="button"
