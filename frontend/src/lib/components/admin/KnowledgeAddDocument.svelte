@@ -13,7 +13,7 @@
 		Upload,
 		Globe,
 		Code2,
-		Github,
+		GitBranch,
 		Loader2,
 		Save,
 		X,
@@ -22,7 +22,7 @@
 		AlertCircle
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch, getToken } from '$lib/services/api.js';
-	import KnowledgeGitHubImporter from './KnowledgeGitHubImporter.svelte';
+	import GitImporter from './GitImporter.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -122,7 +122,7 @@
 		{ id: 'file', label: 'File Upload', icon: Upload },
 		{ id: 'url', label: 'URL Import', icon: Globe },
 		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 },
-		{ id: 'github', label: 'GitHub Import', icon: Github }
+		{ id: 'github', label: 'Git Import', icon: GitBranch }
 	];
 
 	// -----------------------------------------------------------------------
@@ -894,7 +894,7 @@
 	<!-- GitHub Import Tab                                                  -->
 	<!-- ================================================================= -->
 	{:else if activeSubTab === 'github'}
-		<KnowledgeGitHubImporter
+		<GitImporter
 			onsuccess={() => {
 				success = 'Files imported successfully.';
 				onDocumentAdded?.();
