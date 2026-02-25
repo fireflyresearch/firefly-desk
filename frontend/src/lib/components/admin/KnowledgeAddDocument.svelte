@@ -359,7 +359,7 @@
 	<!-- Feedback banners -->
 	{#if error}
 		<div
-			class="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+			class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 		>
 			<AlertCircle size={16} />
 			{error}
@@ -368,7 +368,7 @@
 
 	{#if success}
 		<div
-			class="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success"
+			class="flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-2.5 text-sm text-success"
 		>
 			<CheckCircle2 size={16} />
 			{success}

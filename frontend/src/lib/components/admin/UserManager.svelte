@@ -462,7 +462,7 @@
 	<!-- Error banner -->
 	{#if error}
 		<div
-			class="flex items-center justify-between rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+			class="flex items-center justify-between rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 		>
 			<span>{error}</span>
 			<button
@@ -824,7 +824,7 @@
 																		}
 																		type="password"
 																		placeholder="New password"
-																		class="{inputClass} max-w-xs"
+																		class={inputClass}
 																	/>
 																	<button
 																		type="button"

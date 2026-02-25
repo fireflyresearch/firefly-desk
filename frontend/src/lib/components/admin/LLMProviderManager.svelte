@@ -416,7 +416,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}
@@ -716,7 +716,7 @@
 
 				{#if embeddingError}
 					<div
-						class="mb-3 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger"
+						class="mb-3 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger"
 					>
 						{embeddingError}
 					</div>

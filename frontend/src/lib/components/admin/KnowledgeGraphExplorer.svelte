@@ -581,7 +581,7 @@
 	<!-- Error banner -->
 	{#if error}
 		<div
-			class="flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+			class="flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 		>
 			<AlertCircle size={16} />
 			{error}
