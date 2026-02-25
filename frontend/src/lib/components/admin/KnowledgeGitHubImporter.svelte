@@ -1,8 +1,9 @@
 <!--
-  KnowledgeGitHubImporter.svelte - 6-step GitHub import wizard.
+  KnowledgeGitHubImporter.svelte - 7-step GitHub import wizard.
 
-  Guides users through authenticating with GitHub, selecting a repository,
-  branch, and files, previewing content, and importing into the knowledge base.
+  Guides users through authenticating with GitHub, selecting an account
+  (personal or organization), repository, branch, and files, previewing
+  content, and importing into the knowledge base.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -21,7 +22,9 @@
 		Code2,
 		AlertCircle,
 		FolderTree,
-		GitBranch
+		GitBranch,
+		Building,
+		User
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
@@ -74,6 +77,7 @@
 
 	const STEPS = [
 		'Authenticate',
+		'Account',
 		'Repository',
 		'Branch',
 		'Select Files',
@@ -100,25 +104,29 @@
 	let authToken = $state('');
 	let authMethod = $state<'none' | 'pat' | 'oauth'>('none');
 
-	// Step 2: Repository
+	// Step 2: Account selection
+	let organizations = $state<Array<{ login: string; avatar_url: string; description: string }>>([]);
+	let selectedAccount = $state<string | null>(null); // null = personal, org login = org
+
+	// Step 3: Repository
 	let repos = $state<Repo[]>([]);
 	let repoSearch = $state('');
 	let selectedRepo = $state<Repo | null>(null);
 	let manualOwner = $state('');
 	let manualRepo = $state('');
 
-	// Step 3: Branch
+	// Step 4: Branch
 	let branches = $state<Branch[]>([]);
 	let selectedBranch = $state('');
 
-	// Step 4: File selection
+	// Step 5: File selection
 	let treeEntries = $state<TreeEntry[]>([]);
 	let selectedPaths = $state<Set<string>>(new Set());
 
-	// Step 5: Preview
+	// Step 6: Preview
 	let previewFiles = $state<PreviewFile[]>([]);
 
-	// Step 6: Import
+	// Step 7: Import
 	let importStatus = $state<'idle' | 'importing' | 'done' | 'error'>('idle');
 	let importedCount = $state(0);
 
@@ -169,7 +177,35 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Step 2: Repository selection
+	// Step 2: Account selection
+	// -----------------------------------------------------------------------
+
+	async function fetchOrganizations() {
+		if (!authToken) return;
+		loading = true;
+		error = '';
+		try {
+			organizations = await apiJson<typeof organizations>(
+				`/github/orgs?token=${encodeURIComponent(authToken)}`
+			);
+		} catch {
+			organizations = [];
+		} finally {
+			loading = false;
+		}
+	}
+
+	function selectAccount(account: string | null) {
+		selectedAccount = account;
+		// Reset repo selection when switching accounts
+		repos = [];
+		selectedRepo = null;
+		repoSearch = '';
+		goNext();
+	}
+
+	// -----------------------------------------------------------------------
+	// Step 3: Repository selection
 	// -----------------------------------------------------------------------
 
 	async function fetchRepos() {
@@ -180,7 +216,10 @@
 			if (authToken) params.set('token', authToken);
 			if (repoSearch) params.set('search', repoSearch);
 			const qs = params.toString();
-			repos = await apiJson<Repo[]>(`/github/repos${qs ? `?${qs}` : ''}`);
+			const endpoint = selectedAccount
+				? `/github/orgs/${encodeURIComponent(selectedAccount)}/repos${qs ? `?${qs}` : ''}`
+				: `/github/repos${qs ? `?${qs}` : ''}`;
+			repos = await apiJson<Repo[]>(endpoint);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to fetch repositories';
 		} finally {
@@ -195,7 +234,7 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Step 3: Branch selection
+	// Step 4: Branch selection
 	// -----------------------------------------------------------------------
 
 	async function fetchBranches() {
@@ -220,7 +259,7 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Step 4: File tree
+	// Step 5: File tree
 	// -----------------------------------------------------------------------
 
 	async function fetchTree() {
@@ -264,7 +303,7 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Step 5: Preview
+	// Step 6: Preview
 	// -----------------------------------------------------------------------
 
 	async function fetchPreview() {
@@ -290,7 +329,7 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Step 6: Import
+	// Step 7: Import
 	// -----------------------------------------------------------------------
 
 	async function runImport() {
@@ -328,32 +367,41 @@
 
 		// Load data for the next step
 		if (nextStep === 1) {
+			// Moving to account selection step
+			if (isAuthenticated) {
+				await fetchOrganizations();
+			} else {
+				// Skip account selection for unauthenticated users
+				currentStep = 2;
+				return;
+			}
+		} else if (nextStep === 2) {
 			// Moving to repository step
 			if (isAuthenticated) {
 				await fetchRepos();
 			}
-		} else if (nextStep === 2) {
+		} else if (nextStep === 3) {
 			// Moving to branch step
 			if (!repoOwner || !repoName) {
 				error = 'Please select or enter a repository.';
 				return;
 			}
 			await fetchBranches();
-		} else if (nextStep === 3) {
+		} else if (nextStep === 4) {
 			// Moving to file selection step
 			if (!selectedBranch) {
 				error = 'Please select a branch.';
 				return;
 			}
 			await fetchTree();
-		} else if (nextStep === 4) {
+		} else if (nextStep === 5) {
 			// Moving to preview step
 			if (selectedPaths.size === 0) {
 				error = 'Please select at least one file.';
 				return;
 			}
 			await fetchPreview();
-		} else if (nextStep === 5) {
+		} else if (nextStep === 6) {
 			// Moving to import step
 			await runImport();
 		}
@@ -366,7 +414,12 @@
 	function goBack() {
 		error = '';
 		if (currentStep > 0) {
-			currentStep -= 1;
+			// Skip account step for unauthenticated users going back
+			if (currentStep === 2 && !isAuthenticated) {
+				currentStep = 0;
+			} else {
+				currentStep -= 1;
+			}
 		}
 	}
 
@@ -376,6 +429,8 @@
 		error = '';
 		authToken = '';
 		authMethod = 'none';
+		organizations = [];
+		selectedAccount = null;
 		repos = [];
 		repoSearch = '';
 		selectedRepo = null;
@@ -512,9 +567,96 @@
 		</div>
 
 	<!-- ================================================================= -->
-	<!-- Step 2: Select Repository                                          -->
+	<!-- Step 2: Select Account                                             -->
 	<!-- ================================================================= -->
 	{:else if currentStep === 1}
+		<div class="flex flex-col gap-3">
+			<h3 class="text-sm font-semibold text-text-primary">Select Account</h3>
+			<p class="text-xs text-text-secondary">
+				Choose which account to browse repositories from.
+			</p>
+
+			{#if loading}
+				<div class="flex items-center justify-center py-8">
+					<Loader2 size={20} class="animate-spin text-accent" />
+				</div>
+			{:else}
+				<div class="flex flex-col gap-1 rounded-md border border-border p-1">
+					<!-- Personal account -->
+					<button
+						type="button"
+						onclick={() => selectAccount(null)}
+						class="flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-secondary"
+					>
+						<div
+							class="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10"
+						>
+							<User size={16} class="text-accent" />
+						</div>
+						<div class="min-w-0 flex-1">
+							<span class="font-medium text-text-primary">Personal Repositories</span>
+							<p class="text-xs text-text-secondary">
+								Your own repositories and forks
+							</p>
+						</div>
+						<ChevronRight size={14} class="text-text-tertiary" />
+					</button>
+
+					<!-- Organizations -->
+					{#each organizations as org}
+						<button
+							type="button"
+							onclick={() => selectAccount(org.login)}
+							class="flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-secondary"
+						>
+							<div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-surface-secondary">
+								{#if org.avatar_url}
+									<img
+										src={org.avatar_url}
+										alt={org.login}
+										class="h-8 w-8 rounded-full object-cover"
+									/>
+								{:else}
+									<Building size={16} class="text-text-secondary" />
+								{/if}
+							</div>
+							<div class="min-w-0 flex-1">
+								<span class="font-medium text-text-primary">{org.login}</span>
+								{#if org.description}
+									<p class="truncate text-xs text-text-secondary">
+										{org.description}
+									</p>
+								{/if}
+							</div>
+							<ChevronRight size={14} class="text-text-tertiary" />
+						</button>
+					{/each}
+
+					{#if organizations.length === 0}
+						<p class="py-2 text-center text-xs text-text-tertiary">
+							No organizations found.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Navigation -->
+			<div class="flex justify-between pt-2">
+				<button
+					type="button"
+					onclick={goBack}
+					class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-secondary"
+				>
+					<ChevronLeft size={14} />
+					Back
+				</button>
+			</div>
+		</div>
+
+	<!-- ================================================================= -->
+	<!-- Step 3: Select Repository                                          -->
+	<!-- ================================================================= -->
+	{:else if currentStep === 2}
 		<div class="flex flex-col gap-3">
 			<h3 class="text-sm font-semibold text-text-primary">Select Repository</h3>
 
@@ -634,9 +776,9 @@
 		</div>
 
 	<!-- ================================================================= -->
-	<!-- Step 3: Select Branch                                              -->
+	<!-- Step 4: Select Branch                                              -->
 	<!-- ================================================================= -->
-	{:else if currentStep === 2}
+	{:else if currentStep === 3}
 		<div class="flex flex-col gap-3">
 			<div class="flex items-center gap-2">
 				<GitBranch size={16} class="text-text-primary" />
@@ -688,9 +830,9 @@
 		</div>
 
 	<!-- ================================================================= -->
-	<!-- Step 4: Select Files                                               -->
+	<!-- Step 5: Select Files                                               -->
 	<!-- ================================================================= -->
-	{:else if currentStep === 3}
+	{:else if currentStep === 4}
 		<div class="flex flex-col gap-3">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2">
@@ -800,9 +942,9 @@
 		</div>
 
 	<!-- ================================================================= -->
-	<!-- Step 5: Analysis Preview                                           -->
+	<!-- Step 6: Analysis Preview                                           -->
 	<!-- ================================================================= -->
-	{:else if currentStep === 4}
+	{:else if currentStep === 5}
 		<div class="flex flex-col gap-3">
 			<h3 class="text-sm font-semibold text-text-primary">Analysis Preview</h3>
 			<p class="text-xs text-text-secondary">
@@ -869,9 +1011,9 @@
 		</div>
 
 	<!-- ================================================================= -->
-	<!-- Step 6: Import Progress                                            -->
+	<!-- Step 7: Import Progress                                            -->
 	<!-- ================================================================= -->
-	{:else if currentStep === 5}
+	{:else if currentStep === 6}
 		<div class="flex flex-col items-center gap-4 py-6">
 			{#if importStatus === 'importing'}
 				<Loader2 size={32} class="animate-spin text-accent" />
