@@ -251,7 +251,7 @@ class TestBuildFileContext:
         )
         agent = self._make_agent(file_repo=mock_repo)
 
-        result = await agent._build_file_context(["f-1", "f-2"])
+        result, _parts = await agent._build_file_context(["f-1", "f-2"])
 
         assert "- [doc-f-1.pdf]: Content of f-1" in result
         assert "- [doc-f-2.pdf]: Content of f-2" in result
@@ -272,7 +272,7 @@ class TestBuildFileContext:
         )
         agent = self._make_agent(file_repo=mock_repo)
 
-        result = await agent._build_file_context(["f-missing", "f-ok"])
+        result, _parts = await agent._build_file_context(["f-missing", "f-ok"])
 
         assert "found.txt" in result
         assert "f-missing" not in result
@@ -293,7 +293,7 @@ class TestBuildFileContext:
         )
         agent = self._make_agent(file_repo=mock_repo)
 
-        result = await agent._build_file_context(["f-1"])
+        result, _parts = await agent._build_file_context(["f-1"])
 
         assert result == ""
 
@@ -302,7 +302,7 @@ class TestBuildFileContext:
         mock_repo = AsyncMock()
         agent = self._make_agent(file_repo=mock_repo)
 
-        result = await agent._build_file_context(None)
+        result, _parts = await agent._build_file_context(None)
 
         assert result == ""
         mock_repo.get.assert_not_awaited()
@@ -311,7 +311,7 @@ class TestBuildFileContext:
         """Returns empty string when file_repo is not configured."""
         agent = self._make_agent(file_repo=None)
 
-        result = await agent._build_file_context(["f-1"])
+        result, _parts = await agent._build_file_context(["f-1"])
 
         assert result == ""
 

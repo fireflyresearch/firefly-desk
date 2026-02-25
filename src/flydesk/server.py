@@ -377,6 +377,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         process_repo=process_repo,
     )
 
+    # Wire document tool executor into built-in tools
+    from flydesk.tools.document_tools import DocumentToolExecutor
+
+    doc_executor = DocumentToolExecutor(file_storage)
+    builtin_executor.set_document_executor(doc_executor)
+
     from fireflyframework_genai.memory import MemoryManager
     from fireflyframework_genai.memory.store import InMemoryStore
 
@@ -458,6 +464,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_executor=tool_executor,
         builtin_executor=builtin_executor,
         file_repo=file_repo,
+        file_storage=file_storage,
         confirmation_service=confirmation_service,
         conversation_repo=conversation_repo,
         agent_factory=agent_factory,
