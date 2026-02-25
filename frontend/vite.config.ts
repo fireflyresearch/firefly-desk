@@ -7,6 +7,9 @@ export default defineConfig({
 		tailwindcss(),
 		sveltekit()
 	],
+	optimizeDeps: {
+		include: ['swagger-ui-dist']
+	},
 	server: {
 		proxy: {
 			'/api': {
