@@ -70,7 +70,7 @@ class ContentExtractor:
                 text = page.extract_text()
                 if text:
                     pages.append(text)
-            return "\n".join(pages) if pages else None
+            return "\n\n".join(pages) if pages else None
         except Exception:
             logger.warning("Failed to extract text from PDF", exc_info=True)
             return None
@@ -82,7 +82,7 @@ class ContentExtractor:
             from docx import Document
 
             doc = Document(io.BytesIO(content))
-            paragraphs = [p.text for p in doc.paragraphs if p.text]
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
             return "\n".join(paragraphs) if paragraphs else None
         except Exception:
             logger.warning("Failed to extract text from DOCX", exc_info=True)
