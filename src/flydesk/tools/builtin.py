@@ -233,6 +233,45 @@ def _create_system_endpoint_tool() -> ToolDefinition:
     )
 
 
+def _save_memory_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__save_memory",
+        name="save_memory",
+        description=(
+            "Save an important piece of information about the user for future reference. "
+            "Use when: the user shares a preference, important fact, or workflow detail "
+            "that should be remembered across conversations."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/memory/save",
+        parameters={
+            "content": {"type": "string", "description": "The information to remember", "required": True},
+            "category": {"type": "string", "description": "Category: general, preference, fact, workflow (default: general)", "required": False},
+        },
+    )
+
+
+def _recall_memories_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__recall_memories",
+        name="recall_memories",
+        description=(
+            "Search the user's saved memories for relevant information. "
+            "Use when: you need to recall user preferences, past instructions, "
+            "or facts the user has shared before."
+        ),
+        risk_level=RiskLevel.READ,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.GET.value,
+        path="/__builtin__/memory/recall",
+        parameters={
+            "query": {"type": "string", "description": "Search query to find relevant memories", "required": True},
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -250,6 +289,10 @@ class BuiltinToolRegistry:
 
         # Always available
         tools.append(_platform_status_tool())
+
+        # Memory tools (always available -- user-scoped)
+        tools.append(_save_memory_tool())
+        tools.append(_recall_memories_tool())
 
         # Knowledge tools (require knowledge:read or *)
         if has_all or "knowledge:read" in user_permissions:
@@ -274,19 +317,25 @@ class BuiltinToolRegistry:
         if has_all or "audit:read" in user_permissions:
             tools.append(_query_audit_log_tool())
 
-        # Document tools (require knowledge:read or *)
+        # Document read tools (require knowledge:read or *)
         if has_all or "knowledge:read" in user_permissions:
             from flydesk.tools.document_tools import (
                 document_convert_tool,
-                document_create_tool,
-                document_modify_tool,
                 document_read_tool,
             )
 
             tools.append(document_read_tool())
+            tools.append(document_convert_tool())
+
+        # Document write tools (require knowledge:write or *)
+        if has_all or "knowledge:write" in user_permissions:
+            from flydesk.tools.document_tools import (
+                document_create_tool,
+                document_modify_tool,
+            )
+
             tools.append(document_create_tool())
             tools.append(document_modify_tool())
-            tools.append(document_convert_tool())
 
         # Transform tools (always available — no permission requirement)
         from flydesk.tools.transform_tools import (
@@ -323,11 +372,14 @@ class BuiltinToolExecutor:
         audit_logger: AuditLogger,
         knowledge_retriever: KnowledgeRetriever | None = None,
         process_repo: ProcessRepository | None = None,
+        memory_repo: Any | None = None,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._audit_logger = audit_logger
         self._knowledge_retriever = knowledge_retriever
         self._process_repo = process_repo
+        self._memory_repo = memory_repo
+        self._user_id: str | None = None
         self._doc_executor: DocumentToolExecutor | None = None
         self._auto_trigger: AutoTriggerService | None = None
 
@@ -336,6 +388,10 @@ class BuiltinToolExecutor:
         )
 
         self._transform_executor: TransformToolExecutor = _TransformExec()
+
+    def set_user_context(self, user_id: str) -> None:
+        """Set the current user context for user-scoped tools."""
+        self._user_id = user_id
 
     def set_document_executor(self, executor: DocumentToolExecutor) -> None:
         """Attach a :class:`DocumentToolExecutor` for document operations."""
@@ -365,6 +421,8 @@ class BuiltinToolExecutor:
             "query_audit_log": self._query_audit,
             "get_platform_status": self._platform_status,
             "search_processes": self._search_processes,
+            "save_memory": self._save_memory,
+            "recall_memories": self._recall_memories,
         }
 
         handler = handlers.get(tool_name)
@@ -427,8 +485,7 @@ class BuiltinToolExecutor:
         if not system_id:
             return {"error": "system_id is required"}
 
-        endpoints = await self._catalog_repo.list_endpoints()
-        filtered = [e for e in endpoints if e.system_id == system_id]
+        endpoints = await self._catalog_repo.list_endpoints(system_id)
 
         return {
             "system_id": system_id,
@@ -442,9 +499,9 @@ class BuiltinToolExecutor:
                     "risk_level": e.risk_level.value,
                     "protocol": getattr(e, "protocol_type", "rest"),
                 }
-                for e in filtered
+                for e in endpoints
             ],
-            "count": len(filtered),
+            "count": len(endpoints),
         }
 
     async def _create_catalog_system(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -628,7 +685,7 @@ class BuiltinToolExecutor:
 
     async def _platform_status(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         systems = await self._catalog_repo.list_systems()
-        endpoints = await self._catalog_repo.list_endpoints()
+        endpoints = await self._catalog_repo.list_active_endpoints()
 
         return {
             "systems_count": len(systems),
@@ -681,3 +738,54 @@ class BuiltinToolExecutor:
             })
 
         return {"processes": results, "total_matches": len(matches)}
+
+    async def _save_memory(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        content = arguments.get("content", "").strip()
+        if not content:
+            return {"error": "content is required"}
+
+        if self._memory_repo is None:
+            return {"error": "Memory system not configured"}
+
+        if self._user_id is None:
+            return {"error": "User context not set"}
+
+        from flydesk.memory.models import CreateMemory
+
+        category = arguments.get("category", "general")
+        memory = await self._memory_repo.create(
+            self._user_id,
+            CreateMemory(content=content, category=category, source="agent"),
+        )
+        return {
+            "memory_id": memory.id,
+            "content": memory.content,
+            "category": memory.category,
+            "message": "Memory saved successfully.",
+        }
+
+    async def _recall_memories(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = arguments.get("query", "").strip()
+        if not query:
+            return {"error": "query is required"}
+
+        if self._memory_repo is None:
+            return {"error": "Memory system not configured"}
+
+        if self._user_id is None:
+            return {"error": "User context not set"}
+
+        memories = await self._memory_repo.search(self._user_id, query)
+        return {
+            "query": query,
+            "memories": [
+                {
+                    "id": m.id,
+                    "content": m.content,
+                    "category": m.category,
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                }
+                for m in memories
+            ],
+            "count": len(memories),
+        }

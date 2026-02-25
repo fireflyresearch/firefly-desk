@@ -20,11 +20,14 @@
 		Pencil,
 		CheckCircle2,
 		AlertCircle,
-		RefreshCw
+		RefreshCw,
+		Maximize2,
+		Minimize2
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import MarkdownContent from '$lib/components/shared/MarkdownContent.svelte';
+	import SwaggerViewer from '$lib/components/shared/SwaggerViewer.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -52,9 +55,11 @@
 		onClose: () => void;
 		onDeleted?: () => void;
 		onUpdated?: () => void;
+		onToggleFullscreen?: () => void;
+		isFullscreen?: boolean;
 	}
 
-	let { documentId, onClose, onDeleted, onUpdated }: Props = $props();
+	let { documentId, onClose, onDeleted, onUpdated, onToggleFullscreen, isFullscreen = false }: Props = $props();
 
 	// -----------------------------------------------------------------------
 	// State
@@ -217,6 +222,24 @@
 		other: 'bg-text-secondary/10 text-text-secondary'
 	};
 
+	function isOpenAPISpec(doc: KnowledgeDocument): boolean {
+		if (doc.document_type === 'api_spec') return true;
+		if (!doc.content) return false;
+		// Check for common OpenAPI markers
+		const content = doc.content.trim();
+		try {
+			const parsed = JSON.parse(content);
+			return !!(parsed.openapi || parsed.swagger);
+		} catch {
+			return (
+				content.includes('"openapi"') ||
+				content.includes('"swagger"') ||
+				content.includes('openapi:') ||
+				content.includes('swagger:')
+			);
+		}
+	}
+
 	function formatDate(dateStr?: string): string {
 		if (!dateStr) return '--';
 		const d = new Date(dateStr);
@@ -274,6 +297,20 @@
 					<Trash2 size={14} />
 				{/if}
 			</button>
+			{#if onToggleFullscreen}
+				<button
+					type="button"
+					onclick={onToggleFullscreen}
+					class="rounded p-1.5 text-text-secondary transition-colors hover:bg-accent/10 hover:text-accent"
+					title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+				>
+					{#if isFullscreen}
+						<Minimize2 size={14} />
+					{:else}
+						<Maximize2 size={14} />
+					{/if}
+				</button>
+			{/if}
 			<button
 				type="button"
 				onclick={onClose}
@@ -458,8 +495,12 @@
 					{#if doc.content}
 						<div class="flex min-h-0 flex-1 flex-col gap-1.5">
 							<span class="text-xs font-medium text-text-secondary">Content Preview</span>
-							<div class="min-h-0 flex-1">
-								<MarkdownContent content={doc.content} />
+							<div class="min-h-0 flex-1 overflow-auto">
+								{#if isOpenAPISpec(doc)}
+									<SwaggerViewer spec={doc.content} />
+								{:else}
+									<MarkdownContent content={doc.content} />
+								{/if}
 							</div>
 						</div>
 					{/if}

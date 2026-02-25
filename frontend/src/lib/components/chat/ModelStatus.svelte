@@ -12,6 +12,12 @@
 	import { apiJson } from '$lib/services/api.js';
 	import { onMount } from 'svelte';
 
+	interface Props {
+		compact?: boolean;
+	}
+
+	let { compact = false }: Props = $props();
+
 	interface LLMStatus {
 		provider_name: string | null;
 		provider_type: string | null;
@@ -77,92 +83,123 @@
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} />
-
-<div class="relative" data-model-status>
-	<button
-		type="button"
-		onclick={togglePopover}
-		class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-		title={status ? `${status.model} — ${statusLabels[status.status] ?? 'Unknown'}` : 'Loading...'}
-	>
-		{#if loading}
-			<div class="h-2 w-2 animate-pulse rounded-full bg-gray-400"></div>
-			<span class="hidden sm:inline">Loading...</span>
-		{:else if status}
-			<div class="relative flex h-2 w-2">
-				<div class="h-2 w-2 rounded-full {statusColors[status.status] ?? statusColors.unknown}"></div>
-				{#if status.status === 'connected'}
-					<div class="absolute inset-0 animate-ping rounded-full {statusColors.connected} opacity-40"></div>
+{#snippet popoverContent()}
+	<div class="flex flex-col gap-2.5">
+		<!-- Model -->
+		<div class="flex items-center gap-2">
+			<Cpu size={14} class="shrink-0 text-text-secondary" />
+			<div class="flex-1">
+				<p class="text-xs font-medium text-text-primary">
+					{status?.model ?? 'No model configured'}
+				</p>
+				{#if status?.provider_name}
+					<p class="text-[10px] text-text-secondary">
+						{status.provider_name} ({status.provider_type})
+					</p>
 				{/if}
 			</div>
-			<span class="hidden sm:inline">{formatModel(status.model)}</span>
-			<ChevronDown size={10} class="hidden opacity-50 sm:inline" />
-		{/if}
-	</button>
-
-	{#if popoverOpen && status}
-		<div
-			class="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-surface-elevated/95 p-3 shadow-xl backdrop-blur-xl"
-		>
-			<div class="flex flex-col gap-2.5">
-				<!-- Model -->
-				<div class="flex items-center gap-2">
-					<Cpu size={14} class="shrink-0 text-text-secondary" />
-					<div class="flex-1">
-						<p class="text-xs font-medium text-text-primary">
-							{status.model ?? 'No model configured'}
-						</p>
-						{#if status.provider_name}
-							<p class="text-[10px] text-text-secondary">
-								{status.provider_name} ({status.provider_type})
-							</p>
-						{/if}
-					</div>
-					<div
-						class="rounded-full px-1.5 py-0.5 text-[10px] font-medium
-							{status.status === 'connected'
-							? 'bg-emerald-500/10 text-emerald-600'
-							: status.status === 'degraded'
-								? 'bg-yellow-500/10 text-yellow-600'
-								: 'bg-red-500/10 text-red-600'}"
-					>
-						{statusLabels[status.status] ?? 'Unknown'}
-					</div>
-				</div>
-
-				<!-- Latency -->
-				{#if status.latency_ms !== null}
-					<div class="flex items-center gap-2 text-[10px] text-text-secondary">
-						<Zap size={10} />
-						<span>Latency: {Math.round(status.latency_ms)}ms</span>
-					</div>
-				{/if}
-
-				<!-- Fallback -->
-				{#if status.fallback_models.length > 0}
-					<div class="border-t border-border pt-2">
-						<p class="mb-1 text-[10px] font-medium text-text-secondary">Fallback Models</p>
-						<div class="flex flex-wrap gap-1">
-							{#each status.fallback_models as fb}
-								<span
-									class="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary"
-								>
-									{fb}
-								</span>
-							{/each}
-						</div>
-					</div>
-				{/if}
-
-				<!-- No provider -->
-				{#if !status.provider_name}
-					<div class="flex items-center gap-1.5 text-[10px] text-text-secondary">
-						<WifiOff size={10} />
-						<span>No LLM provider configured</span>
-					</div>
-				{/if}
+			<div
+				class="rounded-full px-1.5 py-0.5 text-[10px] font-medium
+					{status?.status === 'connected'
+					? 'bg-emerald-500/10 text-emerald-600'
+					: status?.status === 'degraded'
+						? 'bg-yellow-500/10 text-yellow-600'
+						: 'bg-red-500/10 text-red-600'}"
+			>
+				{statusLabels[status?.status ?? 'unknown'] ?? 'Unknown'}
 			</div>
 		</div>
-	{/if}
-</div>
+
+		<!-- Latency -->
+		{#if status?.latency_ms !== null && status?.latency_ms !== undefined}
+			<div class="flex items-center gap-2 text-[10px] text-text-secondary">
+				<Zap size={10} />
+				<span>Latency: {Math.round(status.latency_ms)}ms</span>
+			</div>
+		{/if}
+
+		<!-- Fallback -->
+		{#if status?.fallback_models && status.fallback_models.length > 0}
+			<div class="border-t border-border pt-2">
+				<p class="mb-1 text-[10px] font-medium text-text-secondary">Fallback Models</p>
+				<div class="flex flex-wrap gap-1">
+					{#each status.fallback_models as fb}
+						<span
+							class="rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary"
+						>
+							{fb}
+						</span>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+		<!-- No provider -->
+		{#if !status?.provider_name}
+			<div class="flex items-center gap-1.5 text-[10px] text-text-secondary">
+				<WifiOff size={10} />
+				<span>No LLM provider configured</span>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+<svelte:window onclick={handleWindowClick} />
+
+{#if compact}
+	<div class="relative" data-model-status>
+		<button
+			type="button"
+			onclick={togglePopover}
+			class="inline-flex items-center gap-1 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+			title={status ? `${status.model} — ${statusLabels[status.status] ?? 'Unknown'}` : 'Loading...'}
+		>
+			{#if loading}
+				<div class="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400"></div>
+				<span>...</span>
+			{:else if status}
+				<div class="h-1.5 w-1.5 rounded-full {statusColors[status.status] ?? statusColors.unknown}"></div>
+				<span>{formatModel(status.model)}</span>
+			{/if}
+		</button>
+
+		{#if popoverOpen && status}
+			<div
+				class="absolute left-0 bottom-full z-50 mb-1 w-64 rounded-lg border border-border bg-surface-elevated/95 p-3 shadow-xl backdrop-blur-xl"
+			>
+				{@render popoverContent()}
+			</div>
+		{/if}
+	</div>
+{:else}
+	<div class="relative" data-model-status>
+		<button
+			type="button"
+			onclick={togglePopover}
+			class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			title={status ? `${status.model} — ${statusLabels[status.status] ?? 'Unknown'}` : 'Loading...'}
+		>
+			{#if loading}
+				<div class="h-2 w-2 animate-pulse rounded-full bg-gray-400"></div>
+				<span class="hidden sm:inline">Loading...</span>
+			{:else if status}
+				<div class="relative flex h-2 w-2">
+					<div class="h-2 w-2 rounded-full {statusColors[status.status] ?? statusColors.unknown}"></div>
+					{#if status.status === 'connected'}
+						<div class="absolute inset-0 animate-ping rounded-full {statusColors.connected} opacity-40"></div>
+					{/if}
+				</div>
+				<span class="hidden sm:inline">{formatModel(status.model)}</span>
+				<ChevronDown size={10} class="hidden opacity-50 sm:inline" />
+			{/if}
+		</button>
+
+		{#if popoverOpen && status}
+			<div
+				class="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-surface-elevated/95 p-3 shadow-xl backdrop-blur-xl"
+			>
+				{@render popoverContent()}
+			</div>
+		{/if}
+	</div>
+{/if}

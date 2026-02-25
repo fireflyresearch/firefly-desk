@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from flydesk.auth.models import UserSession
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.llm.repository import LLMProviderRepository
+    from flydesk.memory.repository import MemoryRepository
     from flydesk.settings.repository import SettingsRepository
 
 _logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def handle_slash_command(
     agent_factory: DeskAgentFactory | None = None,
     llm_repo: LLMProviderRepository | None = None,
     settings_repo: SettingsRepository | None = None,
+    memory_repo: MemoryRepository | None = None,
 ) -> str:
     """Dispatch a slash command and return a markdown response string."""
     parts = message.strip().split(None, 1)
@@ -69,6 +71,7 @@ async def handle_slash_command(
             agent_factory=agent_factory,
             llm_repo=llm_repo,
             settings_repo=settings_repo,
+            memory_repo=memory_repo,
         )
     except Exception as exc:
         _logger.error("Slash command %s failed: %s", cmd, exc, exc_info=True)
@@ -131,17 +134,26 @@ async def _cmd_context(
     conversation_id: str,
     session: UserSession | None = None,
     context_enricher: ContextEnricher | None = None,
+    agent_factory: DeskAgentFactory | None = None,
+    memory_repo: Any | None = None,
     **_: Any,
 ) -> str:
     """Run context enrichment for a query and show what the agent would see."""
-    query = arg.strip() or "test query"
+    query = arg.strip()
+    if not query:
+        return (
+            "**Usage:** `/context <query>`\n\n"
+            "Run context enrichment for a query and show what the agent would see.\n\n"
+            "**Example:** `/context how do I reset a password`"
+        )
 
     if context_enricher is None:
         return "Context enricher not available."
 
     from flydesk.agent.context import EnrichedContext
 
-    enriched: EnrichedContext = await context_enricher.enrich(query)
+    user_id = session.user_id if session else None
+    enriched: EnrichedContext = await context_enricher.enrich(query, user_id=user_id)
 
     lines = [f"## Context Enrichment for: *{query}*\n"]
 
@@ -173,6 +185,58 @@ async def _cmd_context(
             lines.append(f"- {name}")
     else:
         lines.append("*No matching processes.*")
+
+    # User memories
+    lines.append(f"\n### User Memories ({len(enriched.user_memories)})")
+    if enriched.user_memories:
+        for m in enriched.user_memories:
+            content = getattr(m, "content", str(m))[:150]
+            category = getattr(m, "category", "general")
+            lines.append(f"- `{category}`: {content}")
+    else:
+        lines.append("*No matching user memories.*")
+
+    # Memory usage stats
+    lines.append("\n### Memory Usage")
+    if agent_factory and hasattr(agent_factory, "_memory_manager"):
+        mm = agent_factory._memory_manager
+        if mm is not None:
+            conv_mem = getattr(mm, "_conversation", None)
+            if conv_mem:
+                max_tokens = getattr(conv_mem, "_max_tokens", "unknown")
+                threshold = getattr(conv_mem, "_summarize_threshold", "unknown")
+                turns = getattr(conv_mem, "_turns", {})
+                conv_turns = turns.get(conversation_id, [])
+                summary = getattr(conv_mem, "_summaries", {}).get(conversation_id)
+
+                # Estimate current token usage
+                turn_chars = sum(
+                    len(str(t)) for t in conv_turns
+                )
+                est_tokens = turn_chars // 4
+
+                lines.append(f"- **Max Tokens:** {max_tokens:,}")
+                lines.append(f"- **Current Tokens (est.):** ~{est_tokens:,}")
+                if isinstance(max_tokens, int) and max_tokens > 0:
+                    pct = round(est_tokens / max_tokens * 100, 1)
+                    lines.append(f"- **Usage:** {pct}%")
+                lines.append(f"- **Compaction Threshold:** {threshold}")
+                lines.append(f"- **In-Memory Turns:** {len(conv_turns)}")
+                lines.append(f"- **Summary:** {'yes' if summary else 'none'}")
+            else:
+                lines.append("*Conversation memory not configured.*")
+        else:
+            lines.append("*Memory manager not configured.*")
+    else:
+        lines.append("*Memory manager not available.*")
+
+    # User memory count
+    if memory_repo and user_id:
+        try:
+            all_memories = await memory_repo.list_for_user(user_id)
+            lines.append(f"\n### Saved User Memories: **{len(all_memories)}**")
+        except Exception:
+            pass
 
     return "\n".join(lines)
 

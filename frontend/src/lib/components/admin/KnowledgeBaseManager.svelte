@@ -22,7 +22,8 @@
 		Hash,
 		Layers,
 		Archive,
-		RefreshCw
+		RefreshCw,
+		Maximize2
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -71,6 +72,11 @@
 	// Statistics
 	let stats = $state<GraphStats | null>(null);
 	let loadingStats = $state(true);
+
+	// Detail panel resize / fullscreen
+	let detailWidth = $state(384);
+	let isFullscreen = $state(false);
+	let isResizing = $state(false);
 
 	// KG recompute
 	let recomputingKG = $state(false);
@@ -276,6 +282,28 @@
 		loadStats();
 	}
 
+	function startResize(e: MouseEvent) {
+		e.preventDefault();
+		isResizing = true;
+		const startX = e.clientX;
+		const startWidth = detailWidth;
+
+		function onMouseMove(ev: MouseEvent) {
+			// Moving left increases width (detail is on the right)
+			const delta = startX - ev.clientX;
+			detailWidth = Math.max(300, Math.min(800, startWidth + delta));
+		}
+
+		function onMouseUp() {
+			isResizing = false;
+			window.removeEventListener('mousemove', onMouseMove);
+			window.removeEventListener('mouseup', onMouseUp);
+		}
+
+		window.addEventListener('mousemove', onMouseMove);
+		window.addEventListener('mouseup', onMouseUp);
+	}
+
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
@@ -314,7 +342,7 @@
 	}
 </script>
 
-<div class="flex h-full">
+<div class="relative flex h-full">
 	<!-- Main content -->
 	<div class="flex flex-1 flex-col gap-4 overflow-hidden p-6">
 		<!-- Header -->
@@ -453,26 +481,48 @@
 
 				<!-- Document detail panel or table -->
 				{#if selectedDocumentId}
-					<div class="flex flex-1 gap-3 overflow-hidden">
-						<!-- Table (narrower) -->
-						<div class="flex-1 overflow-auto rounded-lg border border-border bg-surface">
-							{@render documentTable()}
-						</div>
-
-						<!-- Detail panel -->
-						<div class="w-96 shrink-0">
+					{#if isFullscreen}
+						<!-- Fullscreen detail overlay -->
+						<div class="absolute inset-0 z-40 bg-surface">
 							<KnowledgeDocumentDetail
 								documentId={selectedDocumentId}
-								onClose={() => (selectedDocumentId = null)}
-								onDeleted={() => {
-									selectedDocumentId = null;
-									loadDocuments();
-									loadStats();
-								}}
+								onClose={() => { selectedDocumentId = null; isFullscreen = false; }}
+								onDeleted={() => { selectedDocumentId = null; isFullscreen = false; loadDocuments(); loadStats(); }}
 								onUpdated={() => loadDocuments()}
+								onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
+								{isFullscreen}
 							/>
 						</div>
-					</div>
+					{:else}
+						<div class="flex flex-1 gap-0 overflow-hidden">
+							<!-- Table -->
+							<div class="flex-1 overflow-auto rounded-lg border border-border bg-surface">
+								{@render documentTable()}
+							</div>
+
+							<!-- Resize handle -->
+							<div
+								class="flex w-1 cursor-col-resize items-center justify-center hover:bg-accent/20 transition-colors {isResizing ? 'bg-accent/30' : ''}"
+								role="separator"
+								aria-orientation="vertical"
+								onmousedown={startResize}
+							>
+								<div class="h-8 w-0.5 rounded-full bg-border"></div>
+							</div>
+
+							<!-- Detail panel (resizable) -->
+							<div class="shrink-0 overflow-hidden" style="width: {detailWidth}px">
+								<KnowledgeDocumentDetail
+									documentId={selectedDocumentId}
+									onClose={() => (selectedDocumentId = null)}
+									onDeleted={() => { selectedDocumentId = null; loadDocuments(); loadStats(); }}
+									onUpdated={() => loadDocuments()}
+									onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
+									{isFullscreen}
+								/>
+							</div>
+						</div>
+					{/if}
 				{:else}
 					<div class="flex-1 overflow-auto rounded-lg border border-border bg-surface">
 						{@render documentTable()}

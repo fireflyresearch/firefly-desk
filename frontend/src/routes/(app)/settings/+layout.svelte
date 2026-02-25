@@ -9,12 +9,13 @@
 -->
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { ArrowLeft, User, Palette, Info } from 'lucide-svelte';
+	import { ArrowLeft, User, Palette, Info, Brain } from 'lucide-svelte';
 
 	let { children } = $props();
 
 	const navItems = [
 		{ href: '/settings', label: 'Profile', icon: User, exact: true },
+		{ href: '/settings/memories', label: 'Memories', icon: Brain },
 		{ href: '/settings/appearance', label: 'Appearance', icon: Palette },
 		{ href: '/settings/about', label: 'About', icon: Info }
 	];

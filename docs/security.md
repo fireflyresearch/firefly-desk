@@ -72,6 +72,15 @@ Permissions are enforced at two layers:
 
 2. **Agent tool filtering**: During each conversation turn, the `ToolFactory` queries the service catalog for available endpoints and filters them based on the user's permissions. Only endpoints the user is authorized to invoke are presented to the LLM as available tools. This means the agent never even sees tools the user cannot use, which prevents the LLM from attempting unauthorized actions.
 
+### Document Tool Permissions
+
+Built-in document tools are gated by the appropriate knowledge permissions:
+
+- `document_read` and `document_convert` require `knowledge:read`
+- `document_create` and `document_modify` require `knowledge:write`
+
+This ensures that users with read-only access to the knowledge base cannot create or modify documents through the agent, even if they can browse existing content.
+
 ## Safety Safeguards
 
 ### Risk Levels

@@ -60,6 +60,7 @@ def catalog_repo() -> MagicMock:
     mock = MagicMock()
     mock.list_systems = AsyncMock(return_value=[_make_system()])
     mock.list_endpoints = AsyncMock(return_value=[_make_endpoint()])
+    mock.list_active_endpoints = AsyncMock(return_value=[_make_endpoint()])
     return mock
 
 
@@ -112,11 +113,13 @@ class TestBuiltinToolRegistry:
         assert "search_processes" in names
 
     def test_viewer_gets_platform_status_and_transform_tools(self):
-        """User with no special permissions gets platform status + transform tools."""
+        """User with no special permissions gets platform status + memory + transform tools."""
         tools = BuiltinToolRegistry.get_tool_definitions([])
         names = {t.name for t in tools}
         assert names == {
             "get_platform_status",
+            "save_memory",
+            "recall_memories",
             "grep_result",
             "parse_json",
             "filter_rows",
@@ -164,6 +167,31 @@ class TestBuiltinToolRegistry:
         for tool in tools:
             assert tool.risk_level in (RiskLevel.READ, RiskLevel.LOW_WRITE)
 
+    def test_knowledge_read_grants_document_read_not_write(self):
+        """knowledge:read grants document_read and document_convert but NOT document_create or document_modify."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read"])
+        names = {t.name for t in tools}
+        assert "document_read" in names
+        assert "document_convert" in names
+        assert "document_create" not in names
+        assert "document_modify" not in names
+
+    def test_knowledge_write_grants_document_write(self):
+        """knowledge:write grants document_create and document_modify."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:write"])
+        names = {t.name for t in tools}
+        assert "document_create" in names
+        assert "document_modify" in names
+
+    def test_knowledge_read_and_write_grants_all_document_tools(self):
+        """Both knowledge:read and knowledge:write together grant all 4 document tools."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read", "knowledge:write"])
+        names = {t.name for t in tools}
+        assert "document_read" in names
+        assert "document_convert" in names
+        assert "document_create" in names
+        assert "document_modify" in names
+
 
 # ---------------------------------------------------------------------------
 # Executor tests
@@ -205,13 +233,16 @@ class TestListEndpoints:
         assert result["count"] == 1
         assert result["endpoints"][0]["name"] == "Get Orders"
         assert result["endpoints"][0]["method"] == "GET"
+        catalog_repo.list_endpoints.assert_awaited_once_with("sys-1")
 
     async def test_filters_by_system_id(self, executor, catalog_repo):
-        """Endpoints from other systems are not returned."""
+        """Filtering is done at the DB level via system_id argument."""
+        catalog_repo.list_endpoints.return_value = []
         result = await executor.execute(
             "list_system_endpoints", {"system_id": "sys-other"}
         )
         assert result["count"] == 0
+        catalog_repo.list_endpoints.assert_awaited_once_with("sys-other")
 
     async def test_missing_system_id_returns_error(self, executor):
         result = await executor.execute("list_system_endpoints", {})
@@ -271,6 +302,7 @@ class TestPlatformStatus:
         assert result["endpoints_count"] == 1
         assert len(result["systems"]) == 1
         assert result["systems"][0]["name"] == "System sys-1"
+        catalog_repo.list_active_endpoints.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

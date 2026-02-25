@@ -110,6 +110,10 @@ The following environment variables serve as initial defaults that are overridde
 
 For full details on all customizable fields and how to configure them, see the [Agent Customization](agent-customization.md) documentation.
 
+## User Memory
+
+The User Memory system stores user-specific memories in the existing application database. No additional configuration is required. Memories are created through the agent's `save_memory` tool and managed through the `/api/memory` endpoints or the **Settings > Memories** page. See the [User Memory](user-memory.md) documentation for details.
+
 ## Background Jobs
 
 The background job system runs automatically and requires no configuration. Jobs are submitted by internal services (process discovery, KG recomputation, knowledge indexing) and executed by the built-in `JobRunner`. Job status and history are available through the `GET /api/jobs` endpoint.
