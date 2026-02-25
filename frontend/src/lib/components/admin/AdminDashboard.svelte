@@ -27,10 +27,14 @@
 		BookOpen,
 		Wrench,
 		FlaskConical,
-		Clock
+		Clock,
+		Coins,
+		BarChart3,
+		TrendingUp
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { currentUser } from '$lib/stores/user.js';
+	import ChartWidget from '$lib/components/widgets/ChartWidget.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -68,6 +72,20 @@
 		created_at: string | null;
 	}
 
+	interface ConversationAnalytics {
+		messages_per_day: { date: string; count: number }[];
+		avg_conversation_length: number;
+		tool_usage: { tool_name: string; count: number }[];
+		top_event_types: { event_type: string; count: number }[];
+	}
+
+	interface TokenUsageStats {
+		total_input_tokens: number;
+		total_output_tokens: number;
+		estimated_cost_usd: number;
+		period_days: number;
+	}
+
 	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
@@ -75,6 +93,8 @@
 	let stats = $state<SystemStats | null>(null);
 	let health = $state<DetailedHealth | null>(null);
 	let recentEvents = $state<AuditEventSummary[]>([]);
+	let analytics = $state<ConversationAnalytics | null>(null);
+	let tokenUsage = $state<TokenUsageStats | null>(null);
 	let loading = $state(true);
 	let error = $state('');
 
@@ -101,15 +121,19 @@
 		loading = true;
 		error = '';
 		try {
-			const [statsData, healthData, eventsData] = await Promise.all([
+			const [statsData, healthData, eventsData, analyticsData, tokenData] = await Promise.all([
 				apiJson<SystemStats>('/admin/dashboard/stats'),
 				apiJson<DetailedHealth>('/admin/dashboard/health'),
-				apiJson<AuditEventSummary[]>('/admin/dashboard/recent-events')
+				apiJson<AuditEventSummary[]>('/admin/dashboard/recent-events'),
+				apiJson<ConversationAnalytics>('/admin/dashboard/analytics').catch(() => null),
+				apiJson<TokenUsageStats>('/admin/dashboard/token-usage').catch(() => null)
 			]);
 			if (seq !== loadSeq) return;
 			stats = statsData;
 			health = healthData;
 			recentEvents = eventsData;
+			analytics = analyticsData;
+			tokenUsage = tokenData;
 		} catch (e) {
 			if (seq !== loadSeq) return;
 			error = e instanceof Error ? e.message : 'Failed to load dashboard data';
@@ -274,6 +298,17 @@
 				return `${base} bg-text-secondary`;
 		}
 	}
+
+	function formatChartDate(dateStr: string): string {
+		const d = new Date(dateStr);
+		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatTokenCount(n: number): string {
+		if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+		if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+		return String(n);
+	}
 </script>
 
 <style>
@@ -399,6 +434,141 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Analytics stat cards (second row) -->
+		{#if tokenUsage || analytics}
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				{#if tokenUsage}
+					<div
+						class="group relative rounded-xl border border-border bg-surface-elevated p-5 shadow-sm transition-shadow hover:shadow-md"
+					>
+						<div
+							class="pointer-events-none absolute inset-0 rounded-xl border border-transparent bg-gradient-to-br from-ember/20 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+						></div>
+						<div class="relative flex items-center gap-3">
+							<div class="flex h-11 w-11 items-center justify-center rounded-xl bg-ember/10">
+								<BarChart3 size={20} class="text-ember" />
+							</div>
+							<div>
+								<p class="text-3xl font-bold text-text-primary">
+									{formatTokenCount(tokenUsage.total_input_tokens + tokenUsage.total_output_tokens)}
+								</p>
+								<p class="text-xs text-text-secondary">Total Tokens</p>
+							</div>
+						</div>
+					</div>
+
+					<div
+						class="group relative rounded-xl border border-border bg-surface-elevated p-5 shadow-sm transition-shadow hover:shadow-md"
+					>
+						<div
+							class="pointer-events-none absolute inset-0 rounded-xl border border-transparent bg-gradient-to-br from-warning/20 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+						></div>
+						<div class="relative flex items-center gap-3">
+							<div class="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/10">
+								<Coins size={20} class="text-warning" />
+							</div>
+							<div>
+								<p class="text-3xl font-bold text-text-primary">
+									${tokenUsage.estimated_cost_usd.toFixed(2)}
+								</p>
+								<p class="text-xs text-text-secondary">Estimated Cost</p>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if analytics}
+					<div
+						class="group relative rounded-xl border border-border bg-surface-elevated p-5 shadow-sm transition-shadow hover:shadow-md"
+					>
+						<div
+							class="pointer-events-none absolute inset-0 rounded-xl border border-transparent bg-gradient-to-br from-success/20 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+						></div>
+						<div class="relative flex items-center gap-3">
+							<div class="flex h-11 w-11 items-center justify-center rounded-xl bg-success/10">
+								<TrendingUp size={20} class="text-success" />
+							</div>
+							<div>
+								<p class="text-3xl font-bold text-text-primary">
+									{analytics.messages_per_day?.length
+										? analytics.messages_per_day[analytics.messages_per_day.length - 1].count
+										: 0}
+								</p>
+								<p class="text-xs text-text-secondary">Messages Today</p>
+							</div>
+						</div>
+					</div>
+
+					<div
+						class="group relative rounded-xl border border-border bg-surface-elevated p-5 shadow-sm transition-shadow hover:shadow-md"
+					>
+						<div
+							class="pointer-events-none absolute inset-0 rounded-xl border border-transparent bg-gradient-to-br from-accent/20 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+						></div>
+						<div class="relative flex items-center gap-3">
+							<div class="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10">
+								<MessageSquare size={20} class="text-accent" />
+							</div>
+							<div>
+								<p class="text-3xl font-bold text-text-primary">
+									{analytics.avg_conversation_length?.toFixed(1) ?? '--'}
+								</p>
+								<p class="text-xs text-text-secondary">Avg Conv Length</p>
+							</div>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		<!-- Charts section -->
+		{#if analytics || tokenUsage}
+			<!-- Conversation Activity — full width line chart -->
+			{#if analytics?.messages_per_day?.length}
+				<ChartWidget
+					chartType="line"
+					title="Conversation Activity (Last 30 Days)"
+					labels={analytics.messages_per_day.map(d => formatChartDate(d.date))}
+					datasets={[{
+						label: 'Messages',
+						data: analytics.messages_per_day.map(d => d.count),
+						borderColor: '#3b82f6',
+						backgroundColor: '#3b82f680',
+						borderWidth: 2
+					}]}
+					options={{ scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }}
+				/>
+			{/if}
+
+			<!-- Tool Usage + Token Usage side by side -->
+			<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+				{#if analytics?.tool_usage?.length}
+					<ChartWidget
+						chartType="bar"
+						title="Tool Usage"
+						labels={analytics.tool_usage.map(t => t.tool_name)}
+						datasets={[{
+							label: 'Calls',
+							data: analytics.tool_usage.map(t => t.count)
+						}]}
+						options={{ indexAxis: 'y', plugins: { legend: { display: false } } }}
+					/>
+				{/if}
+
+				{#if tokenUsage && (tokenUsage.total_input_tokens > 0 || tokenUsage.total_output_tokens > 0)}
+					<ChartWidget
+						chartType="doughnut"
+						title="Token Usage"
+						labels={['Input Tokens', 'Output Tokens']}
+						datasets={[{
+							label: 'Tokens',
+							data: [tokenUsage.total_input_tokens, tokenUsage.total_output_tokens]
+						}]}
+					/>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Operations (always visible) -->
 		<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
