@@ -10,8 +10,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -114,6 +115,45 @@ class AuditEventSummary(BaseModel):
     action: str
     detail: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
+
+
+class DailyCount(BaseModel):
+    """A single day's count for time-series data."""
+
+    date: str  # ISO date string (YYYY-MM-DD)
+    count: int
+
+
+class ToolUsageCount(BaseModel):
+    """Usage count for a single tool."""
+
+    tool_name: str
+    count: int
+
+
+class EventTypeCount(BaseModel):
+    """Count for a single event type."""
+
+    event_type: str
+    count: int
+
+
+class ConversationAnalytics(BaseModel):
+    """Aggregated analytics for dashboard charts."""
+
+    messages_per_day: list[DailyCount]
+    avg_conversation_length: float
+    tool_usage: list[ToolUsageCount]
+    top_event_types: list[EventTypeCount]
+
+
+class TokenUsageStats(BaseModel):
+    """Token usage statistics with cost estimates."""
+
+    total_input_tokens: int
+    total_output_tokens: int
+    estimated_cost_usd: float
+    period_days: int
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +326,148 @@ async def get_recent_events(audit: Audit) -> list[AuditEventSummary]:
         )
         for e in events
     ]
+
+
+@router.get("/analytics", dependencies=[AdminDashboard])
+async def get_analytics(
+    session_factory: SessionFactory,
+    days: int = 30,
+) -> ConversationAnalytics:
+    """Return conversation analytics: messages per day, tool usage, etc."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    messages_per_day: list[DailyCount] = []
+    avg_conversation_length: float = 0.0
+    tool_usage: list[ToolUsageCount] = []
+    top_event_types: list[EventTypeCount] = []
+
+    try:
+        async with session_factory() as session:
+            # 1) Messages per day for the last N days
+            date_col = func.date(MessageRow.created_at)
+            stmt = (
+                select(date_col.label("day"), func.count().label("cnt"))
+                .where(MessageRow.created_at >= cutoff)
+                .group_by(date_col)
+                .order_by(date_col)
+            )
+            result = await session.execute(stmt)
+            messages_per_day = [
+                DailyCount(date=str(row.day), count=row.cnt)
+                for row in result.all()
+            ]
+
+            # 2) Average conversation length (messages per conversation)
+            sub = (
+                select(
+                    MessageRow.conversation_id,
+                    func.count().label("msg_count"),
+                )
+                .group_by(MessageRow.conversation_id)
+                .subquery()
+            )
+            result = await session.execute(
+                select(func.avg(sub.c.msg_count))
+            )
+            avg_val = result.scalar()
+            avg_conversation_length = round(float(avg_val), 2) if avg_val else 0.0
+
+            # 3) Tool usage: GROUP BY action WHERE event_type = 'tool_call'
+            stmt = (
+                select(
+                    AuditEventRow.action.label("tool_name"),
+                    func.count().label("cnt"),
+                )
+                .where(AuditEventRow.event_type == "tool_call")
+                .where(AuditEventRow.created_at >= cutoff)
+                .group_by(AuditEventRow.action)
+                .order_by(func.count().desc())
+            )
+            result = await session.execute(stmt)
+            tool_usage = [
+                ToolUsageCount(tool_name=row.tool_name, count=row.cnt)
+                for row in result.all()
+            ]
+
+            # 4) Top event types: GROUP BY event_type, top 10
+            stmt = (
+                select(
+                    AuditEventRow.event_type.label("evt"),
+                    func.count().label("cnt"),
+                )
+                .where(AuditEventRow.created_at >= cutoff)
+                .group_by(AuditEventRow.event_type)
+                .order_by(func.count().desc())
+                .limit(10)
+            )
+            result = await session.execute(stmt)
+            top_event_types = [
+                EventTypeCount(event_type=row.evt, count=row.cnt)
+                for row in result.all()
+            ]
+    except Exception:
+        logger.debug("Failed to query analytics data.", exc_info=True)
+
+    return ConversationAnalytics(
+        messages_per_day=messages_per_day,
+        avg_conversation_length=avg_conversation_length,
+        tool_usage=tool_usage,
+        top_event_types=top_event_types,
+    )
+
+
+# Default per-token pricing (USD per token)
+_INPUT_PRICE_PER_TOKEN = 3.0 / 1_000_000   # $3 per 1M input tokens
+_OUTPUT_PRICE_PER_TOKEN = 15.0 / 1_000_000  # $15 per 1M output tokens
+
+
+@router.get("/token-usage", dependencies=[AdminDashboard])
+async def get_token_usage(
+    session_factory: SessionFactory,
+    days: int = 30,
+) -> TokenUsageStats:
+    """Return token usage statistics with cost estimates."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+
+    try:
+        async with session_factory() as session:
+            # Fetch agent_response audit events for the period.
+            # The detail column stores token counts; since it's Text in
+            # SQLite and JSONB in Postgres we parse in Python for portability.
+            stmt = (
+                select(AuditEventRow.detail)
+                .where(AuditEventRow.event_type == "agent_response")
+                .where(AuditEventRow.created_at >= cutoff)
+            )
+            result = await session.execute(stmt)
+
+            for (detail_raw,) in result.all():
+                detail = detail_raw
+                # SQLite stores JSON as text; Postgres returns dict.
+                if isinstance(detail, str):
+                    try:
+                        detail = json.loads(detail)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                if not isinstance(detail, dict):
+                    continue
+
+                total_input_tokens += int(detail.get("input_tokens", 0))
+                total_output_tokens += int(detail.get("output_tokens", 0))
+    except Exception:
+        logger.debug("Failed to query token usage data.", exc_info=True)
+
+    estimated_cost = (
+        total_input_tokens * _INPUT_PRICE_PER_TOKEN
+        + total_output_tokens * _OUTPUT_PRICE_PER_TOKEN
+    )
+
+    return TokenUsageStats(
+        total_input_tokens=total_input_tokens,
+        total_output_tokens=total_output_tokens,
+        estimated_cost_usd=round(estimated_cost, 4),
+        period_days=days,
+    )
