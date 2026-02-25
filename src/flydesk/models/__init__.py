@@ -23,6 +23,7 @@ from flydesk.models.process import BusinessProcessRow, ProcessDependencyRow, Pro
 from flydesk.models.llm import LLMProviderRow
 from flydesk.models.oidc import OIDCProviderRow
 from flydesk.models.role import RoleRow
+from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.models.user_role import UserRoleRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
 
@@ -51,6 +52,7 @@ __all__ = [
     "RelationRow",
     "RoleRow",
     "ServiceEndpointRow",
+    "SSOIdentityRow",
     "UserRoleRow",
     "UserSettingRow",
 ]
