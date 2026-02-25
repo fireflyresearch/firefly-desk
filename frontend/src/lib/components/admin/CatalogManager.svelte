@@ -411,7 +411,7 @@
 
 <div class="flex h-full flex-col gap-4 p-6">
 	<!-- Header -->
-	<div class="flex items-center justify-between">
+	<div class="flex shrink-0 items-center justify-between">
 		<div>
 			<h1 class="text-lg font-semibold text-text-primary">System Catalog</h1>
 			<p class="text-sm text-text-secondary">Manage external systems and their endpoints</p>
@@ -452,7 +452,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+		<div class="shrink-0 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
 			{error}
 		</div>
 	{/if}
@@ -486,11 +486,11 @@
 
 	<!-- Table -->
 	{#if loading}
-		<div class="flex items-center justify-center py-12">
+		<div class="flex flex-1 items-center justify-center">
 			<Loader2 size={24} class="animate-spin text-text-secondary" />
 		</div>
 	{:else}
-		<div class="rounded-lg border border-border bg-surface">
+		<div class="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
 			<div class="overflow-x-auto">
 				<table class="w-full text-left text-sm">
 					<thead>
@@ -749,7 +749,7 @@
 
 	<!-- Detection log panel -->
 	{#if showDetectionLog && detectionLog.length > 0}
-		<div class="rounded-lg border border-border bg-surface">
+		<div class="shrink-0 rounded-lg border border-border bg-surface">
 			<div class="flex items-center justify-between border-b border-border px-4 py-2.5">
 				<div class="flex items-center gap-2">
 					<Sparkles size={16} class="text-accent" />

@@ -577,13 +577,13 @@
 	<!-- ================================================================= -->
 	<div class="flex w-72 shrink-0 flex-col border-r border-border bg-surface-secondary">
 		<!-- Header -->
-		<div class="border-b border-border/50 px-4 py-3">
+		<div class="shrink-0 border-b border-border/50 px-4 py-3">
 			<h1 class="text-sm font-semibold text-text-primary">Processes</h1>
 			<p class="text-xs text-text-secondary">Discovered business processes</p>
 		</div>
 
 		<!-- Search -->
-		<div class="border-b border-border/50 px-3 py-2">
+		<div class="shrink-0 border-b border-border/50 px-3 py-2">
 			<div class="relative">
 				<Search
 					size={14}
@@ -599,7 +599,7 @@
 		</div>
 
 		<!-- Status filter -->
-		<div class="flex items-center gap-1 overflow-x-auto border-b border-border/50 px-3 py-2">
+		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-3 py-2">
 			<Filter size={12} class="flex-shrink-0 text-text-secondary" />
 			{#each statusOptions as option}
 				<button
@@ -616,7 +616,7 @@
 		</div>
 
 		<!-- Process list -->
-		<div class="flex-1 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#if loading}
 				<div class="flex items-center justify-center py-12">
 					<Loader2 size={20} class="animate-spin text-text-secondary" />
@@ -682,7 +682,7 @@
 		</div>
 
 		<!-- Auto-analyze toggle and re-discover at bottom -->
-		<div class="border-t border-border/50 px-3 py-3">
+		<div class="shrink-0 border-t border-border/50 px-3 py-3">
 			<!-- Auto-analyze -->
 			<div class="mb-2 flex items-center justify-between">
 				<span class="text-xs text-text-secondary">Auto-analyze</span>
@@ -739,11 +739,11 @@
 	<!-- ================================================================= -->
 	<!-- Right main area                                                    -->
 	<!-- ================================================================= -->
-	<div class="flex flex-1 flex-col overflow-hidden">
+	<div class="flex min-w-0 flex-1 flex-col overflow-hidden">
 		<!-- Error banner -->
 		{#if error}
 			<div
-				class="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+				class="shrink-0 mx-4 mt-3 flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				<AlertCircle size={16} />
 				<span class="flex-1">{error}</span>
@@ -874,7 +874,7 @@
 			</div>
 		{:else}
 			<!-- Process detail header -->
-			<div class="border-b border-border px-5 py-3">
+			<div class="shrink-0 border-b border-border px-5 py-3">
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0 flex-1">
 						<div class="flex items-center gap-2">
@@ -969,7 +969,7 @@
 			</div>
 
 			<!-- Canvas and step editor area -->
-			<div class="flex flex-1 overflow-hidden">
+			<div class="flex min-h-0 flex-1 overflow-hidden">
 				<!-- SvelteFlow canvas -->
 				<div class="relative flex-1 overflow-hidden">
 					{#if selectedProcess.steps.length === 0}

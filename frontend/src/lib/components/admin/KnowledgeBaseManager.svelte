@@ -301,7 +301,7 @@
 	<!-- Main content -->
 	<div class="flex flex-1 flex-col gap-4 overflow-hidden p-6">
 		<!-- Header -->
-		<div>
+		<div class="shrink-0">
 			<h1 class="text-lg font-semibold text-text-primary">Knowledge Base</h1>
 			<p class="text-sm text-text-secondary">
 				Manage documents, explore the knowledge graph, and add new content
@@ -311,14 +311,14 @@
 		<!-- Error banner -->
 		{#if error}
 			<div
-				class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+				class="shrink-0 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
 			>
 				{error}
 			</div>
 		{/if}
 
 		<!-- Tab bar -->
-		<div class="flex gap-1 border-b border-border">
+		<div class="flex shrink-0 gap-1 border-b border-border">
 			<button
 				type="button"
 				onclick={() => (activeTab = 'documents')}
@@ -479,7 +479,7 @@
 		<!-- Add Document Tab                                                   -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'add'}
-			<div class="w-full">
+			<div class="min-h-0 flex-1 overflow-y-auto">
 				<KnowledgeAddDocument onDocumentAdded={handleDocumentAdded} />
 			</div>
 
@@ -489,7 +489,7 @@
 		{:else if activeTab === 'graph'}
 			<div class="flex flex-1 flex-col overflow-hidden">
 				<!-- KG recompute bar -->
-				<div class="flex items-center gap-3 border-b border-border px-4 py-2">
+				<div class="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
 					<button
 						type="button"
 						onclick={triggerKGRecompute}
@@ -509,14 +509,14 @@
 					{/if}
 				</div>
 				{#if recomputingKG}
-					<div class="h-1.5 w-full overflow-hidden bg-surface">
+					<div class="h-1.5 w-full shrink-0 overflow-hidden bg-surface">
 						<div
 							class="h-full rounded-full bg-accent transition-all duration-500"
 							style="width: {kgRecomputeProgress}%"
 						></div>
 					</div>
 				{/if}
-				<div class="flex-1 overflow-hidden">
+				<div class="min-h-0 flex-1 overflow-hidden">
 					<KnowledgeGraphExplorer />
 				</div>
 			</div>

@@ -767,7 +767,7 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-col">
 	<!-- Top toolbar -->
-	<div class="flex items-center gap-2 px-1 pb-2">
+	<div class="flex shrink-0 items-center gap-2 px-1 pb-2">
 		<!-- Toggle filter sidebar -->
 		<button
 			type="button"
@@ -828,7 +828,7 @@
 
 	<!-- Error banner -->
 	{#if error}
-		<div class="mb-2 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+		<div class="mb-2 flex shrink-0 items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
 			<AlertCircle size={14} />
 			{error}
 		</div>
