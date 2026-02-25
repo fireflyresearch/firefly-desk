@@ -124,12 +124,21 @@ class TestRegistryIntegration:
         assert "document_modify" in names
         assert "document_convert" in names
 
-    def test_knowledge_read_gets_document_tools(self):
-        """knowledge:read permission grants document tools."""
+    def test_knowledge_read_gets_read_tools_only(self):
+        """knowledge:read permission grants read/convert but not create/modify."""
         tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read"])
         names = {t.name for t in tools}
         assert "document_read" in names
+        assert "document_convert" in names
+        assert "document_create" not in names
+        assert "document_modify" not in names
+
+    def test_knowledge_write_gets_write_tools(self):
+        """knowledge:write permission grants create/modify tools."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:write"])
+        names = {t.name for t in tools}
         assert "document_create" in names
+        assert "document_modify" in names
 
     def test_no_permission_excludes_document_tools(self):
         """User with no special permissions does not get document tools."""
