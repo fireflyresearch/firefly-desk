@@ -129,6 +129,19 @@ The background job system runs automatically and requires no configuration. Jobs
 
 The RAG top-k value controls the balance between context richness and prompt token usage. A higher value provides more context but increases token consumption and may dilute the relevance of retrieved passages. The default of 3 has been chosen as a practical balance for most operational documentation.
 
+### Knowledge Quality
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FLYDESK_CHUNK_SIZE` | int | `500` | Maximum characters per document chunk. Smaller values increase precision; larger values preserve more context. |
+| `FLYDESK_CHUNK_OVERLAP` | int | `50` | Character overlap between adjacent chunks to prevent sentence boundary loss. |
+| `FLYDESK_CHUNKING_MODE` | str | `auto` | Chunking strategy: `fixed` (character-based), `structural` (heading/section-aware), or `auto` (selects based on content). |
+| `FLYDESK_AUTO_KG_EXTRACT` | bool | `true` | Automatically extract knowledge graph entities and relationships when documents are indexed. |
+
+The `auto` chunking mode inspects document structure: if headings or sections are detected, it uses structural chunking that respects document boundaries; otherwise it falls back to fixed-size chunking. Structural chunking produces more semantically coherent chunks, which improves retrieval quality for well-structured documents like runbooks and API references.
+
+These settings can also be configured through the setup wizard or the admin console, in which case database values take precedence over environment variables.
+
 ## Security
 
 | Variable | Type | Default | Description |

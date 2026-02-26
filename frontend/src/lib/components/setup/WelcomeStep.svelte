@@ -28,7 +28,7 @@
 
 	let appTitle = $derived((status?.app_title as string) ?? 'Firefly Desk');
 	let devMode = $derived(status?.dev_mode === true);
-	let dbConfigured = $derived(status?.database_configured === true);
+	let databaseType = $derived((status?.database_type as string) ?? (status?.database_configured ? 'postgresql' : 'sqlite'));
 	let agentName = $derived((status?.agent_name as string) ?? 'Ember');
 	let appVersion = $derived((status?.app_version as string) ?? '');
 
@@ -48,7 +48,7 @@
 		{
 			icon: Database,
 			label: 'Database',
-			value: dbConfigured ? 'PostgreSQL' : 'SQLite'
+			value: databaseType === 'postgresql' ? 'PostgreSQL' : 'SQLite'
 		},
 		{
 			icon: Flame,

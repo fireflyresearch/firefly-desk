@@ -31,6 +31,13 @@ This directory contains the complete documentation for Firefly Desk, an AI-power
 | [Widgets](widgets.md) | Complete reference for all 19 chat widget types with props, examples, and usage guidelines. |
 | [Process Discovery](processes.md) | LLM-based process discovery, auto-triggers, user corrections, and API reference. |
 
+## Reference
+
+| Document | Description |
+|----------|-------------|
+| [Tools Reference](tools-reference.md) | All 24+ built-in tools the agent can use, organized by category, with parameters, permissions, and examples. |
+| [Prompts Reference](prompts-reference.md) | All 18 Jinja2 prompt templates, where they're used in the pipeline, key variables, and customization guide. |
+
 ## Operations
 
 | Document | Description |

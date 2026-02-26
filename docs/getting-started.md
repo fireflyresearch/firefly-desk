@@ -30,27 +30,45 @@ uv sync
 
 This creates a virtual environment and installs all required packages. The `uv sync` command is deterministic, meaning every developer gets exactly the same dependency versions.
 
-## Start the Backend
+## Initialize the Database
 
-Launch the FastAPI backend server:
+Run the Alembic migrations to create the database schema:
 
 ```bash
-uvicorn flydesk.server:create_app --factory --port 8000
+uv run flydesk db upgrade head
 ```
 
-The `--factory` flag tells uvicorn to call `create_app()` as a factory function, which initializes the application lifespan, wires dependency injection, and runs database migrations. The server will be available at `http://localhost:8000`.
+This uses [Alembic](https://alembic.sqlalchemy.org/) to apply all schema migrations. For fresh installs this creates all tables; for upgrades it applies only the new migrations.
 
-## Start the Frontend
+## Start Backend and Frontend
 
-In a separate terminal, install and start the SvelteKit frontend:
+The simplest way to start both services is the `flydesk dev` command:
 
 ```bash
+uv run flydesk dev
+```
+
+This starts the FastAPI backend on port 8000 and the SvelteKit frontend on port 5173 in a single terminal, with auto-reload enabled. Press Ctrl+C to stop both.
+
+You can customize the ports:
+
+```bash
+uv run flydesk dev --port 8000 --frontend-port 5173
+```
+
+Or start them separately if you prefer:
+
+```bash
+# Terminal 1: Backend
+uv run flydesk serve --port 8000 --reload
+
+# Terminal 2: Frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-The frontend development server starts at `http://localhost:5173` and proxies API requests to the backend on port 8000.
+The frontend development server proxies API requests to the backend on port 8000.
 
 ## Seed Demo Data
 

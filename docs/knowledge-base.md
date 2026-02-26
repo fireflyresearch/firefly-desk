@@ -112,7 +112,21 @@ Raw documents are rarely the right unit for retrieval. A 10-page runbook contain
 
 The Knowledge Indexer splits documents into chunks of 500 characters by default, with a 50-character overlap between adjacent chunks. The overlap ensures that sentences spanning a chunk boundary are not lost. Each chunk inherits the parent document's metadata and is stored as an independent retrieval unit.
 
-The chunk size of 500 characters reflects a deliberate tradeoff. Smaller chunks are more precise but may lose surrounding context. Larger chunks provide more context but may include irrelevant information that confuses the model. The 500-character default works well for the kind of procedural and reference documentation common in operations work.
+### Chunking Modes
+
+Three chunking strategies are available, controlled by `FLYDESK_CHUNKING_MODE`:
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `fixed` | Character-based splitting at the configured `chunk_size` with `chunk_overlap`. | Unstructured text, logs, transcripts. |
+| `structural` | Splits on document structure (headings, sections, paragraphs). Respects semantic boundaries so chunks align with the document's logical organization. | Runbooks, API specs, policy documents, any content with headings. |
+| `auto` | Inspects the document for structural markers (headings, section breaks). If found, uses structural chunking; otherwise falls back to fixed-size chunking. | Recommended default — adapts to content. |
+
+The `auto` mode is the default because knowledge bases typically contain a mix of well-structured documents (runbooks, API references) and unstructured content (support tickets, raw notes). By detecting structure automatically, it applies the best strategy without manual configuration per document.
+
+### Chunk Size Tradeoffs
+
+The chunk size of 500 characters reflects a deliberate tradeoff. Smaller chunks are more precise but may lose surrounding context. Larger chunks provide more context but may include irrelevant information that confuses the model. The 500-character default works well for the kind of procedural and reference documentation common in operations work. Adjust via `FLYDESK_CHUNK_SIZE` if your documents have different characteristics.
 
 ## Embedding and Indexing
 

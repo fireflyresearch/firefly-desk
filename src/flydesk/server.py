@@ -142,56 +142,16 @@ class _ShutdownContext:
 # ---------------------------------------------------------------------------
 
 
-async def _apply_column_migrations(conn) -> None:
-    """Add columns that create_all() can't add to existing tables.
-
-    Uses SAVEPOINTs so that a failed ALTER TABLE (column already exists)
-    does not abort the surrounding transaction on PostgreSQL.
-    """
-    migrations = [
-        ("external_systems", "workspace_id", "VARCHAR(255)"),
-        ("external_systems", "agent_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
-        ("external_systems", "status", "VARCHAR(50) NOT NULL DEFAULT 'draft'"),
-        ("kb_documents", "workspace_id", "VARCHAR(255)"),
-        ("business_processes", "workspace_id", "VARCHAR(255)"),
-        ("kb_documents", "workspace_ids", "TEXT NOT NULL DEFAULT '[]'"),
-    ]
-    for table, column, col_type in migrations:
-        try:
-            nested = await conn.begin_nested()
-            await conn.execute(text(
-                f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
-            ))
-            await nested.commit()
-        except Exception:
-            await nested.rollback()  # Column already exists
-
-    # Backfill workspace_ids from legacy workspace_id column
-    try:
-        nested = await conn.begin_nested()
-        await conn.execute(text(
-            "UPDATE kb_documents SET workspace_ids = "
-            "CASE WHEN workspace_id IS NOT NULL AND workspace_id != '' "
-            "THEN '[\"' || workspace_id || '\"]' "
-            "ELSE '[]' END "
-            "WHERE workspace_ids = '[]'"
-        ))
-        await nested.commit()
-    except Exception:
-        await nested.rollback()
-
-
 async def _init_database(
     config: DeskConfig,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
-    """Create engine, run DDL and column migrations, return session factory."""
+    """Create engine, run DDL, return session factory."""
     engine = create_engine_from_url(config.database_url)
 
     async with engine.begin() as conn:
         if "postgresql" in config.database_url:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-        await _apply_column_migrations(conn)
 
     session_factory = create_session_factory(engine)
     return engine, session_factory

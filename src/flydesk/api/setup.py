@@ -38,6 +38,7 @@ class SetupStatus(BaseModel):
 
     dev_mode: bool
     database_configured: bool
+    database_type: str = "sqlite"
     oidc_configured: bool
     has_seed_data: bool
     setup_completed: bool
@@ -57,6 +58,22 @@ class SetupStatus(BaseModel):
     chunk_size: int = 500
     chunk_overlap: int = 50
     auto_kg_extract: bool = True
+
+
+class SwitchDatabaseRequest(BaseModel):
+    """Request body for switching database type (dev mode only)."""
+
+    database_type: str  # "sqlite" | "postgresql"
+    connection_string: str = ""
+
+
+class SwitchDatabaseResult(BaseModel):
+    """Guidance on how to switch the database."""
+
+    success: bool
+    message: str
+    env_var: str = ""
+    restart_required: bool = True
 
 
 class CreateAdminRequest(BaseModel):
@@ -479,6 +496,53 @@ async def test_database(body: DatabaseTestRequest, request: Request) -> Database
                 await engine.dispose()
 
 
+@router.post("/switch-database")
+async def switch_database(body: SwitchDatabaseRequest, request: Request) -> SwitchDatabaseResult:
+    """Return guidance on switching the database type.
+
+    Dev mode only.  Does NOT hot-swap the running database — that would be
+    dangerous.  Instead, validates the request and returns the env var the
+    user should set before restarting.
+    """
+    from flydesk.config import get_config
+
+    config = get_config()
+    if not config.dev_mode:
+        raise HTTPException(status_code=403, detail="Database switching is only available in dev mode.")
+
+    if body.database_type not in ("sqlite", "postgresql"):
+        return SwitchDatabaseResult(
+            success=False,
+            message=f"Unsupported database type: {body.database_type}. Use 'sqlite' or 'postgresql'.",
+        )
+
+    if body.database_type == "postgresql":
+        conn = body.connection_string.strip()
+        if not conn:
+            return SwitchDatabaseResult(
+                success=False,
+                message="A connection string is required when switching to PostgreSQL.",
+            )
+        if not conn.startswith("postgresql"):
+            return SwitchDatabaseResult(
+                success=False,
+                message="Connection string must start with 'postgresql+asyncpg://'.",
+            )
+        env_value = conn
+    else:
+        env_value = "sqlite+aiosqlite:///flydesk_dev.db"
+
+    return SwitchDatabaseResult(
+        success=True,
+        message=(
+            f"Set FLYDESK_DATABASE_URL={env_value} in your .env file, "
+            "then restart the server with 'flydesk dev' or 'flydesk serve'."
+        ),
+        env_var=f"FLYDESK_DATABASE_URL={env_value}",
+        restart_required=True,
+    )
+
+
 @router.get("/status")
 async def get_setup_status(request: Request) -> SetupStatus:
     """Return the current deployment configuration status."""
@@ -569,9 +633,12 @@ async def get_setup_status(request: Request) -> SetupStatus:
         except Exception:
             logger.debug("Failed to load knowledge quality settings.", exc_info=True)
 
+    db_type = "postgresql" if "postgresql" in config.database_url else "sqlite"
+
     return SetupStatus(
         dev_mode=config.dev_mode,
         database_configured="sqlite" not in config.database_url,
+        database_type=db_type,
         oidc_configured=bool(config.oidc_issuer_url),
         has_seed_data=has_seed,
         setup_completed=setup_completed,

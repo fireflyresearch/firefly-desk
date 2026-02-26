@@ -15,7 +15,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly VERSION="0.1.0"
 readonly DEFAULT_API_PORT=8000
-readonly DEFAULT_FRONT_PORT=3000
+readonly DEFAULT_DOCKER_FRONT_PORT=3000
+readonly DEFAULT_LOCAL_FRONT_PORT=5173
 readonly HEALTH_RETRIES=30
 readonly HEALTH_INTERVAL=2
 
@@ -110,14 +111,17 @@ usage() {
   FLAGS
     --mode docker|local   Installation mode (skip interactive prompt)
     --port N              Backend API port (default: 8000)
+    --frontend-port N     Frontend port (default: 5173 local, 3000 docker)
     --help                Show this help message
 
   ENVIRONMENT VARIABLES
     FLYDESK_MODE          Same as --mode
     FLYDESK_PORT          Same as --port
+    FLYDESK_FRONT_PORT    Same as --frontend-port
 
   EXAMPLES
     bash install.sh --mode local --port 8000
+    bash install.sh --mode local --frontend-port 3000
     FLYDESK_MODE=docker bash install.sh
     curl -fsSL https://get.flydesk.dev/install.sh | FLYDESK_MODE=docker bash
 
@@ -287,11 +291,6 @@ probe_environment() {
     else
         warn "Port $API_PORT is in use"
     fi
-    if port_available "$DEFAULT_FRONT_PORT"; then
-        ok "Port $DEFAULT_FRONT_PORT is available"
-    else
-        warn "Port $DEFAULT_FRONT_PORT is in use"
-    fi
 
     printf "\n"
 }
@@ -358,17 +357,47 @@ ensure_env_file() {
 
     ok "Generated FLYDESK_CREDENTIAL_ENCRYPTION_KEY"
 
-    # For local dev, default to SQLite so Postgres is not required
+    # For local dev, prompt for database choice
     if [ "${MODE:-}" = "local" ]; then
-        local sqlite_url="sqlite+aiosqlite:///./flydesk_dev.db"
-        if [[ "$(uname -s)" == "Darwin" ]]; then
-            sed -i '' "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${sqlite_url}|" "$env_file"
-            sed -i '' "s|FLYDESK_REDIS_URL=.*|# FLYDESK_REDIS_URL=redis://localhost:6379/0|" "$env_file"
-        else
-            sed -i "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${sqlite_url}|" "$env_file"
-            sed -i "s|FLYDESK_REDIS_URL=.*|# FLYDESK_REDIS_URL=redis://localhost:6379/0|" "$env_file"
+        local db_choice="sqlite"
+        if [ -t 0 ]; then
+            printf "\n  Select database:\n"
+            printf "    1) ${C_BOLD}SQLite${C_RESET}      -- Zero setup, good for development (default)\n"
+            printf "    2) ${C_BOLD}PostgreSQL${C_RESET}  -- Production-ready with pgvector\n"
+            printf "\n"
+            read -rp "  Enter choice [1/2] (default: 1): " db_choice_input
+            case "${db_choice_input:-1}" in
+                2|postgresql|postgres) db_choice="postgresql" ;;
+                *) db_choice="sqlite" ;;
+            esac
         fi
-        ok "Configured SQLite for local development"
+
+        if [ "$db_choice" = "postgresql" ]; then
+            local pg_url=""
+            if [ -t 0 ]; then
+                read -rp "  PostgreSQL URL (e.g., postgresql+asyncpg://user:pass@localhost:5432/flydesk): " pg_url
+            fi
+            if [ -z "$pg_url" ]; then
+                pg_url="postgresql+asyncpg://flydesk:flydesk@localhost:5432/flydesk"
+                warn "Using default PostgreSQL URL: $pg_url"
+            fi
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                sed -i '' "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${pg_url}|" "$env_file"
+            else
+                sed -i "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${pg_url}|" "$env_file"
+            fi
+            ok "Configured PostgreSQL"
+        else
+            local sqlite_url="sqlite+aiosqlite:///./flydesk_dev.db"
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                sed -i '' "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${sqlite_url}|" "$env_file"
+                sed -i '' "s|FLYDESK_REDIS_URL=.*|# FLYDESK_REDIS_URL=redis://localhost:6379/0|" "$env_file"
+            else
+                sed -i "s|FLYDESK_DATABASE_URL=.*|FLYDESK_DATABASE_URL=${sqlite_url}|" "$env_file"
+                sed -i "s|FLYDESK_REDIS_URL=.*|# FLYDESK_REDIS_URL=redis://localhost:6379/0|" "$env_file"
+            fi
+            ok "Configured SQLite for local development"
+        fi
     fi
 }
 
@@ -440,14 +469,14 @@ install_docker() {
     printf "\n"
     printf "  ${C_GREEN}${C_BOLD}Firefly Desk is running!${C_RESET}\n"
     printf "\n"
-    printf "    Frontend:  ${C_BOLD}http://localhost:%s${C_RESET}\n" "$DEFAULT_FRONT_PORT"
+    printf "    Frontend:  ${C_BOLD}http://localhost:%s${C_RESET}\n" "$FRONT_PORT"
     printf "    API:       ${C_BOLD}http://localhost:%s${C_RESET}\n" "$API_PORT"
     printf "\n"
     printf "  Stop with:   ${C_BOLD}docker compose down${C_RESET}\n"
     printf "  Logs:        ${C_BOLD}docker compose logs -f${C_RESET}\n"
     printf "\n"
 
-    open_browser "http://localhost:${DEFAULT_FRONT_PORT}"
+    open_browser "http://localhost:${FRONT_PORT}"
 }
 
 # ---------------------------------------------------------------------------
@@ -481,37 +510,36 @@ install_local() {
         warn "frontend/ directory not found -- skipping npm install"
     fi
 
+    # Initialize database schema via Alembic
+    spin "Initializing database schema (flydesk db upgrade head)" \
+        uv run flydesk db upgrade head
+
     printf "\n"
 
-    # Start backend in background
-    info "Starting backend on port $API_PORT"
-    uv run flydesk serve --port "$API_PORT" &
-    local backend_pid=$!
+    # Start backend + frontend via flydesk dev
+    info "Starting backend (port $API_PORT) + frontend (port $FRONT_PORT)"
+    uv run flydesk dev --port "$API_PORT" --frontend-port "$FRONT_PORT" &
+    local dev_pid=$!
 
-    # Start frontend in background
-    info "Starting frontend on port $DEFAULT_FRONT_PORT"
-    (cd frontend && npx vite dev --port "$DEFAULT_FRONT_PORT") &
-    local frontend_pid=$!
-
-    # Trap to clean up background processes on exit
-    trap 'kill $backend_pid $frontend_pid 2>/dev/null; exit' INT TERM
+    # Trap to clean up on exit
+    trap 'kill $dev_pid 2>/dev/null; exit' INT TERM
 
     printf "\n"
 
     # Health checks
     wait_for_health "http://localhost:${API_PORT}/api/health" "API (port $API_PORT)" || true
-    wait_for_health "http://localhost:${DEFAULT_FRONT_PORT}" "Frontend (port $DEFAULT_FRONT_PORT)" || true
+    wait_for_health "http://localhost:${FRONT_PORT}" "Frontend (port $FRONT_PORT)" || true
 
     printf "\n"
     printf "  ${C_GREEN}${C_BOLD}Firefly Desk is running!${C_RESET}\n"
     printf "\n"
-    printf "    Frontend:  ${C_BOLD}http://localhost:%s${C_RESET}\n" "$DEFAULT_FRONT_PORT"
+    printf "    Frontend:  ${C_BOLD}http://localhost:%s${C_RESET}\n" "$FRONT_PORT"
     printf "    API:       ${C_BOLD}http://localhost:%s${C_RESET}\n" "$API_PORT"
     printf "\n"
     printf "  Stop with:   ${C_BOLD}Ctrl+C${C_RESET}\n"
     printf "\n"
 
-    open_browser "http://localhost:${DEFAULT_FRONT_PORT}"
+    open_browser "http://localhost:${FRONT_PORT}"
 
     # Keep the script alive so background processes stay running
     wait
@@ -522,6 +550,7 @@ install_local() {
 # ---------------------------------------------------------------------------
 MODE="${FLYDESK_MODE:-}"
 API_PORT="${FLYDESK_PORT:-$DEFAULT_API_PORT}"
+FRONT_PORT="${FLYDESK_FRONT_PORT:-}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -533,6 +562,11 @@ while [ $# -gt 0 ]; do
         --port)
             [ -n "${2:-}" ] || die "--port requires a value"
             API_PORT="$2"
+            shift 2
+            ;;
+        --frontend-port)
+            [ -n "${2:-}" ] || die "--frontend-port requires a value"
+            FRONT_PORT="$2"
             shift 2
             ;;
         --help|-h)
@@ -558,6 +592,14 @@ fi
 header
 probe_environment
 select_mode
+
+# Set frontend port default based on mode (5173 for local/Vite, 3000 for docker)
+if [ -z "$FRONT_PORT" ]; then
+    case "$MODE" in
+        local)  FRONT_PORT="$DEFAULT_LOCAL_FRONT_PORT" ;;
+        docker) FRONT_PORT="$DEFAULT_DOCKER_FRONT_PORT" ;;
+    esac
+fi
 
 case "$MODE" in
     docker) install_docker ;;

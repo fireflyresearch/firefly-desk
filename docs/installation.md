@@ -48,19 +48,21 @@ Install Python dependencies:
 uv sync
 ```
 
-Start the backend server:
+Initialize the database schema using Alembic:
 
 ```bash
-uvicorn flydesk.server:create_app --factory --port 8000
+uv run flydesk db upgrade head
 ```
 
-In a second terminal, set up and start the frontend:
+This creates all tables via Alembic migrations. For fresh installs this is equivalent to creating the entire schema; for upgrades it applies only new migrations incrementally.
+
+Start both backend and frontend together:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+uv run flydesk dev
 ```
+
+This starts the FastAPI backend on port 8000 and the SvelteKit frontend on port 5173 in a single terminal with auto-reload. You can also start them separately — see the [Getting Started](getting-started.md) guide for details.
 
 Seed the development database with demo data:
 
@@ -69,6 +71,16 @@ flydesk-seed banking
 ```
 
 Navigate to `http://localhost:5173` to begin using Firefly Desk.
+
+### Database Selection
+
+During the setup wizard, you can choose between SQLite (default for development) and PostgreSQL. In dev mode, the Database step allows switching between the two. If you prefer PostgreSQL during development, set it in your `.env`:
+
+```bash
+FLYDESK_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/flydesk
+```
+
+Then re-run migrations: `uv run flydesk db upgrade head`.
 
 ## Production Setup
 
