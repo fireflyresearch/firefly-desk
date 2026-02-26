@@ -48,32 +48,7 @@ class CredentialRotate(BaseModel):
     encrypted_value: str
 
 
-# ---------------------------------------------------------------------------
-# Credential Store interface
-# ---------------------------------------------------------------------------
-
-
-class CredentialStore:
-    """Thin credential store interface.
-
-    The real implementation will be backed by encrypted DB storage.
-    Methods are async stubs -- overridden in production and mocked in tests.
-    """
-
-    async def list_credentials(self) -> list[Credential]:
-        raise NotImplementedError
-
-    async def get_credential(self, credential_id: str) -> Credential | None:
-        raise NotImplementedError
-
-    async def create_credential(self, credential: Credential) -> None:
-        raise NotImplementedError
-
-    async def update_credential(self, credential: Credential) -> None:
-        raise NotImplementedError
-
-    async def delete_credential(self, credential_id: str) -> None:
-        raise NotImplementedError
+from flydesk.catalog.ports import CredentialStore
 
 
 # ---------------------------------------------------------------------------

@@ -48,36 +48,7 @@ from flydesk.triggers.auto_trigger import AutoTriggerService
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
-# ---------------------------------------------------------------------------
-# Knowledge Document Store interface
-# ---------------------------------------------------------------------------
-
-
-class KnowledgeDocumentStore:
-    """Thin store for listing/fetching knowledge documents.
-
-    The real implementation will query the database directly.
-    Methods are async stubs -- overridden in production and mocked in tests.
-    """
-
-    async def list_documents(self, *, workspace_id: str | None = None) -> list[KnowledgeDocument]:
-        raise NotImplementedError
-
-    async def get_document(self, document_id: str) -> KnowledgeDocument | None:
-        raise NotImplementedError
-
-    async def update_document(
-        self,
-        document_id: str,
-        *,
-        title: str | None = None,
-        document_type: DocumentType | None = None,
-        tags: list[str] | None = None,
-        content: str | None = None,
-        status: str | None = None,
-        workspace_ids: list[str] | None = None,
-    ) -> KnowledgeDocument | None:
-        raise NotImplementedError
+from flydesk.knowledge.ports import KnowledgeDocumentStore
 
 
 # ---------------------------------------------------------------------------

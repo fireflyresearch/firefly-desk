@@ -49,9 +49,9 @@ from flydesk.triggers.auto_trigger import AutoTriggerService
 from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
-    from flydesk.api.credentials import CredentialStore
-    from flydesk.api.knowledge import KnowledgeDocumentStore
+    from flydesk.catalog.ports import CredentialStore
     from flydesk.knowledge.analyzer import DocumentAnalyzer
+    from flydesk.knowledge.ports import KnowledgeDocumentStore
     from flydesk.security.kms import KMSProvider
 
 

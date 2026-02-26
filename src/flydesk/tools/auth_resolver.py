@@ -24,7 +24,7 @@ import httpx
 from flydesk.catalog.enums import AuthType
 
 if TYPE_CHECKING:
-    from flydesk.api.credentials import CredentialStore
+    from flydesk.catalog.ports import CredentialStore
     from flydesk.auth.models import UserSession
     from flydesk.auth.sso_mapping import SSOAttributeMapping
     from flydesk.catalog.models import ExternalSystem

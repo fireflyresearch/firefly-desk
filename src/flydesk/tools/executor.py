@@ -26,7 +26,7 @@ from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.tools.auth_resolver import AuthResolver
 
 if TYPE_CHECKING:
-    from flydesk.api.credentials import CredentialStore
+    from flydesk.catalog.ports import CredentialStore
     from flydesk.auth.models import UserSession
     from flydesk.auth.sso_mapping import SSOAttributeMapping
     from flydesk.audit.logger import AuditLogger

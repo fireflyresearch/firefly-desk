@@ -241,46 +241,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "for production."
         )
 
-    from flydesk.api.credentials import CredentialStore
-
     app.dependency_overrides[get_kms] = lambda: kms
 
-    # Credential store backed by catalog repo (reuses session factory)
-    class _LiveCredentialStore(CredentialStore):
-        async def list_credentials(self):
-            return await catalog_repo.list_credentials()
+    # Credential store backed by catalog repo
+    from flydesk.catalog.credential_store import CatalogCredentialStore
 
-        async def get_credential(self, credential_id: str):
-            return await catalog_repo.get_credential(credential_id)
-
-        async def create_credential(self, credential):
-            return await catalog_repo.create_credential(credential)
-
-        async def update_credential(self, credential):
-            return await catalog_repo.update_credential(credential)
-
-        async def delete_credential(self, credential_id: str):
-            return await catalog_repo.delete_credential(credential_id)
-
-    cred_store = _LiveCredentialStore()
+    cred_store = CatalogCredentialStore(catalog_repo)
     app.dependency_overrides[get_credential_store] = lambda: cred_store
 
-    # Knowledge doc store stub (reads from DB)
-    from flydesk.api.knowledge import KnowledgeDocumentStore
+    # Knowledge document store backed by catalog repo
+    from flydesk.knowledge.document_store import CatalogDocumentStore
 
-    class _LiveDocStore(KnowledgeDocumentStore):
-        async def list_documents(self, *, workspace_id: str | None = None):
-            return await catalog_repo.list_knowledge_documents(workspace_id=workspace_id)
-
-        async def get_document(self, document_id: str):
-            return await catalog_repo.get_knowledge_document(document_id)
-
-        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_ids=None):
-            return await catalog_repo.update_knowledge_document(
-                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status, workspace_ids=workspace_ids
-            )
-
-    doc_store = _LiveDocStore()
+    doc_store = CatalogDocumentStore(catalog_repo)
     app.dependency_overrides[get_knowledge_doc_store] = lambda: doc_store
 
     # Shared HTTP client for external API calls (embeddings, tool calls, imports).
