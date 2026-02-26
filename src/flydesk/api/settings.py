@@ -613,6 +613,138 @@ async def _reinitialize_indexer(app: object, repo: SettingsRepository) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Search Engine Configuration (admin only)
+# ---------------------------------------------------------------------------
+
+
+class SearchConfig(BaseModel):
+    """Search engine provider configuration."""
+
+    search_provider: str = ""       # "" | "tavily"
+    search_api_key: str = ""        # Masked in GET response
+    search_max_results: int = 5
+
+
+class SearchTestResult(BaseModel):
+    """Result of a search provider connectivity test."""
+
+    success: bool
+    provider: str
+    query: str = "test"
+    result_count: int | None = None
+    error: str | None = None
+
+
+@router.get("/search", dependencies=[AdminSettings])
+async def get_search_config(repo: Repo) -> SearchConfig:
+    """Return current search engine configuration."""
+    settings = await repo.get_all_app_settings(category="search")
+    return SearchConfig(
+        search_provider=settings.get("search_provider", ""),
+        search_api_key=_mask_key(settings.get("search_api_key", "")),
+        search_max_results=int(settings.get("search_max_results", "5")),
+    )
+
+
+@router.put("/search", dependencies=[AdminSettings])
+async def update_search_config(
+    body: SearchConfig, request: Request, repo: Repo
+) -> SearchConfig:
+    """Update search engine configuration and reinitialize the provider."""
+    await repo.set_app_setting(
+        "search_provider", body.search_provider, category="search"
+    )
+    if body.search_api_key and not body.search_api_key.startswith("***"):
+        await repo.set_app_setting(
+            "search_api_key", body.search_api_key, category="search"
+        )
+    await repo.set_app_setting(
+        "search_max_results", str(body.search_max_results), category="search"
+    )
+
+    await _reinitialize_search_provider(request.app, repo)
+
+    return await get_search_config(repo)
+
+
+@router.post("/search/test", dependencies=[AdminSettings])
+async def test_search(request: Request, repo: Repo) -> SearchTestResult:
+    """Test the current search provider with a sample query."""
+    settings = await repo.get_all_app_settings(category="search")
+    provider_name = settings.get("search_provider", "")
+    api_key = settings.get("search_api_key", "")
+
+    if not provider_name:
+        return SearchTestResult(
+            success=False, provider="none", error="No search provider configured."
+        )
+
+    try:
+        import flydesk.search.adapters.tavily  # noqa: F401
+        from flydesk.search.provider import SearchProviderFactory
+
+        provider = SearchProviderFactory.create(provider_name, {"api_key": api_key})
+        results = await provider.search("Firefly test query", max_results=2)
+        await provider.aclose()
+
+        return SearchTestResult(
+            success=True,
+            provider=provider_name,
+            result_count=len(results),
+        )
+    except Exception as exc:
+        logger.error("Search test failed: %s", exc, exc_info=True)
+        return SearchTestResult(
+            success=False, provider=provider_name, error=str(exc)
+        )
+
+
+async def _reinitialize_search_provider(app: object, repo: SettingsRepository) -> None:
+    """Reinitialize the live search provider from updated DB settings."""
+    try:
+        settings = await repo.get_all_app_settings(category="search")
+        provider_name = settings.get("search_provider", "")
+        api_key = settings.get("search_api_key", "")
+
+        state = getattr(app, "state", None)
+        if state is None:
+            return
+
+        if not provider_name or not api_key:
+            state.search_provider = None
+            desk_agent = getattr(state, "desk_agent", None)
+            if desk_agent and hasattr(desk_agent, "_builtin_executor"):
+                desk_agent._builtin_executor._search_provider = None
+            return
+
+        import flydesk.search.adapters.tavily  # noqa: F401
+        from flydesk.search.provider import SearchProviderFactory
+
+        max_results = int(settings.get("search_max_results", "5"))
+        new_provider = SearchProviderFactory.create(
+            provider_name, {"api_key": api_key, "max_results": max_results}
+        )
+
+        old_provider = getattr(state, "search_provider", None)
+        if old_provider and hasattr(old_provider, "aclose"):
+            try:
+                await old_provider.aclose()
+            except Exception:
+                pass
+
+        state.search_provider = new_provider
+
+        desk_agent = getattr(state, "desk_agent", None)
+        if desk_agent and hasattr(desk_agent, "_builtin_executor"):
+            desk_agent._builtin_executor._search_provider = new_provider
+
+        logger.info("Search provider reinitialized: %s", provider_name)
+
+    except Exception:
+        logger.warning("Failed to reinitialize search provider.", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Embedding Status (admin only)
 # ---------------------------------------------------------------------------
 
