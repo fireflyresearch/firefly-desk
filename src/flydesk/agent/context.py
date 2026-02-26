@@ -143,10 +143,19 @@ class ContextEnricher:
         return [proc for _score, proc in matches[:3]]
 
     async def _search_memories(self, message: str, user_id: str | None) -> list[Any]:
-        """Search user memories matching the message."""
+        """Load recent memories + keyword-matched memories for the user."""
         if self._memory_repo is None or user_id is None:
             return []
         try:
-            return await self._memory_repo.search(user_id, message)
+            recent = await self._memory_repo.list_recent(user_id, limit=5)
+            searched = await self._memory_repo.search(user_id, message)
+            # Deduplicate by id, recent first
+            seen: set[str] = set()
+            combined: list[Any] = []
+            for m in recent + searched:
+                if m.id not in seen:
+                    seen.add(m.id)
+                    combined.append(m)
+            return combined[:10]
         except Exception:
             return []

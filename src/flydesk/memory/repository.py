@@ -70,6 +70,20 @@ class MemoryRepository:
             result = await session.execute(stmt)
             return [self._row_to_model(r) for r in result.scalars().all()]
 
+    async def list_recent(
+        self, user_id: str, limit: int = 5
+    ) -> list[UserMemory]:
+        """Return the *limit* most recently created memories for a user."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(UserMemoryRow)
+                .where(UserMemoryRow.user_id == user_id)
+                .order_by(UserMemoryRow.created_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [self._row_to_model(r) for r in result.scalars().all()]
+
     async def update(
         self, user_id: str, memory_id: str, data: UpdateMemory
     ) -> UserMemory | None:
