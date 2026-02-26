@@ -464,7 +464,7 @@ class BuiltinToolExecutor:
             return {"error": f"Knowledge search failed: {exc}", "results": []}
 
     async def _list_systems(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        systems = await self._catalog_repo.list_systems()
+        systems, _ = await self._catalog_repo.list_systems()
         return {
             "systems": [
                 {
@@ -684,7 +684,7 @@ class BuiltinToolExecutor:
         }
 
     async def _platform_status(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        systems = await self._catalog_repo.list_systems()
+        systems, _ = await self._catalog_repo.list_systems()
         endpoints = await self._catalog_repo.list_active_endpoints()
 
         return {

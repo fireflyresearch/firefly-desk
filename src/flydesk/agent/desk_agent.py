@@ -809,7 +809,7 @@ class DeskAgent:
                         mode = await self._settings_repo.get_app_setting("tool_access_mode")
                         if mode is not None:
                             tool_access_mode = mode
-                        systems = await self._catalog_repo.list_systems()
+                        systems, _ = await self._catalog_repo.list_systems()
                         agent_enabled_map = {s.id: s.agent_enabled for s in systems}
 
                     tools = self._tool_factory.build_tool_definitions(

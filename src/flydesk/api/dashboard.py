@@ -170,7 +170,7 @@ async def get_stats(
 ) -> SystemStats:
     """Return aggregated system statistics."""
     # Catalog counts
-    systems = await catalog_repo.list_systems()
+    systems, _ = await catalog_repo.list_systems()
     knowledge_docs = await catalog_repo.list_knowledge_documents()
 
     # LLM provider count

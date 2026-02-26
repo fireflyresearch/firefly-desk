@@ -279,7 +279,7 @@ class ProcessDiscoveryEngine:
 
         # Catalog systems + endpoints
         try:
-            systems = await self._catalog_repo.list_systems()
+            systems, _ = await self._catalog_repo.list_systems()
             for sys in systems:
                 endpoints = await self._catalog_repo.list_endpoints(sys.id)
                 ep_dicts = [

@@ -63,7 +63,7 @@ def process_repo(session_factory):
 @pytest.fixture
 def mock_catalog_repo():
     repo = AsyncMock()
-    repo.list_systems.return_value = []
+    repo.list_systems.return_value = ([], 0)
     repo.list_endpoints.return_value = []
     repo.list_knowledge_documents.return_value = []
     return repo
@@ -389,7 +389,7 @@ class TestContextGathering:
         endpoint.when_to_use = "When creating a customer"
         endpoint.risk_level = "low"
 
-        mock_catalog_repo.list_systems.return_value = [system]
+        mock_catalog_repo.list_systems.return_value = ([system], 1)
         mock_catalog_repo.list_endpoints.return_value = [endpoint]
 
         ctx = await engine._gather_context()

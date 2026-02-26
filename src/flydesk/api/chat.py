@@ -67,7 +67,7 @@ async def _build_suggestions(request: Request, is_admin: bool) -> list[Suggestio
 
     try:
         catalog_repo = CatalogRepository(session_factory)
-        systems = await catalog_repo.list_systems()
+        systems, _ = await catalog_repo.list_systems()
         docs = await catalog_repo.list_knowledge_documents()
         process_repo = ProcessRepository(session_factory)
         processes = await process_repo.list(limit=50)

@@ -58,7 +58,7 @@ def _make_endpoint(
 @pytest.fixture
 def catalog_repo() -> MagicMock:
     mock = MagicMock()
-    mock.list_systems = AsyncMock(return_value=[_make_system()])
+    mock.list_systems = AsyncMock(return_value=([_make_system()], 1))
     mock.list_endpoints = AsyncMock(return_value=[_make_endpoint()])
     mock.list_active_endpoints = AsyncMock(return_value=[_make_endpoint()])
     return mock
@@ -219,7 +219,7 @@ class TestListSystems:
         assert result["systems"][0]["status"] == "active"
 
     async def test_empty_catalog(self, executor, catalog_repo):
-        catalog_repo.list_systems.return_value = []
+        catalog_repo.list_systems.return_value = ([], 0)
         result = await executor.execute("list_catalog_systems", {})
         assert result["count"] == 0
         assert result["systems"] == []

@@ -1012,7 +1012,7 @@ class SetupConversationHandler:
             from flydesk.catalog.repository import CatalogRepository
 
             repo = CatalogRepository(session_factory)
-            systems = await repo.list_systems()
+            systems, _ = await repo.list_systems()
             has_seed = len(systems) > 0
 
         if has_seed:

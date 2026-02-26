@@ -484,7 +484,7 @@ async def get_setup_status(request: Request) -> SetupStatus:
         from flydesk.catalog.repository import CatalogRepository
 
         repo = CatalogRepository(session_factory)
-        systems = await repo.list_systems()
+        systems, _ = await repo.list_systems()
         has_seed = len(systems) > 0
 
         # Check whether initial setup has been completed
@@ -736,7 +736,7 @@ async def check_first_run(request: Request) -> dict:
         from flydesk.catalog.repository import CatalogRepository
 
         repo = CatalogRepository(session_factory)
-        systems = await repo.list_systems()
+        systems, _ = await repo.list_systems()
         return {"is_first_run": len(systems) == 0}
     except Exception:
         logger.warning("first-run check failed, assuming first run", exc_info=True)

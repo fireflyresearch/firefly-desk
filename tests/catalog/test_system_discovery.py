@@ -76,7 +76,7 @@ def _make_system(
 @pytest.fixture
 def mock_catalog_repo():
     repo = AsyncMock()
-    repo.list_systems.return_value = []
+    repo.list_systems.return_value = ([], 0)
     repo.list_endpoints.return_value = []
     repo.list_knowledge_documents.return_value = []
     repo.create_system = AsyncMock()
@@ -311,7 +311,7 @@ class TestMergeSystems:
 
     async def test_new_system_created(self, engine, mock_catalog_repo):
         """Brand new system is created via catalog_repo.create_system."""
-        mock_catalog_repo.list_systems.return_value = []
+        mock_catalog_repo.list_systems.return_value = ([], 0)
 
         new_system = ExternalSystem(
             id="new-1",
@@ -328,9 +328,9 @@ class TestMergeSystems:
 
     async def test_existing_name_skipped(self, engine, mock_catalog_repo):
         """System with matching name (exact) is skipped."""
-        mock_catalog_repo.list_systems.return_value = [
+        mock_catalog_repo.list_systems.return_value = ([
             _make_system("existing-1", name="CRM System"),
-        ]
+        ], 1)
 
         new_system = ExternalSystem(
             id="new-1",
@@ -346,9 +346,9 @@ class TestMergeSystems:
 
     async def test_existing_name_case_insensitive(self, engine, mock_catalog_repo):
         """Case-insensitive name match skips the system."""
-        mock_catalog_repo.list_systems.return_value = [
+        mock_catalog_repo.list_systems.return_value = ([
             _make_system("existing-1", name="CRM System"),
-        ]
+        ], 1)
 
         new_system = ExternalSystem(
             id="new-1",
@@ -363,10 +363,10 @@ class TestMergeSystems:
 
     async def test_mixed_scenario_correct_counts(self, engine, mock_catalog_repo):
         """Mixed: some new, some existing -- correct created/skipped counts."""
-        mock_catalog_repo.list_systems.return_value = [
+        mock_catalog_repo.list_systems.return_value = ([
             _make_system("e-1", name="Existing CRM"),
             _make_system("e-2", name="Existing ERP"),
-        ]
+        ], 2)
 
         discovered = [
             ExternalSystem(

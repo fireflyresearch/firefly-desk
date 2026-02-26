@@ -252,7 +252,7 @@ class SystemDiscoveryEngine:
 
         # Existing catalog systems (for deduplication)
         try:
-            systems = await self._catalog_repo.list_systems()
+            systems, _ = await self._catalog_repo.list_systems()
             for sys in systems:
                 ctx.systems.append(
                     ExistingSystemContext(
@@ -465,7 +465,7 @@ class SystemDiscoveryEngine:
         """
         stats = {"discovered": len(discovered), "created": 0, "skipped": 0}
 
-        existing = await self._catalog_repo.list_systems()
+        existing, _ = await self._catalog_repo.list_systems()
         existing_by_name: dict[str, ExternalSystem] = {
             s.name.lower(): s for s in existing
         }

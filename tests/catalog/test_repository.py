@@ -72,8 +72,9 @@ class TestCatalogRepository:
 
     async def test_list_systems(self, repo, sample_system):
         await repo.create_system(sample_system)
-        systems = await repo.list_systems()
+        systems, total = await repo.list_systems()
         assert len(systems) == 1
+        assert total == 1
         assert systems[0].id == "crm-test"
 
     async def test_update_system(self, repo, sample_system):
