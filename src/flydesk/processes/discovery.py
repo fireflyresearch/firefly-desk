@@ -160,17 +160,30 @@ class ProcessDiscoveryEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    async def discover(self, trigger: str, job_runner: JobRunner) -> Job:
+    async def discover(
+        self,
+        trigger: str,
+        job_runner: JobRunner,
+        *,
+        workspace_ids: list[str] | None = None,
+        document_types: list[str] | None = None,
+    ) -> Job:
         """Submit a process discovery job to the background job runner.
 
         Parameters:
             trigger: Human-readable trigger description (e.g. "New CRM system added").
             job_runner: The ``JobRunner`` instance to submit the job to.
+            workspace_ids: Optional list of workspace IDs to scope discovery to.
+            document_types: Optional list of document types to include.
 
         Returns:
             The created ``Job`` domain object for tracking.
         """
-        payload = {"trigger": trigger}
+        payload: dict[str, Any] = {"trigger": trigger}
+        if workspace_ids:
+            payload["workspace_ids"] = workspace_ids
+        if document_types:
+            payload["document_types"] = document_types
         return await job_runner.submit("process_discovery", payload)
 
     # ------------------------------------------------------------------
@@ -190,10 +203,15 @@ class ProcessDiscoveryEngine:
         Returns a summary dict to be stored as the job result.
         """
         trigger = payload.get("trigger", "")
+        workspace_ids = payload.get("workspace_ids") or []
+        document_types = payload.get("document_types") or []
         await on_progress(5, "Scanning catalog systems, knowledge graph, and documents...")
 
         # 1. Gather context
-        context = await self._gather_context()
+        context = await self._gather_context(
+            workspace_ids=workspace_ids,
+            document_types=document_types,
+        )
         # Build a descriptive summary of what was gathered
         total_endpoints = sum(len(s.endpoints) for s in context.systems)
         await on_progress(
@@ -273,13 +291,31 @@ class ProcessDiscoveryEngine:
     # Context gathering
     # ------------------------------------------------------------------
 
-    async def _gather_context(self) -> DiscoveryContext:
+    async def _gather_context(
+        self,
+        *,
+        workspace_ids: list[str] | None = None,
+        document_types: list[str] | None = None,
+    ) -> DiscoveryContext:
         """Collect all available enterprise context for the LLM prompt."""
         ctx = DiscoveryContext()
 
         # Catalog systems + endpoints
         try:
-            systems, _ = await self._catalog_repo.list_systems()
+            if workspace_ids:
+                all_systems: list = []
+                for ws_id in workspace_ids:
+                    ws_systems, _ = await self._catalog_repo.list_systems(workspace_id=ws_id)
+                    all_systems.extend(ws_systems)
+                # Deduplicate by system ID
+                seen_ids: set[str] = set()
+                systems = []
+                for sys in all_systems:
+                    if sys.id not in seen_ids:
+                        seen_ids.add(sys.id)
+                        systems.append(sys)
+            else:
+                systems, _ = await self._catalog_repo.list_systems()
             for sys in systems:
                 endpoints = await self._catalog_repo.list_endpoints(sys.id)
                 ep_dicts = [
@@ -341,7 +377,29 @@ class ProcessDiscoveryEngine:
 
         # Knowledge base documents
         try:
-            documents = await self._catalog_repo.list_knowledge_documents()
+            if workspace_ids:
+                all_docs = []
+                for ws_id in workspace_ids:
+                    ws_docs = await self._catalog_repo.list_knowledge_documents(workspace_id=ws_id)
+                    all_docs.extend(ws_docs)
+                # Deduplicate by ID
+                seen_doc_ids: set[str] = set()
+                documents = []
+                for doc in all_docs:
+                    doc_id = getattr(doc, "id", None)
+                    if doc_id and doc_id not in seen_doc_ids:
+                        seen_doc_ids.add(doc_id)
+                        documents.append(doc)
+            else:
+                documents = await self._catalog_repo.list_knowledge_documents()
+
+            if document_types:
+                type_set = set(document_types)
+                documents = [
+                    doc for doc in documents
+                    if str(getattr(doc, "document_type", "other")) in type_set
+                ]
+
             ctx.documents = [
                 {
                     "title": getattr(doc, "title", ""),

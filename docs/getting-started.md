@@ -86,16 +86,20 @@ This populates the Service Catalog with a sample banking system, registers endpo
 
 ## Setup Wizard
 
-When you first open Firefly Desk in your browser, the application detects that it has not been configured and launches an interactive setup wizard. The wizard guides you through eight steps:
+When you first open Firefly Desk in your browser, the application detects that it has not been configured and launches an interactive setup wizard. The wizard guides you through these steps:
 
 1. **Welcome** -- Introduction to Firefly Desk and what the wizard will configure.
 2. **Database** -- Verify or configure the database connection. In development mode, SQLite is pre-configured and this step confirms connectivity.
-3. **LLM Provider** -- Configure the language model provider that powers the agent. Enter API keys and select a model.
-4. **Embedding** -- Configure the embedding model used for knowledge base vectorization. Test the connection to verify it works.
-5. **Agent** -- Customize the agent's name, avatar, personality, and greeting. Choose from personality presets or define your own.
-6. **Profile** -- Review and confirm your user profile settings.
-7. **Data** -- Optionally seed demo data (banking scenario) and configure auto-analysis settings.
-8. **Ready** -- Summary of all configured components with a launch button.
+3. **LLM Provider** -- Configure the language model provider that powers the agent. Enter API keys, select a model, and optionally set a fallback model for resilience.
+4. **Embeddings & Vector Store** -- Configure the embedding model used for knowledge base vectorization, the vector store backend, and knowledge quality settings.
+5. **Agent Setup** -- Customize the agent's name, avatar, personality, and greeting. Optionally configure a web search provider (e.g. Tavily) so the agent can look up current information from the internet.
+6. **Admin User** -- Create the initial admin account (production mode only).
+7. **Deployment** -- Configure the FQDN, protocol, and locale settings.
+8. **SSO / OIDC** -- Set up single sign-on with your identity provider (production mode only).
+9. **User Profile** -- Review and confirm your user profile settings (dev mode only).
+10. **Data Setup** -- Choose how to populate your instance: import your own data from cloud sources after setup, use sample demo data, or start with an empty instance.
+11. **Sample Data** -- If you chose sample data, select which categories to seed (systems, knowledge, knowledge graph, business processes). This step adapts based on your data setup choice.
+12. **Ready** -- Summary of all configured components with a launch button.
 
 Each step validates its configuration before allowing you to proceed. You can navigate back to previous steps to change settings. The wizard stores all settings in the database, so they persist across restarts.
 

@@ -214,8 +214,28 @@ async def trigger_discovery(request: Request, body: DiscoverRequest | None = Non
             status_code=503, detail="Job runner not available"
         )
 
-    trigger = body.trigger if body else ""
-    job = await engine.discover(trigger, job_runner)
+    # Load persisted discovery settings
+    import json as _json
+
+    from flydesk.api.deps import get_settings_repo
+
+    settings_repo_fn = request.app.dependency_overrides.get(get_settings_repo)
+    workspace_ids: list[str] = []
+    document_types: list[str] = []
+    focus_hint = ""
+    if settings_repo_fn:
+        settings_repo = settings_repo_fn()
+        disc_settings = await settings_repo.get_all_app_settings(category="process_discovery")
+        workspace_ids = _json.loads(disc_settings.get("workspace_ids", "[]"))
+        document_types = _json.loads(disc_settings.get("document_types", "[]"))
+        focus_hint = disc_settings.get("focus_hint", "")
+
+    trigger = body.trigger if body and body.trigger else focus_hint
+    job = await engine.discover(
+        trigger, job_runner,
+        workspace_ids=workspace_ids or None,
+        document_types=document_types or None,
+    )
     return {"job_id": job.id, "status": job.status.value, "progress_pct": job.progress_pct}
 
 

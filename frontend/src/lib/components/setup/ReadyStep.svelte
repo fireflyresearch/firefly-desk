@@ -194,6 +194,37 @@
 			rows.push({ label: 'SSO', value: 'Skipped', ok: false });
 		}
 
+		// Fallback model
+		const fallbackModel = (llm as Record<string, unknown> | null | undefined)?.fallback_model;
+		if (fallbackModel) {
+			rows.push({
+				label: 'Fallback Model',
+				value: fallbackModel as string,
+				ok: true
+			});
+		}
+
+		// Search engine
+		const searchConfig = wizardData.search_config as Record<string, unknown> | undefined;
+		if (searchConfig?.search_provider) {
+			const providerNames: Record<string, string> = { tavily: 'Tavily' };
+			rows.push({
+				label: 'Web Search',
+				value: providerNames[searchConfig.search_provider as string] ?? (searchConfig.search_provider as string),
+				ok: true
+			});
+		}
+
+		// Data import choice
+		const dataChoice = wizardData.data_choice as string | undefined;
+		if (dataChoice === 'import') {
+			rows.push({
+				label: 'Data',
+				value: 'Import after setup',
+				ok: true
+			});
+		}
+
 		// Sample data
 		rows.push({
 			label: 'Sample Data',
@@ -227,7 +258,8 @@
 					api_key: llm.api_key ?? null,
 					base_url: llm.base_url ?? null,
 					model_id: llm.model_id ?? null,
-					model_name: llm.model_name ?? null
+					model_name: llm.model_name ?? null,
+					fallback_model: llm.fallback_model ?? null
 				};
 			}
 
@@ -256,6 +288,11 @@
 			const vectorStore = wizardData.vector_store as Record<string, unknown> | undefined;
 			if (vectorStore) {
 				configureBody.vector_store = vectorStore;
+			}
+
+			const searchConfig = wizardData.search_config as Record<string, unknown> | undefined;
+			if (searchConfig?.search_provider) {
+				configureBody.search_config = searchConfig;
 			}
 
 			const result = await apiJson<ConfigureResult>('/setup/configure', {

@@ -8,15 +8,16 @@
   Steps:
     1. Welcome
     2. Database
-    3. LLM Provider
+    3. LLM Provider (+ fallback model)
     4. Embeddings (skipped if LLM is skipped)
-    5. Agent Setup
+    5. Agent Setup (+ web search)
     6. Admin User (prod only)
     7. Deployment
     8. SSO / OIDC (prod only)
     9. User Profile (dev mode only)
-   10. Sample Data
-   11. Ready
+   10. Data Import
+   11. Sample Data
+   12. Ready
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -33,6 +34,7 @@
 	import DeploymentStep from './DeploymentStep.svelte';
 	import SSOSetupStep from './SSOSetupStep.svelte';
 	import UserProfileStep from './UserProfileStep.svelte';
+	import DataImportStep from './DataImportStep.svelte';
 	import SampleDataStep from './SampleDataStep.svelte';
 	import ReadyStep from './ReadyStep.svelte';
 
@@ -68,6 +70,7 @@
 		{ id: 'deployment', label: 'Deployment' },
 		{ id: 'sso', label: 'SSO / OIDC', prodOnly: true },
 		{ id: 'profile', label: 'User Profile', devOnly: true },
+		{ id: 'data-import', label: 'Data Setup' },
 		{ id: 'data', label: 'Sample Data' },
 		{ id: 'ready', label: 'Ready' }
 	];
@@ -200,8 +203,14 @@
 						<SSOSetupStep onNext={handleNext} onBack={handleBack} />
 					{:else if currentStep?.id === 'profile'}
 						<UserProfileStep onNext={handleNext} onBack={handleBack} />
+					{:else if currentStep?.id === 'data-import'}
+						<DataImportStep onNext={handleNext} onBack={handleBack} />
 					{:else if currentStep?.id === 'data'}
-						<SampleDataStep onNext={handleNext} onBack={handleBack} />
+						<SampleDataStep
+							onNext={handleNext}
+							onBack={handleBack}
+							dataChoice={wizardData.data_choice as string | undefined}
+						/>
 					{:else if currentStep?.id === 'ready'}
 						<ReadyStep {wizardData} onBack={handleBack} />
 					{/if}

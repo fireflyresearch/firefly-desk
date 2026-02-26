@@ -138,17 +138,34 @@ class SystemDiscoveryEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    async def discover(self, trigger: str, job_runner: JobRunner) -> Job:
+    async def discover(
+        self,
+        trigger: str,
+        job_runner: JobRunner,
+        *,
+        workspace_ids: list[str] | None = None,
+        document_types: list[str] | None = None,
+        confidence_threshold: float = 0.5,
+    ) -> Job:
         """Submit a system discovery job to the background job runner.
 
         Parameters:
             trigger: Human-readable trigger description (e.g. "New KB documents uploaded").
             job_runner: The ``JobRunner`` instance to submit the job to.
+            workspace_ids: Optional list of workspace IDs to restrict document gathering.
+            document_types: Optional list of document types to include.
+            confidence_threshold: Minimum confidence score for discovered systems.
 
         Returns:
             The created ``Job`` domain object for tracking.
         """
-        payload = {"trigger": trigger}
+        payload: dict[str, Any] = {"trigger": trigger}
+        if workspace_ids:
+            payload["workspace_ids"] = workspace_ids
+        if document_types:
+            payload["document_types"] = document_types
+        if confidence_threshold != 0.5:
+            payload["confidence_threshold"] = confidence_threshold
         return await job_runner.submit("system_discovery", payload)
 
     # ------------------------------------------------------------------
@@ -168,10 +185,16 @@ class SystemDiscoveryEngine:
         Returns a summary dict to be stored as the job result.
         """
         trigger = payload.get("trigger", "")
+        workspace_ids = payload.get("workspace_ids") or []
+        document_types = payload.get("document_types") or []
+        confidence_threshold = float(payload.get("confidence_threshold", 0.5))
         await on_progress(5, "Scanning catalog systems, knowledge graph, and documents...")
 
         # 1. Gather context
-        context = await self._gather_context()
+        context = await self._gather_context(
+            workspace_ids=workspace_ids,
+            document_types=document_types,
+        )
         await on_progress(
             20,
             f"Context gathered: {len(context.systems)} existing systems, "
@@ -214,7 +237,10 @@ class SystemDiscoveryEngine:
             await on_progress(60, "LLM analysis complete — no systems identified")
 
         # 4. Filter by quality gate, then convert to domain models
-        qualified = [s for s in discovery_result.systems if self._should_create(s)]
+        qualified = [
+            s for s in discovery_result.systems
+            if self._should_create(s, confidence_threshold=confidence_threshold)
+        ]
         discovered = self._to_external_systems(SystemDiscoveryResult(systems=qualified))
         await on_progress(70, "Merging discovered systems with existing catalog...")
 
@@ -246,7 +272,12 @@ class SystemDiscoveryEngine:
     # Context gathering
     # ------------------------------------------------------------------
 
-    async def _gather_context(self) -> SystemDiscoveryContext:
+    async def _gather_context(
+        self,
+        *,
+        workspace_ids: list[str] | None = None,
+        document_types: list[str] | None = None,
+    ) -> SystemDiscoveryContext:
         """Collect all available enterprise context for the LLM prompt."""
         ctx = SystemDiscoveryContext()
 
@@ -296,7 +327,29 @@ class SystemDiscoveryEngine:
 
         # Knowledge base documents
         try:
-            documents = await self._catalog_repo.list_knowledge_documents()
+            if workspace_ids:
+                all_docs = []
+                for ws_id in workspace_ids:
+                    ws_docs = await self._catalog_repo.list_knowledge_documents(workspace_id=ws_id)
+                    all_docs.extend(ws_docs)
+                # Deduplicate by ID
+                seen_doc_ids: set[str] = set()
+                documents = []
+                for doc in all_docs:
+                    doc_id = getattr(doc, "id", None)
+                    if doc_id and doc_id not in seen_doc_ids:
+                        seen_doc_ids.add(doc_id)
+                        documents.append(doc)
+            else:
+                documents = await self._catalog_repo.list_knowledge_documents()
+
+            if document_types:
+                type_set = set(document_types)
+                documents = [
+                    doc for doc in documents
+                    if str(getattr(doc, "document_type", "other")) in type_set
+                ]
+
             ctx.documents = [
                 {
                     "title": getattr(doc, "title", ""),
@@ -437,9 +490,13 @@ class SystemDiscoveryEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _should_create(system: DiscoveredSystem) -> bool:
+    def _should_create(
+        system: DiscoveredSystem,
+        *,
+        confidence_threshold: float = 0.5,
+    ) -> bool:
         """Only create systems with sufficient evidence."""
-        if system.confidence < 0.5:
+        if system.confidence < confidence_threshold:
             return False
         has_endpoints = len(system.endpoints) > 0
         has_url = bool(system.base_url)

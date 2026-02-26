@@ -20,9 +20,10 @@
 	interface SampleDataStepProps {
 		onNext: (data?: Record<string, unknown>) => void;
 		onBack: () => void;
+		dataChoice?: string;
 	}
 
-	let { onNext, onBack }: SampleDataStepProps = $props();
+	let { onNext, onBack, dataChoice = 'sample' }: SampleDataStepProps = $props();
 
 	// -----------------------------------------------------------------------
 	// Seed category definitions
@@ -66,8 +67,9 @@
 	// State
 	// -----------------------------------------------------------------------
 
+	let defaultsOn = dataChoice === 'sample';
 	let selected = $state<Record<string, boolean>>(
-		Object.fromEntries(categories.map((c) => [c.id, c.defaultOn]))
+		Object.fromEntries(categories.map((c) => [c.id, defaultsOn && c.defaultOn]))
 	);
 	let seeding = $state(false);
 	let seeded = $state(false);
@@ -163,9 +165,21 @@
 
 <div class="flex h-full flex-col">
 	<h2 class="text-xl font-bold text-text-primary">Sample Data</h2>
-	<p class="mt-1 text-sm text-text-secondary">
-		Optionally load demo data to explore Firefly Desk right away.
-	</p>
+	{#if dataChoice === 'import'}
+		<p class="mt-1 text-sm text-text-secondary">
+			You chose to import your own data. Sample data is optional -- you can
+			skip this step or add demo data alongside your imports.
+		</p>
+	{:else if dataChoice === 'skip'}
+		<p class="mt-1 text-sm text-text-secondary">
+			You chose to skip data setup. You can optionally load demo data below,
+			or continue with an empty instance.
+		</p>
+	{:else}
+		<p class="mt-1 text-sm text-text-secondary">
+			Load demo data to explore Firefly Desk right away.
+		</p>
+	{/if}
 
 	<div class="mt-6 space-y-3">
 		{#each categories as category}
@@ -248,22 +262,34 @@
 			<ArrowLeft size={16} />
 			Back
 		</button>
-		<button
-			type="button"
-			onclick={handleContinue}
-			disabled={seeding}
-			class="btn-hover inline-flex items-center gap-1.5 rounded-lg bg-ember px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-		>
-			{#if seeding}
-				<Loader2 size={16} class="animate-spin" />
-				Seeding...
-			{:else if error}
-				Retry
-				<ArrowRight size={16} />
-			{:else}
-				Continue
-				<ArrowRight size={16} />
+		<div class="flex items-center gap-3">
+			{#if !anythingSelected && !seeded && dataChoice !== 'sample'}
+				<button
+					type="button"
+					onclick={() => onNext({ sample_data: false })}
+					class="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+				>
+					Skip
+					<ArrowRight size={16} />
+				</button>
 			{/if}
-		</button>
+			<button
+				type="button"
+				onclick={handleContinue}
+				disabled={seeding}
+				class="btn-hover inline-flex items-center gap-1.5 rounded-lg bg-ember px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+			>
+				{#if seeding}
+					<Loader2 size={16} class="animate-spin" />
+					Seeding...
+				{:else if error}
+					Retry
+					<ArrowRight size={16} />
+				{:else}
+					Continue
+					<ArrowRight size={16} />
+				{/if}
+			</button>
+		</div>
 	</div>
 </div>

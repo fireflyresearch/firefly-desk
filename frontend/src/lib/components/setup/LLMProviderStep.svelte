@@ -17,7 +17,9 @@
 		ArrowLeft,
 		ArrowRight,
 		Eye,
-		EyeOff
+		EyeOff,
+		ChevronDown,
+		ChevronRight
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
@@ -137,6 +139,17 @@
 	let testResult = $state<'success' | 'failure' | null>(null);
 	let testMessage = $state('');
 	let skipped = $state(false);
+	let showFallback = $state(false);
+	let fallbackModel = $state('');
+
+	/** Default fallback models per provider type. */
+	const defaultFallbacks: Record<string, string> = {
+		openai: 'gpt-4o-mini',
+		anthropic: 'claude-haiku-4-5-20251001',
+		google: 'gemini-2.0-flash',
+		azure_openai: '',
+		ollama: ''
+	};
 
 	let currentProviderDef = $derived(providers.find((p) => p.id === selectedProvider) ?? null);
 	let activeModel = $derived(selectedModel === '__custom__' ? customModel : selectedModel);
@@ -162,6 +175,7 @@
 		testResult = null;
 		testMessage = '';
 		skipped = false;
+		fallbackModel = defaultFallbacks[id] ?? '';
 	}
 
 	async function testConnection() {
@@ -221,7 +235,8 @@
 						model_id: activeModel,
 						model_name:
 							currentProviderDef?.models.find((m) => m.id === activeModel)?.name ??
-							activeModel
+							activeModel,
+						fallback_model: fallbackModel || null
 					}
 		});
 	}
@@ -375,6 +390,41 @@
 				</div>
 			{/if}
 		</div>
+
+		<!-- Fallback model (collapsible) -->
+		{#if testResult === 'success'}
+			<div class="mt-2">
+				<button
+					type="button"
+					onclick={() => (showFallback = !showFallback)}
+					class="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary"
+				>
+					{#if showFallback}
+						<ChevronDown size={14} />
+					{:else}
+						<ChevronRight size={14} />
+					{/if}
+					Fallback Model
+					<span class="font-normal text-text-secondary/60">(optional)</span>
+				</button>
+				{#if showFallback}
+					<div
+						class="mt-2 rounded-lg border border-border/50 bg-surface-hover/30 p-3"
+					>
+						<p class="mb-2 text-[11px] text-text-secondary">
+							A cheaper/faster model used when the primary model is unavailable or
+							rate-limited.
+						</p>
+						<input
+							type="text"
+							bind:value={fallbackModel}
+							placeholder="e.g., gpt-4o-mini"
+							class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
+						/>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 
 	<!-- Skip option -->

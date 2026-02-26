@@ -20,7 +20,9 @@
 		X,
 		CheckCircle2,
 		AlertCircle,
-		Search
+		Search,
+		Settings,
+		Save
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -117,11 +119,38 @@
 	let showDetectionLog = $state(false);
 	let detectionLogEl: HTMLDivElement | null = $state(null);
 
+	// Discovery settings panel
+	let showDiscoverySettings = $state(false);
+	let discoverySettings = $state<SystemDiscoverySettings>({
+		workspace_ids: [],
+		document_types: [],
+		focus_hint: '',
+		confidence_threshold: 0.5
+	});
+	let savingDiscoverySettings = $state(false);
+	let loadingDiscoverySettings = $state(true);
+
+	const DOCUMENT_TYPES = [
+		{ value: 'manual', label: 'Manual' },
+		{ value: 'tutorial', label: 'Tutorial' },
+		{ value: 'api_spec', label: 'API Spec' },
+		{ value: 'faq', label: 'FAQ' },
+		{ value: 'policy', label: 'Policy' },
+		{ value: 'reference', label: 'Reference' }
+	];
+
 	interface DetectionLogEntry {
 		message: string;
 		pct: number;
 		timestamp: Date;
 		type: 'scan' | 'context' | 'llm' | 'result' | 'merge' | 'done' | 'error' | 'info';
+	}
+
+	interface SystemDiscoverySettings {
+		workspace_ids: string[];
+		document_types: string[];
+		focus_hint: string;
+		confidence_threshold: number;
 	}
 
 	let isDetecting = $derived(
@@ -141,6 +170,50 @@
 			workspaces = result.map((w) => ({ id: w.id, name: w.name }));
 		} catch {
 			// Workspaces are optional
+		}
+	}
+
+	async function loadDiscoverySettings() {
+		loadingDiscoverySettings = true;
+		try {
+			discoverySettings = await apiJson<SystemDiscoverySettings>('/settings/system-discovery');
+		} catch {
+			// Use defaults
+		} finally {
+			loadingDiscoverySettings = false;
+		}
+	}
+
+	async function saveDiscoverySettings() {
+		savingDiscoverySettings = true;
+		error = '';
+		try {
+			await apiJson('/settings/system-discovery', {
+				method: 'PUT',
+				body: JSON.stringify(discoverySettings)
+			});
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save discovery settings';
+		} finally {
+			savingDiscoverySettings = false;
+		}
+	}
+
+	function toggleWorkspace(id: string) {
+		const idx = discoverySettings.workspace_ids.indexOf(id);
+		if (idx >= 0) {
+			discoverySettings.workspace_ids = discoverySettings.workspace_ids.filter((w) => w !== id);
+		} else {
+			discoverySettings.workspace_ids = [...discoverySettings.workspace_ids, id];
+		}
+	}
+
+	function toggleDocType(type: string) {
+		const idx = discoverySettings.document_types.indexOf(type);
+		if (idx >= 0) {
+			discoverySettings.document_types = discoverySettings.document_types.filter((t) => t !== type);
+		} else {
+			discoverySettings.document_types = [...discoverySettings.document_types, type];
 		}
 	}
 
@@ -181,6 +254,7 @@
 	$effect(() => {
 		loadSystems();
 		loadWorkspaces();
+		loadDiscoverySettings();
 	});
 
 	// -----------------------------------------------------------------------
@@ -559,6 +633,121 @@
 				Add System
 			</button>
 		</div>
+	</div>
+
+	<!-- Detection Settings -->
+	<div class="shrink-0 rounded-lg border border-border bg-surface">
+		<button
+			type="button"
+			onclick={() => (showDiscoverySettings = !showDiscoverySettings)}
+			class="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+		>
+			<Settings size={14} />
+			Detection Settings
+			<ChevronRight
+				size={14}
+				class="ml-auto transition-transform {showDiscoverySettings ? 'rotate-90' : ''}"
+			/>
+		</button>
+
+		{#if showDiscoverySettings}
+			<div class="border-t border-border px-4 py-3">
+				{#if loadingDiscoverySettings}
+					<div class="flex justify-center py-2">
+						<Loader2 size={14} class="animate-spin text-text-secondary" />
+					</div>
+				{:else}
+					<div class="flex flex-wrap gap-6">
+						<!-- Workspaces -->
+						<div class="min-w-[160px]">
+							<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+							<p class="mb-1.5 text-[10px] text-text-secondary/60">Empty = scan all</p>
+							<div class="flex flex-col gap-1">
+								{#each workspaces as ws}
+									<label class="flex items-center gap-2 text-xs text-text-primary">
+										<input
+											type="checkbox"
+											checked={discoverySettings.workspace_ids.includes(ws.id)}
+											onchange={() => toggleWorkspace(ws.id)}
+											class="accent-accent"
+										/>
+										{ws.name}
+									</label>
+								{/each}
+								{#if workspaces.length === 0}
+									<p class="text-[10px] text-text-secondary/60">No workspaces available</p>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Document Types -->
+						<div class="min-w-[200px]">
+							<span class="text-xs font-medium text-text-secondary">Document Types</span>
+							<p class="mb-1.5 text-[10px] text-text-secondary/60">Empty = all types</p>
+							<div class="grid grid-cols-2 gap-1">
+								{#each DOCUMENT_TYPES as dt}
+									<label class="flex items-center gap-1.5 text-xs text-text-primary">
+										<input
+											type="checkbox"
+											checked={discoverySettings.document_types.includes(dt.value)}
+											onchange={() => toggleDocType(dt.value)}
+											class="accent-accent"
+										/>
+										{dt.label}
+									</label>
+								{/each}
+							</div>
+						</div>
+
+						<!-- Focus + Confidence -->
+						<div class="min-w-[200px] flex-1">
+							<div class="mb-3">
+								<span class="text-xs font-medium text-text-secondary">Focus Areas</span>
+								<input
+									type="text"
+									bind:value={discoverySettings.focus_hint}
+									placeholder="e.g. payment integrations"
+									class="mt-1 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+								/>
+							</div>
+							<div class="mb-3">
+								<div class="flex items-center justify-between">
+									<span class="text-xs font-medium text-text-secondary">Confidence Threshold</span>
+									<span class="text-xs font-mono text-text-secondary">
+										{discoverySettings.confidence_threshold.toFixed(2)}
+									</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									bind:value={discoverySettings.confidence_threshold}
+									class="mt-1 w-full accent-accent"
+								/>
+								<div class="flex justify-between text-[10px] text-text-secondary/60">
+									<span>More results</span>
+									<span>Higher quality</span>
+								</div>
+							</div>
+							<button
+								type="button"
+								onclick={saveDiscoverySettings}
+								disabled={savingDiscoverySettings}
+								class="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+							>
+								{#if savingDiscoverySettings}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Save size={12} />
+								{/if}
+								Save Settings
+							</button>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	<!-- Error banner -->

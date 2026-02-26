@@ -174,9 +174,13 @@ See the [SSO and OIDC](sso-oidc.md) documentation for detailed setup guides per 
 
 The LLM Provider Manager configures the language model providers that power the agent. Administrators can:
 
-- Register API keys for different LLM providers
+- Register API keys for different LLM providers (OpenAI, Anthropic, Google, Azure OpenAI, Ollama)
 - Configure model selection and parameters
-- View provider health and usage
+- Set a default provider for the agent
+- Configure fallback models per provider type for resilience when the primary model is unavailable
+- Configure the embedding provider and model for knowledge base vectorization
+- Test provider connectivity and view health status
+- View provider usage metrics
 
 API keys are encrypted at rest using the same encryption key as the credential vault.
 
@@ -194,4 +198,9 @@ The Audit Viewer is particularly valuable when investigating why the agent took 
 
 **Route:** `/admin/settings`
 
-The Settings page provides runtime configuration options that can be changed without restarting the application. This includes branding settings (application title, logo URL, accent color) and operational parameters.
+The Settings page provides runtime configuration options that can be changed without restarting the application. This includes:
+
+- **Branding:** Application title, logo URL, and accent color
+- **Search Engine:** Configure a web search provider (e.g. Tavily) to give the agent internet search capabilities. Set the API key, max results per query, and test the connection
+- **Knowledge Quality:** Chunking mode, chunk size, overlap, and auto-extraction settings
+- **Operational Parameters:** Rate limits, cost guards, and circuit breaker settings

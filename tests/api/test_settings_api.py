@@ -345,3 +345,163 @@ class TestEmbeddingStatus:
     async def test_non_admin_cannot_check_status(self, non_admin_client):
         response = await non_admin_client.get("/api/settings/embedding/status")
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Process Discovery Configuration
+# ---------------------------------------------------------------------------
+
+
+class TestGetProcessDiscoveryConfig:
+    async def test_returns_defaults_when_no_db_settings(self, admin_client, mock_repo):
+        """GET /settings/process-discovery returns defaults when no DB values."""
+        mock_repo.get_all_app_settings.return_value = {}
+        response = await admin_client.get("/api/settings/process-discovery")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == []
+        assert data["document_types"] == []
+        assert data["focus_hint"] == ""
+
+    async def test_returns_db_values_when_set(self, admin_client, mock_repo):
+        """GET /settings/process-discovery returns persisted values."""
+        mock_repo.get_all_app_settings.return_value = {
+            "workspace_ids": '["ws-1", "ws-2"]',
+            "document_types": '["manual", "faq"]',
+            "focus_hint": "Focus on onboarding workflows",
+        }
+        response = await admin_client.get("/api/settings/process-discovery")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == ["ws-1", "ws-2"]
+        assert data["document_types"] == ["manual", "faq"]
+        assert data["focus_hint"] == "Focus on onboarding workflows"
+
+    async def test_non_admin_cannot_access(self, non_admin_client):
+        response = await non_admin_client.get("/api/settings/process-discovery")
+        assert response.status_code == 403
+
+
+class TestUpdateProcessDiscoveryConfig:
+    async def test_saves_process_discovery_config(self, admin_client, mock_repo):
+        """PUT /settings/process-discovery saves all fields."""
+        payload = {
+            "workspace_ids": ["ws-1"],
+            "document_types": ["manual", "tutorial"],
+            "focus_hint": "Focus on HR processes",
+        }
+        response = await admin_client.put(
+            "/api/settings/process-discovery", json=payload
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == ["ws-1"]
+        assert data["document_types"] == ["manual", "tutorial"]
+        assert data["focus_hint"] == "Focus on HR processes"
+        # 3 fields: workspace_ids, document_types, focus_hint
+        assert mock_repo.set_app_setting.await_count == 3
+
+    async def test_saves_empty_config(self, admin_client, mock_repo):
+        """PUT /settings/process-discovery with empty lists is valid."""
+        payload = {"workspace_ids": [], "document_types": [], "focus_hint": ""}
+        response = await admin_client.put(
+            "/api/settings/process-discovery", json=payload
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == []
+        assert data["document_types"] == []
+
+    async def test_non_admin_cannot_update(self, non_admin_client):
+        response = await non_admin_client.put(
+            "/api/settings/process-discovery",
+            json={"workspace_ids": [], "document_types": [], "focus_hint": ""},
+        )
+        assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# System Discovery Configuration
+# ---------------------------------------------------------------------------
+
+
+class TestGetSystemDiscoveryConfig:
+    async def test_returns_defaults_when_no_db_settings(self, admin_client, mock_repo):
+        """GET /settings/system-discovery returns defaults when no DB values."""
+        mock_repo.get_all_app_settings.return_value = {}
+        response = await admin_client.get("/api/settings/system-discovery")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == []
+        assert data["document_types"] == []
+        assert data["focus_hint"] == ""
+        assert data["confidence_threshold"] == 0.5
+
+    async def test_returns_db_values_when_set(self, admin_client, mock_repo):
+        """GET /settings/system-discovery returns persisted values."""
+        mock_repo.get_all_app_settings.return_value = {
+            "workspace_ids": '["ws-3"]',
+            "document_types": '["api_spec", "reference"]',
+            "focus_hint": "Look for CRM integrations",
+            "confidence_threshold": "0.7",
+        }
+        response = await admin_client.get("/api/settings/system-discovery")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == ["ws-3"]
+        assert data["document_types"] == ["api_spec", "reference"]
+        assert data["focus_hint"] == "Look for CRM integrations"
+        assert data["confidence_threshold"] == 0.7
+
+    async def test_non_admin_cannot_access(self, non_admin_client):
+        response = await non_admin_client.get("/api/settings/system-discovery")
+        assert response.status_code == 403
+
+
+class TestUpdateSystemDiscoveryConfig:
+    async def test_saves_system_discovery_config(self, admin_client, mock_repo):
+        """PUT /settings/system-discovery saves all fields."""
+        payload = {
+            "workspace_ids": ["ws-1", "ws-2"],
+            "document_types": ["policy"],
+            "focus_hint": "ERP systems only",
+            "confidence_threshold": 0.8,
+        }
+        response = await admin_client.put(
+            "/api/settings/system-discovery", json=payload
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_ids"] == ["ws-1", "ws-2"]
+        assert data["document_types"] == ["policy"]
+        assert data["focus_hint"] == "ERP systems only"
+        assert data["confidence_threshold"] == 0.8
+        # 4 fields: workspace_ids, document_types, focus_hint, confidence_threshold
+        assert mock_repo.set_app_setting.await_count == 4
+
+    async def test_saves_empty_config(self, admin_client, mock_repo):
+        """PUT /settings/system-discovery with defaults is valid."""
+        payload = {
+            "workspace_ids": [],
+            "document_types": [],
+            "focus_hint": "",
+            "confidence_threshold": 0.5,
+        }
+        response = await admin_client.put(
+            "/api/settings/system-discovery", json=payload
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["confidence_threshold"] == 0.5
+
+    async def test_non_admin_cannot_update(self, non_admin_client):
+        response = await non_admin_client.put(
+            "/api/settings/system-discovery",
+            json={
+                "workspace_ids": [],
+                "document_types": [],
+                "focus_hint": "",
+                "confidence_threshold": 0.5,
+            },
+        )
+        assert response.status_code == 403

@@ -34,7 +34,8 @@
 		Database,
 		Merge,
 		CircleCheck,
-		CircleX
+		CircleX,
+		Settings
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
@@ -73,6 +74,17 @@
 
 	interface AnalysisSettings {
 		auto_analyze: boolean;
+	}
+
+	interface ProcessDiscoverySettings {
+		workspace_ids: string[];
+		document_types: string[];
+		focus_hint: string;
+	}
+
+	interface WorkspaceInfo {
+		id: string;
+		name: string;
 	}
 
 	interface DiscoverResponse {
@@ -141,6 +153,26 @@
 	let autoAnalyze = $state(false);
 	let loadingAutoAnalyze = $state(true);
 	let togglingAutoAnalyze = $state(false);
+
+	// Discovery settings panel
+	let showDiscoverySettings = $state(false);
+	let workspaces = $state<WorkspaceInfo[]>([]);
+	let discoverySettings = $state<ProcessDiscoverySettings>({
+		workspace_ids: [],
+		document_types: [],
+		focus_hint: ''
+	});
+	let savingDiscoverySettings = $state(false);
+	let loadingDiscoverySettings = $state(true);
+
+	const DOCUMENT_TYPES = [
+		{ value: 'manual', label: 'Manual' },
+		{ value: 'tutorial', label: 'Tutorial' },
+		{ value: 'api_spec', label: 'API Spec' },
+		{ value: 'faq', label: 'FAQ' },
+		{ value: 'policy', label: 'Policy' },
+		{ value: 'reference', label: 'Reference' }
+	];
 
 	// -----------------------------------------------------------------------
 	// Derived
@@ -247,9 +279,64 @@
 		}
 	}
 
+	async function loadWorkspaces() {
+		try {
+			const result = await apiJson<WorkspaceInfo[]>('/workspaces');
+			workspaces = result.map((w) => ({ id: w.id, name: w.name }));
+		} catch {
+			// Non-critical
+		}
+	}
+
+	async function loadDiscoverySettings() {
+		loadingDiscoverySettings = true;
+		try {
+			discoverySettings = await apiJson<ProcessDiscoverySettings>('/settings/process-discovery');
+		} catch {
+			// Use defaults
+		} finally {
+			loadingDiscoverySettings = false;
+		}
+	}
+
+	async function saveDiscoverySettings() {
+		savingDiscoverySettings = true;
+		error = '';
+		try {
+			await apiJson('/settings/process-discovery', {
+				method: 'PUT',
+				body: JSON.stringify(discoverySettings)
+			});
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save discovery settings';
+		} finally {
+			savingDiscoverySettings = false;
+		}
+	}
+
+	function toggleWorkspace(id: string) {
+		const idx = discoverySettings.workspace_ids.indexOf(id);
+		if (idx >= 0) {
+			discoverySettings.workspace_ids = discoverySettings.workspace_ids.filter((w) => w !== id);
+		} else {
+			discoverySettings.workspace_ids = [...discoverySettings.workspace_ids, id];
+		}
+	}
+
+	function toggleDocType(type: string) {
+		const idx = discoverySettings.document_types.indexOf(type);
+		if (idx >= 0) {
+			discoverySettings.document_types = discoverySettings.document_types.filter((t) => t !== type);
+		} else {
+			discoverySettings.document_types = [...discoverySettings.document_types, type];
+		}
+	}
+
 	$effect(() => {
 		loadProcesses();
 		loadAnalysisSettings();
+		loadWorkspaces();
+		loadDiscoverySettings();
 	});
 
 	$effect(() => {
@@ -595,6 +682,111 @@
 		<div class="shrink-0 border-b border-border/50 px-4 py-3">
 			<h1 class="text-sm font-semibold text-text-primary">Processes</h1>
 			<p class="text-xs text-text-secondary">Discovered business processes</p>
+		</div>
+
+		<!-- Discovery Settings -->
+		<div class="shrink-0 border-b border-border/50">
+			<button
+				type="button"
+				onclick={() => (showDiscoverySettings = !showDiscoverySettings)}
+				class="flex w-full items-center gap-2 px-4 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+			>
+				<Settings size={12} />
+				Discovery Settings
+				<ChevronRight
+					size={12}
+					class="ml-auto transition-transform {showDiscoverySettings ? 'rotate-90' : ''}"
+				/>
+			</button>
+
+			{#if showDiscoverySettings}
+				<div class="border-t border-border/30 px-4 py-3">
+					{#if loadingDiscoverySettings}
+						<div class="flex justify-center py-2">
+							<Loader2 size={14} class="animate-spin text-text-secondary" />
+						</div>
+					{:else}
+						<div class="flex flex-col gap-3">
+							<!-- Workspaces -->
+							<div>
+								<span class="text-[10px] font-medium uppercase tracking-wide text-text-secondary">
+									Workspaces
+								</span>
+								<p class="mb-1.5 text-[10px] text-text-secondary/60">
+									Empty = scan all
+								</p>
+								<div class="flex flex-col gap-1">
+									{#each workspaces as ws}
+										<label class="flex items-center gap-2 text-xs text-text-primary">
+											<input
+												type="checkbox"
+												checked={discoverySettings.workspace_ids.includes(ws.id)}
+												onchange={() => toggleWorkspace(ws.id)}
+												class="accent-accent"
+											/>
+											{ws.name}
+										</label>
+									{/each}
+									{#if workspaces.length === 0}
+										<p class="text-[10px] text-text-secondary/60">No workspaces available</p>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Document Types -->
+							<div>
+								<span class="text-[10px] font-medium uppercase tracking-wide text-text-secondary">
+									Document Types
+								</span>
+								<p class="mb-1.5 text-[10px] text-text-secondary/60">
+									Empty = all types
+								</p>
+								<div class="grid grid-cols-2 gap-1">
+									{#each DOCUMENT_TYPES as dt}
+										<label class="flex items-center gap-1.5 text-xs text-text-primary">
+											<input
+												type="checkbox"
+												checked={discoverySettings.document_types.includes(dt.value)}
+												onchange={() => toggleDocType(dt.value)}
+												class="accent-accent"
+											/>
+											{dt.label}
+										</label>
+									{/each}
+								</div>
+							</div>
+
+							<!-- Focus Hint -->
+							<div>
+								<span class="text-[10px] font-medium uppercase tracking-wide text-text-secondary">
+									Focus Areas
+								</span>
+								<input
+									type="text"
+									bind:value={discoverySettings.focus_hint}
+									placeholder="e.g. onboarding workflows"
+									class="mt-1 w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+								/>
+							</div>
+
+							<!-- Save -->
+							<button
+								type="button"
+								onclick={saveDiscoverySettings}
+								disabled={savingDiscoverySettings}
+								class="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+							>
+								{#if savingDiscoverySettings}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Save size={12} />
+								{/if}
+								Save Settings
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 
 		<!-- Search -->

@@ -146,6 +146,7 @@ class LLMProviderConfig(BaseModel):
     base_url: str | None = None
     model_id: str | None = None
     model_name: str | None = None
+    fallback_model: str | None = None
 
 
 class AgentSettingsConfig(BaseModel):
@@ -188,6 +189,14 @@ class KnowledgeQualitySetupConfig(BaseModel):
     auto_kg_extract: bool = True
 
 
+class SearchSetupConfig(BaseModel):
+    """Web search provider configuration from the setup wizard."""
+
+    search_provider: str = ""  # "" | "tavily"
+    search_api_key: str = ""
+    search_max_results: int = 5
+
+
 class ConfigureRequest(BaseModel):
     """Request body for the setup wizard configure endpoint."""
 
@@ -197,6 +206,7 @@ class ConfigureRequest(BaseModel):
     seed_data: bool | None = None
     agent_settings: AgentSettingsConfig | None = None
     knowledge_quality: KnowledgeQualitySetupConfig | None = None
+    search_config: SearchSetupConfig | None = None
 
 
 class ConfigureResult(BaseModel):
@@ -1407,7 +1417,63 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to save knowledge quality settings: {exc}",
             )
 
-    # 6. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
+    # 6. Configure search provider if specified
+    if body.search_config and body.search_config.search_provider:
+        try:
+            from flydesk.settings.repository import SettingsRepository
+
+            search_repo = SettingsRepository(session_factory)
+            sc = body.search_config
+            await search_repo.set_app_setting(
+                "search_provider", sc.search_provider, category="search"
+            )
+            if sc.search_api_key:
+                await search_repo.set_app_setting(
+                    "search_api_key", sc.search_api_key, category="search"
+                )
+            await search_repo.set_app_setting(
+                "search_max_results",
+                str(sc.search_max_results),
+                category="search",
+            )
+            details["search_config"] = "configured"
+            logger.info(
+                "Search provider configured via setup: %s",
+                sc.search_provider,
+            )
+
+            # Hot-swap the live search provider
+            try:
+                from flydesk.api.settings import _reinitialize_search_provider
+
+                await _reinitialize_search_provider(request.app, search_repo)
+            except Exception:
+                logger.debug(
+                    "Search provider hot-swap skipped (non-fatal).",
+                    exc_info=True,
+                )
+        except Exception as exc:
+            logger.error("Failed to configure search provider: %s", exc)
+            # Non-fatal — don't block setup completion
+            details["search_config"] = f"error: {exc}"
+
+    # 7. Save fallback model if specified with the LLM provider
+    if body.llm_provider and body.llm_provider.fallback_model:
+        try:
+            from flydesk.agent.genai_bridge import _PROVIDER_FALLBACK_MODELS
+
+            provider_type = body.llm_provider.provider_type
+            fallback = body.llm_provider.fallback_model.strip()
+            if fallback:
+                _PROVIDER_FALLBACK_MODELS[provider_type] = [fallback]
+                details["fallback_model"] = fallback
+                logger.info(
+                    "Fallback model set for %s: %s", provider_type, fallback
+                )
+        except Exception as exc:
+            logger.debug("Failed to set fallback model (non-fatal): %s", exc)
+
+    # 8. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
     if body.embedding and body.seed_data and details.get("seed_data") != "already_loaded":
         job_runner = getattr(request.app.state, "job_runner", None)
         if job_runner:
@@ -1421,7 +1487,7 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                     exc_info=True,
                 )
 
-    # 6. Mark setup as complete
+    # 9. Mark setup as complete
     try:
         from flydesk.settings.repository import SettingsRepository
 
