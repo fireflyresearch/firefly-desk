@@ -101,9 +101,9 @@ def runner(repo):
 class TestJobRunner:
     async def test_register_handler(self, runner):
         """A handler can be registered for a job type."""
-        runner.register_handler("test", SuccessHandler())
-        # No exception means success; verify by submitting later
-        assert True
+        handler = SuccessHandler()
+        runner.register_handler("test", handler)
+        assert runner._handlers["test"] is handler
 
     async def test_submit_unregistered_type_raises(self, runner):
         """Submitting a job with no registered handler raises ValueError."""
