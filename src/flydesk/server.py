@@ -6,14 +6,22 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""FastAPI application factory with proper lifecycle management."""
+"""FastAPI application factory with proper lifecycle management.
+
+The ``lifespan`` async context manager orchestrates startup and shutdown by
+delegating to focused ``_init_*`` helpers.  Each helper creates a related
+group of services, wires dependency overrides, and returns objects needed by
+later phases.
+"""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import FastAPI, Request as _Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +44,7 @@ from flydesk.api.deps import (
     get_conversation_repo,
     get_credential_store,
     get_custom_tool_repo,
+    get_document_analyzer,
     get_export_repo,
     get_export_service,
     get_export_storage,
@@ -90,15 +99,50 @@ from flydesk.audit.logger import AuditLogger
 from flydesk.auth.middleware import AuthMiddleware
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.conversation.repository import ConversationRepository
-from flydesk.config import get_config
+from flydesk.config import DeskConfig, get_config
 from flydesk.db import create_engine_from_url, create_session_factory
 from flydesk.models import Base
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, AsyncSession
 
 logger = logging.getLogger(__name__)
 
 
-async def _apply_column_migrations(conn):
+# ---------------------------------------------------------------------------
+# Shutdown context — collects objects that need teardown
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ShutdownContext:
+    """Collects resources that must be closed during shutdown."""
+
+    closables: list[Any] = field(default_factory=list)
+
+    async def shutdown(self) -> None:
+        for obj in reversed(self.closables):
+            try:
+                if hasattr(obj, "cancel_pending"):
+                    obj.cancel_pending()
+                elif hasattr(obj, "stop"):
+                    await obj.stop()
+                elif hasattr(obj, "aclose"):
+                    await obj.aclose()
+                elif hasattr(obj, "close"):
+                    await obj.close()
+                elif hasattr(obj, "dispose"):
+                    await obj.dispose()
+            except Exception:
+                logger.warning("Error during shutdown of %s", type(obj).__name__, exc_info=True)
+        logger.info("Firefly Desk shutdown complete.")
+
+
+# ---------------------------------------------------------------------------
+# Database initialisation
+# ---------------------------------------------------------------------------
+
+
+async def _apply_column_migrations(conn) -> None:
     """Add columns that create_all() can't add to existing tables.
 
     Uses SAVEPOINTs so that a failed ALTER TABLE (column already exists)
@@ -137,24 +181,36 @@ async def _apply_column_migrations(conn):
         await nested.rollback()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialise database and wire dependency overrides on startup."""
-    config = get_config()
-
-    # Create engine and ensure tables exist
+async def _init_database(
+    config: DeskConfig,
+) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+    """Create engine, run DDL and column migrations, return session factory."""
     engine = create_engine_from_url(config.database_url)
 
     async with engine.begin() as conn:
-        # Enable pgvector extension for PostgreSQL
         if "postgresql" in config.database_url:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await _apply_column_migrations(conn)
 
     session_factory = create_session_factory(engine)
+    return engine, session_factory
 
-    # RBAC: seed built-in roles and make the repository available to middleware
+
+# ---------------------------------------------------------------------------
+# Core repositories
+# ---------------------------------------------------------------------------
+
+
+async def _init_repositories(
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> dict[str, Any]:
+    """Wire all basic repository dependency overrides.
+
+    Returns a dict of named services that later init phases need.
+    """
     from flydesk.rbac.repository import RoleRepository
 
     role_repo = RoleRepository(session_factory)
@@ -165,50 +221,65 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.role_repo = role_repo
     app.dependency_overrides[get_role_repo] = lambda: role_repo
 
-    # Wire dependency overrides
     catalog_repo = CatalogRepository(session_factory)
     audit_logger = AuditLogger(session_factory)
     conversation_repo = ConversationRepository(session_factory)
 
-    # Workspace repository
     from flydesk.workspaces.repository import WorkspaceRepository
 
     workspace_repo = WorkspaceRepository(session_factory)
-    app.dependency_overrides[get_workspace_repo] = lambda: workspace_repo
 
-    # Settings repository
     from flydesk.settings.repository import SettingsRepository
 
     settings_repo = SettingsRepository(session_factory)
-    app.dependency_overrides[get_settings_repo] = lambda: settings_repo
 
-    # User memory repository
     from flydesk.memory.repository import MemoryRepository
 
     memory_repo = MemoryRepository(session_factory)
-    app.dependency_overrides[get_memory_repo] = lambda: memory_repo
     app.state.memory_repo = memory_repo
 
-    # Custom tools repository and sandbox executor
     from flydesk.tools.custom_repository import CustomToolRepository
     from flydesk.tools.sandbox import SandboxExecutor
 
     custom_tool_repo = CustomToolRepository(session_factory)
     sandbox_executor = SandboxExecutor()
-    app.dependency_overrides[get_custom_tool_repo] = lambda: custom_tool_repo
-    app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
 
-    app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
-    app.dependency_overrides[get_audit_logger] = lambda: audit_logger
-    app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
-
-    # LLM provider repository
     from flydesk.llm.repository import LLMProviderRepository
 
     llm_repo = LLMProviderRepository(session_factory, config.credential_encryption_key)
+
+    # Wire dependency overrides
+    app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
+    app.dependency_overrides[get_audit_logger] = lambda: audit_logger
+    app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
+    app.dependency_overrides[get_workspace_repo] = lambda: workspace_repo
+    app.dependency_overrides[get_settings_repo] = lambda: settings_repo
+    app.dependency_overrides[get_memory_repo] = lambda: memory_repo
+    app.dependency_overrides[get_custom_tool_repo] = lambda: custom_tool_repo
+    app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
     app.dependency_overrides[get_llm_repo] = lambda: llm_repo
 
-    # File upload dependencies
+    return {
+        "catalog_repo": catalog_repo,
+        "audit_logger": audit_logger,
+        "conversation_repo": conversation_repo,
+        "settings_repo": settings_repo,
+        "memory_repo": memory_repo,
+        "llm_repo": llm_repo,
+    }
+
+
+# ---------------------------------------------------------------------------
+# File system and exports
+# ---------------------------------------------------------------------------
+
+
+def _init_file_system(
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> dict[str, Any]:
+    """Wire file storage, upload repo, content extractor, and exports."""
     from flydesk.files.extractor import ContentExtractor
     from flydesk.files.repository import FileUploadRepository
     from flydesk.files.storage import LocalFileStorage
@@ -221,7 +292,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_file_storage] = lambda: file_storage
     app.dependency_overrides[get_content_extractor] = lambda: content_extractor
 
-    # Export dependencies
     from flydesk.exports.repository import ExportRepository
     from flydesk.exports.service import ExportService
 
@@ -231,7 +301,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_export_service] = lambda: export_service
     app.dependency_overrides[get_export_storage] = lambda: file_storage
 
-    # KMS provider for credential encryption
+    return {"file_repo": file_repo, "file_storage": file_storage}
+
+
+# ---------------------------------------------------------------------------
+# Security (KMS, credential/document stores)
+# ---------------------------------------------------------------------------
+
+
+def _init_security(
+    app: FastAPI,
+    config: DeskConfig,
+    catalog_repo: CatalogRepository,
+) -> dict[str, Any]:
+    """Wire KMS provider, credential store, and knowledge document store."""
     from flydesk.security.kms import FernetKMSProvider, create_kms_provider
 
     kms = create_kms_provider(config)
@@ -240,29 +323,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Using dev encryption key. Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY "
             "for production."
         )
-
     app.dependency_overrides[get_kms] = lambda: kms
 
-    # Credential store backed by catalog repo
     from flydesk.catalog.credential_store import CatalogCredentialStore
 
     cred_store = CatalogCredentialStore(catalog_repo)
     app.dependency_overrides[get_credential_store] = lambda: cred_store
 
-    # Knowledge document store backed by catalog repo
     from flydesk.knowledge.document_store import CatalogDocumentStore
 
     doc_store = CatalogDocumentStore(catalog_repo)
     app.dependency_overrides[get_knowledge_doc_store] = lambda: doc_store
 
-    # Shared HTTP client for external API calls (embeddings, tool calls, imports).
-    import httpx
+    return {"kms": kms, "cred_store": cred_store}
 
-    http_client = httpx.AsyncClient()
-    app.state.http_client = http_client
 
-    # Knowledge embedding provider — check DB settings first, then env vars.
-    # Graceful fallback to zero vectors (keyword search) if no key available.
+# ---------------------------------------------------------------------------
+# Knowledge system (embeddings, indexer, vector store)
+# ---------------------------------------------------------------------------
+
+
+async def _init_knowledge(
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings_repo: Any,
+    llm_repo: Any,
+    http_client: Any,
+) -> dict[str, Any]:
+    """Wire embedding provider, knowledge indexer, and vector store."""
     from flydesk.knowledge.embeddings import LLMEmbeddingProvider
     from flydesk.knowledge.indexer import KnowledgeIndexer
     from flydesk.knowledge.stores import create_vector_store
@@ -285,7 +374,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         base_url=embed_url or None,
     )
 
-    # Knowledge quality settings (chunk size, overlap, chunking mode)
     knowledge_settings = await settings_repo.get_all_app_settings(category="knowledge")
     chunk_size = int(knowledge_settings.get("chunk_size", str(config.chunk_size)))
     chunk_overlap = int(knowledge_settings.get("chunk_overlap", str(config.chunk_overlap)))
@@ -294,7 +382,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "auto_kg_extract", str(config.auto_kg_extract)
     ).lower() in ("true", "1")
 
-    # Instantiate the configured vector store backend
     try:
         vector_store = create_vector_store(config, session_factory)
     except Exception:
@@ -311,9 +398,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
-    # Background job system -- general-purpose job runner with typed handlers.
-    # Initialised *before* the indexing queue so that the queue consumer can
-    # route indexing tasks through the job system for tracking.
+    return {
+        "embedding_provider": embedding_provider,
+        "indexer": indexer,
+        "vector_store": vector_store,
+        "auto_kg_extract": auto_kg_extract,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Background jobs and indexing queue
+# ---------------------------------------------------------------------------
+
+
+async def _init_jobs(
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+    indexer: Any,
+) -> dict[str, Any]:
+    """Wire job runner, register indexing handler, and start indexing queue."""
     from flydesk.jobs.handlers import IndexingJobHandler
     from flydesk.jobs.repository import JobRepository
     from flydesk.jobs.runner import JobRunner
@@ -327,13 +431,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_job_repo] = lambda: job_repo
     app.dependency_overrides[get_job_runner] = lambda: job_runner
 
-    # Background indexing queue -- offloads embedding work from HTTP handlers.
-    # The consumer handler delegates to the job system so that every indexing
-    # task appears in the jobs list with progress tracking.
     from flydesk.knowledge.queue import IndexingTask, create_indexing_queue
 
     async def _handle_indexing_task(task: IndexingTask) -> None:
-        """Consumer handler: submit indexing work through the job system."""
         await job_runner.submit("indexing", task.model_dump())
 
     indexing_producer, indexing_consumer = create_indexing_queue(
@@ -346,7 +446,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.indexing_consumer = indexing_consumer
     app.dependency_overrides[get_indexing_producer] = lambda: indexing_producer
 
-    # Wire the DeskAgent and its dependencies
+    return {
+        "job_runner": job_runner,
+        "indexing_producer": indexing_producer,
+        "indexing_consumer": indexing_consumer,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Agent and intelligence layer
+# ---------------------------------------------------------------------------
+
+
+async def _init_agent(  # noqa: PLR0913
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    catalog_repo: CatalogRepository,
+    audit_logger: AuditLogger,
+    conversation_repo: ConversationRepository,
+    settings_repo: Any,
+    memory_repo: Any,
+    llm_repo: Any,
+    embedding_provider: Any,
+    vector_store: Any,
+    indexer: Any,
+    job_runner: Any,
+    auto_kg_extract: bool,
+    kms: Any,
+    cred_store: Any,
+    file_repo: Any,
+    file_storage: Any,
+    http_client: Any,
+) -> dict[str, Any]:
+    """Wire the DeskAgent and all its dependencies (retriever, tools, KG, etc.)."""
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.desk_agent import DeskAgent
     from flydesk.agent.prompt import SystemPromptBuilder
@@ -371,7 +505,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tool_factory = ToolFactory()
     widget_parser = WidgetParser()
 
-    # Knowledge graph + importer dependency overrides
     app.dependency_overrides[get_knowledge_graph] = lambda: knowledge_graph
 
     from flydesk.knowledge.importer import KnowledgeImporter
@@ -388,7 +521,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         kms=kms,
     )
 
-    # Safety confirmation service for high-risk tool calls.
     from flydesk.agent.confirmation import ConfirmationService
 
     confirmation_service = ConfirmationService()
@@ -409,12 +541,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_executor=tool_executor,
     )
 
-    # Wire document tool executor into built-in tools
     from flydesk.tools.document_tools import DocumentToolExecutor
 
     doc_executor = DocumentToolExecutor(file_storage)
     builtin_executor.set_document_executor(doc_executor)
 
+    # Conversation memory store
     from fireflyframework_genai.memory import MemoryManager
     from fireflyframework_genai.memory.store import InMemoryStore
 
@@ -441,7 +573,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
 
-    # Process discovery engine -- analyses catalog, KG, and KB to find processes.
+    # Discovery engines (process + system)
     from flydesk.jobs.handlers import ProcessDiscoveryHandler
     from flydesk.processes.discovery import ProcessDiscoveryEngine
 
@@ -456,7 +588,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.process_repo = process_repo
     app.dependency_overrides[get_process_repo] = lambda: process_repo
 
-    # System discovery engine -- analyses catalog, KG, and KB to find unregistered systems.
     from flydesk.catalog.discovery import SystemDiscoveryEngine
     from flydesk.jobs.handlers import SystemDiscoveryHandler
 
@@ -468,25 +599,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     job_runner.register_handler("system_discovery", SystemDiscoveryHandler(system_discovery_engine))
     app.state.system_discovery_engine = system_discovery_engine
 
-    # KG extraction and recomputation handler
+    # KG extraction
     from flydesk.jobs.handlers import KGExtractSingleHandler, KGRecomputeHandler
     from flydesk.knowledge.kg_extractor import KGExtractor
 
     kg_extractor = KGExtractor(agent_factory)
-    kg_recompute_handler = KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor)
-    job_runner.register_handler("kg_recompute", kg_recompute_handler)
-
-    kg_extract_single_handler = KGExtractSingleHandler(catalog_repo, knowledge_graph, kg_extractor)
-    job_runner.register_handler("kg_extract_single", kg_extract_single_handler)
+    job_runner.register_handler("kg_recompute", KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor))
+    job_runner.register_handler("kg_extract_single", KGExtractSingleHandler(catalog_repo, knowledge_graph, kg_extractor))
     app.state.kg_extractor = kg_extractor
 
-    # Document analyser for GitHub import enrichment
+    # Document analyser
     from flydesk.knowledge.analyzer import DocumentAnalyzer
 
     document_analyzer = DocumentAnalyzer(agent_factory)
     app.dependency_overrides[get_document_analyzer] = lambda: document_analyzer
 
-    # Auto-trigger service (debounced triggers for KG recompute and process discovery)
+    # Auto-trigger service
     from flydesk.triggers.auto_trigger import AutoTriggerService
 
     auto_trigger = AutoTriggerService(config, job_runner, auto_kg_extract=auto_kg_extract)
@@ -495,7 +623,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_auto_trigger] = lambda: auto_trigger
     builtin_executor.set_auto_trigger(auto_trigger)
 
-    # Agent customization service
+    # Agent customization
     from flydesk.agent.customization import AgentCustomizationService
 
     customization_service = AgentCustomizationService(settings_repo)
@@ -525,10 +653,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm_repo = llm_repo
     app.state.settings_repo = settings_repo
 
-    # Session factory dependency override (used by dashboard, users, etc.)
-    app.dependency_overrides[get_session_factory] = lambda: session_factory
+    return {
+        "auto_trigger": auto_trigger,
+        "memory_store": memory_store,
+    }
 
-    # Auth / OIDC dependency overrides
+
+# ---------------------------------------------------------------------------
+# Auth / OIDC
+# ---------------------------------------------------------------------------
+
+
+def _init_auth(
+    app: FastAPI,
+    config: DeskConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Wire OIDC, git provider, and local user repository dependencies."""
     from flydesk.auth.oidc import OIDCClient as _OIDCClientCls
     from flydesk.auth.repository import OIDCProviderRepository
 
@@ -536,13 +677,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_oidc_repo] = lambda: oidc_repo
     app.state.oidc_repo = oidc_repo
 
-    # Git provider repository
     from flydesk.knowledge.git_provider_repository import GitProviderRepository
 
     git_provider_repo = GitProviderRepository(session_factory, config.credential_encryption_key)
     app.dependency_overrides[get_git_provider_repo] = lambda: git_provider_repo
 
-    # Provide a default OIDCClient from config (may be overridden per-request)
     if config.oidc_issuer_url:
         _default_oidc_client = _OIDCClientCls(
             issuer_url=config.oidc_issuer_url,
@@ -551,20 +690,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.dependency_overrides[get_oidc_client] = lambda: _default_oidc_client
 
-    # Local user repository
     from flydesk.auth.local_user_repository import LocalUserRepository
 
     local_user_repo = LocalUserRepository(session_factory)
     app.state.local_user_repo = local_user_repo
     app.dependency_overrides[get_local_user_repo] = lambda: local_user_repo
 
-    # Store config, session factory, and conversation repo in app state
-    app.state.config = config
-    app.state.session_factory = session_factory
-    app.state.conversation_repo = conversation_repo
-    app.state.started_at = datetime.now(timezone.utc)
 
-    # Auto-seed / auto-index platform documentation from docs/ directory
+# ---------------------------------------------------------------------------
+# Platform documentation auto-indexing
+# ---------------------------------------------------------------------------
+
+
+async def _seed_platform_docs(
+    config: DeskConfig,
+    indexer: Any,
+    catalog_repo: CatalogRepository,
+) -> None:
+    """Auto-index platform documentation from the docs/ directory."""
     try:
         if config.docs_auto_index:
             from flydesk.knowledge.docs_loader import DocsLoader
@@ -572,7 +715,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             docs_path = config.docs_path
             docs = DocsLoader.load_from_directory(docs_path)
             if docs:
-                # Build existing-docs map from the database for change detection
                 existing_docs: dict[str, str] = {}
                 try:
                     all_docs = await catalog_repo.list_knowledge_documents()
@@ -616,19 +758,102 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     len(new_docs), len(updated_docs), len(removed_ids),
                 )
             else:
-                # No docs/ directory or empty -- fall back to hardcoded seeding
                 from flydesk.seeds.platform_docs import seed_platform_docs
 
                 await seed_platform_docs(indexer, docs_path=docs_path)
                 logger.info("Platform documentation seeded (fallback).")
         else:
-            # Auto-index disabled -- use legacy seeding
             from flydesk.seeds.platform_docs import seed_platform_docs
 
             await seed_platform_docs(indexer, docs_path=config.docs_path)
             logger.info("Platform documentation seeded into knowledge base.")
     except Exception:
         logger.debug("Platform docs seeding skipped (non-fatal).", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Lifespan orchestrator
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialise database and wire dependency overrides on startup."""
+    config = get_config()
+    ctx = _ShutdownContext()
+
+    # 1. Database
+    engine, session_factory = await _init_database(config)
+    ctx.closables.append(engine)
+
+    # 2. Core repositories
+    repos = await _init_repositories(app, config, session_factory)
+
+    # 3. File system and exports
+    files = _init_file_system(app, config, session_factory)
+
+    # 4. Security (KMS, credential store)
+    sec = _init_security(app, config, repos["catalog_repo"])
+
+    # 5. Shared HTTP client
+    import httpx
+
+    http_client = httpx.AsyncClient()
+    app.state.http_client = http_client
+    ctx.closables.append(http_client)
+
+    # 6. Knowledge (embeddings, indexer, vector store)
+    knowledge = await _init_knowledge(
+        app, config, session_factory,
+        settings_repo=repos["settings_repo"],
+        llm_repo=repos["llm_repo"],
+        http_client=http_client,
+    )
+    if knowledge["vector_store"] is not None:
+        ctx.closables.append(knowledge["vector_store"])
+
+    # 7. Background jobs and indexing queue
+    jobs = await _init_jobs(app, config, session_factory, knowledge["indexer"])
+    ctx.closables.append(jobs["indexing_consumer"])
+    ctx.closables.append(jobs["indexing_producer"])
+    ctx.closables.append(jobs["job_runner"])
+
+    # 8. Agent and intelligence layer
+    agent_ctx = await _init_agent(
+        app, config, session_factory,
+        catalog_repo=repos["catalog_repo"],
+        audit_logger=repos["audit_logger"],
+        conversation_repo=repos["conversation_repo"],
+        settings_repo=repos["settings_repo"],
+        memory_repo=repos["memory_repo"],
+        llm_repo=repos["llm_repo"],
+        embedding_provider=knowledge["embedding_provider"],
+        vector_store=knowledge["vector_store"],
+        indexer=knowledge["indexer"],
+        job_runner=jobs["job_runner"],
+        auto_kg_extract=knowledge["auto_kg_extract"],
+        kms=sec["kms"],
+        cred_store=sec["cred_store"],
+        file_repo=files["file_repo"],
+        file_storage=files["file_storage"],
+        http_client=http_client,
+    )
+    ctx.closables.append(agent_ctx["auto_trigger"])
+    if hasattr(agent_ctx["memory_store"], "close"):
+        ctx.closables.append(agent_ctx["memory_store"])
+
+    # 9. Auth / OIDC
+    _init_auth(app, config, session_factory)
+
+    # 10. Store shared state
+    app.dependency_overrides[get_session_factory] = lambda: session_factory
+    app.state.config = config
+    app.state.session_factory = session_factory
+    app.state.conversation_repo = repos["conversation_repo"]
+    app.state.started_at = datetime.now(timezone.utc)
+
+    # 11. Auto-index platform docs
+    await _seed_platform_docs(config, knowledge["indexer"], repos["catalog_repo"])
 
     logger.info(
         "Firefly Desk started (dev_mode=%s, db=%s, memory=%s)",
@@ -639,20 +864,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown -- cancel pending auto-triggers first, then stop the indexing
-    # consumer (no new tasks enqueued), then the job runner (drain in-progress
-    # jobs), then the producer.
-    auto_trigger.cancel_pending()
-    await indexing_consumer.stop()
-    await indexing_producer.stop()
-    await job_runner.stop()
-    if vector_store is not None:
-        await vector_store.close()
-    if hasattr(memory_store, "close"):
-        await memory_store.close()
-    await http_client.aclose()
-    await engine.dispose()
-    logger.info("Firefly Desk shutdown complete.")
+    await ctx.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Application factory
+# ---------------------------------------------------------------------------
 
 
 def create_app() -> FastAPI:
