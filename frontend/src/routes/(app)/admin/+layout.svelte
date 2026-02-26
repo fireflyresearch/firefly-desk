@@ -28,7 +28,8 @@
 		GitBranch,
 		GitFork,
 		FolderOpen,
-		HelpCircle
+		HelpCircle,
+		Cloud
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -59,6 +60,7 @@
 		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 		{ href: '/admin/exports', label: 'Exports', icon: Download },
 		{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },
+		{ href: '/admin/document-sources', label: 'Document Sources', icon: Cloud },
 
 		// Help
 		{ href: '/admin/help', label: 'Help & Guides', icon: HelpCircle }

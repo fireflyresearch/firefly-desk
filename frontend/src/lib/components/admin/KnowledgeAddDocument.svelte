@@ -14,6 +14,7 @@
 		Globe,
 		Code2,
 		GitBranch,
+		Cloud,
 		Loader2,
 		Save,
 		X,
@@ -23,6 +24,7 @@
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch, getToken } from '$lib/services/api.js';
 	import GitImporter from './GitImporter.svelte';
+	import CloudImporter from './CloudImporter.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -39,7 +41,7 @@
 	// Types
 	// -----------------------------------------------------------------------
 
-	type SubTab = 'text' | 'file' | 'url' | 'openapi' | 'github';
+	type SubTab = 'text' | 'file' | 'url' | 'openapi' | 'github' | 'cloud';
 
 	interface DocumentType {
 		value: string;
@@ -124,7 +126,8 @@
 		{ id: 'file', label: 'File Upload', icon: Upload },
 		{ id: 'url', label: 'URL Import', icon: Globe },
 		{ id: 'openapi', label: 'OpenAPI Import', icon: Code2 },
-		{ id: 'github', label: 'Git Import', icon: GitBranch }
+		{ id: 'github', label: 'Git Import', icon: GitBranch },
+		{ id: 'cloud', label: 'Cloud Import', icon: Cloud }
 	];
 
 	// -----------------------------------------------------------------------
@@ -932,6 +935,18 @@
 		<GitImporter
 			onsuccess={() => {
 				success = 'Files imported successfully.';
+				onDocumentAdded?.();
+			}}
+		/>
+
+	<!-- ================================================================= -->
+	<!-- Cloud Import Tab                                                   -->
+	<!-- ================================================================= -->
+	{:else if activeSubTab === 'cloud'}
+		<CloudImporter
+			{workspaces}
+			onsuccess={() => {
+				success = 'Cloud import submitted successfully.';
 				onDocumentAdded?.();
 			}}
 		/>
