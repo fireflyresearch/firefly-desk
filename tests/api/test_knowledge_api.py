@@ -286,7 +286,7 @@ class TestUpdateDocumentMetadata:
         data = response.json()
         assert data["title"] == "Updated Title"
         mock_doc_store.update_document.assert_awaited_once_with(
-            "doc-1", title="Updated Title", document_type=None, tags=None, content=None, status=None, workspace_id=None
+            "doc-1", title="Updated Title", document_type=None, tags=None, content=None, status=None, workspace_ids=None
         )
 
     async def test_update_document_not_found(self, admin_client, mock_doc_store):

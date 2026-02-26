@@ -27,11 +27,22 @@
 		RefreshCw,
 		Maximize2,
 		PanelLeftClose,
-		PanelLeft
+		PanelLeft,
+		Sparkles
 	} from 'lucide-svelte';
 	import * as THREE from 'three';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import type { GraphEntity, GraphRelation } from '$lib/components/flow/flow-types.js';
+
+	// Props from parent for KG regeneration
+	interface Props {
+		onRegenerate?: () => void;
+		regenerating?: boolean;
+		regenerateMessage?: string;
+		regenerateProgress?: number;
+	}
+
+	let { onRegenerate, regenerating = false, regenerateMessage = '', regenerateProgress = 0 }: Props = $props();
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -555,7 +566,7 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-col">
 	<!-- Top toolbar -->
-	<div class="flex shrink-0 items-center gap-2 px-1 pb-2">
+	<div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
 		<!-- Toggle filter sidebar -->
 		<button
 			type="button"
@@ -575,12 +586,47 @@
 			type="button"
 			onclick={() => refreshGraph()}
 			class="inline-flex shrink-0 items-center rounded-md border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-hover"
-			title="Refresh"
+			title="Refresh graph data"
 		>
 			<RefreshCw size={14} />
 		</button>
 
+		<!-- Spacer -->
+		<div class="flex-1"></div>
+
+		<!-- Regenerate status message -->
+		{#if regenerateMessage}
+			<span class="text-xs text-text-secondary">{regenerateMessage}</span>
+		{/if}
+
+		<!-- Regenerate KG button -->
+		{#if onRegenerate}
+			<button
+				type="button"
+				onclick={onRegenerate}
+				disabled={regenerating}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
+			>
+				{#if regenerating}
+					<Loader2 size={13} class="animate-spin" />
+					Regenerating...
+				{:else}
+					<Sparkles size={13} />
+					Regenerate
+				{/if}
+			</button>
+		{/if}
 	</div>
+
+	<!-- Regeneration progress bar -->
+	{#if regenerating}
+		<div class="h-1 w-full shrink-0 overflow-hidden bg-surface-secondary">
+			<div
+				class="h-full rounded-full bg-accent transition-all duration-500"
+				style="width: {regenerateProgress}%"
+			></div>
+		</div>
+	{/if}
 
 	<!-- Error banner -->
 	{#if error}

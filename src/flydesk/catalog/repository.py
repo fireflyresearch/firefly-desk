@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import String as SAString, cast, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.catalog.enums import SystemStatus
@@ -384,7 +384,9 @@ class CatalogRepository:
         async with self._session_factory() as session:
             stmt = select(KnowledgeDocumentRow)
             if workspace_id is not None:
-                stmt = stmt.where(KnowledgeDocumentRow.workspace_id == workspace_id)
+                stmt = stmt.where(
+                    cast(KnowledgeDocumentRow.workspace_ids, SAString).contains(f'"{workspace_id}"')
+                )
             result = await session.execute(stmt)
             return [
                 KnowledgeDocument(
@@ -394,7 +396,7 @@ class CatalogRepository:
                     document_type=DocumentType(r.document_type) if r.document_type else DocumentType.OTHER,
                     status=DocumentStatus(r.status) if r.status else DocumentStatus.DRAFT,
                     source=r.source,
-                    workspace_id=r.workspace_id,
+                    workspace_ids=_from_json(r.workspace_ids) if r.workspace_ids else [],
                     tags=_from_json(r.tags) if r.tags else [],
                     metadata=_from_json(r.metadata_) if r.metadata_ else {},
                 )
@@ -417,13 +419,13 @@ class CatalogRepository:
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
                 status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
-                workspace_id=row.workspace_id,
+                workspace_ids=_from_json(row.workspace_ids) if row.workspace_ids else [],
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
 
     async def update_knowledge_document(
-        self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_id=None
+        self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_ids=None
     ):
         """Update a knowledge document's metadata and optionally content."""
         import json as _json
@@ -445,8 +447,8 @@ class CatalogRepository:
                 row.content = content
             if status is not None:
                 row.status = str(status)
-            if workspace_id is not None:
-                row.workspace_id = workspace_id or None
+            if workspace_ids is not None:
+                row.workspace_ids = _json.dumps(workspace_ids)
             await session.commit()
             await session.refresh(row)
             return KnowledgeDocument(
@@ -456,7 +458,7 @@ class CatalogRepository:
                 document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
                 status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
                 source=row.source,
-                workspace_id=row.workspace_id,
+                workspace_ids=_from_json(row.workspace_ids) if row.workspace_ids else [],
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )

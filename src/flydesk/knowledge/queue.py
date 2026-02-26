@@ -53,6 +53,7 @@ class IndexingTask(BaseModel):
     source: str = ""
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    workspace_ids: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

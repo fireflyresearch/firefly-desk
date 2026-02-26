@@ -67,7 +67,7 @@ class KnowledgeDocumentStore:
         tags: list[str] | None = None,
         content: str | None = None,
         status: str | None = None,
-        workspace_id: str | None = None,
+        workspace_ids: list[str] | None = None,
     ) -> KnowledgeDocument | None:
         raise NotImplementedError
 
@@ -99,7 +99,7 @@ class DocumentMetadataUpdate(BaseModel):
     tags: list[str] | None = None
     content: str | None = None
     status: str | None = None
-    workspace_id: str | None = None  # "" to clear, str to set, None = no change
+    workspace_ids: list[str] | None = None
 
 
 class ImportURLRequest(BaseModel):
@@ -330,6 +330,7 @@ async def create_document(
         source=document.source or "",
         tags=document.tags,
         metadata=document.metadata,
+        workspace_ids=document.workspace_ids,
     )
     await producer.enqueue(task)
 
@@ -367,7 +368,7 @@ async def update_document_metadata(
         tags=body.tags,
         content=body.content,
         status=body.status,
-        workspace_id=body.workspace_id,
+        workspace_ids=body.workspace_ids,
     )
     if updated is None:
         raise HTTPException(
@@ -457,6 +458,7 @@ async def bulk_reindex_documents(
                 source=doc.source or "",
                 tags=doc.tags,
                 metadata=doc.metadata,
+                workspace_ids=doc.workspace_ids,
             )
             await producer.enqueue(task)
             queued += 1

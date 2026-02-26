@@ -113,6 +113,8 @@ async def _apply_column_migrations(conn):
     """
     migrations = [
         ("external_systems", "workspace_id", "VARCHAR(255)"),
+        ("external_systems", "agent_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("external_systems", "status", "VARCHAR(50) NOT NULL DEFAULT 'draft'"),
         ("kb_documents", "workspace_id", "VARCHAR(255)"),
         ("business_processes", "workspace_id", "VARCHAR(255)"),
         ("kb_documents", "workspace_ids", "TEXT NOT NULL DEFAULT '[]'"),

@@ -44,7 +44,7 @@
 		chunk_count?: number;
 		created_at?: string;
 		updated_at?: string;
-		workspace_id?: string | null;
+		workspace_ids?: string[];
 	}
 
 	// -----------------------------------------------------------------------
@@ -81,9 +81,10 @@
 	let editForm = $state({
 		title: '',
 		source: '',
+		document_type: '',
 		tags: '',
 		content: '',
-		workspace_id: ''
+		workspace_ids: [] as string[]
 	});
 
 	// -----------------------------------------------------------------------
@@ -115,9 +116,10 @@
 		editForm = {
 			title: doc.title,
 			source: doc.source || '',
+			document_type: doc.document_type || 'other',
 			tags: doc.tags.join(', '),
 			content: doc.content || '',
-			workspace_id: doc.workspace_id || ''
+			workspace_ids: doc.workspace_ids ?? []
 		};
 		editing = true;
 	}
@@ -134,11 +136,12 @@
 		const contentChanged = editForm.content !== (doc?.content || '');
 		const payload: Record<string, any> = {
 			title: editForm.title,
+			document_type: editForm.document_type,
 			tags: editForm.tags
 				.split(',')
 				.map((t) => t.trim())
 				.filter(Boolean),
-			workspace_id: editForm.workspace_id || ''
+			workspace_ids: editForm.workspace_ids
 		};
 		if (contentChanged) {
 			payload.content = editForm.content;
@@ -262,14 +265,24 @@
 	}
 
 	const typeBadgeColors: Record<string, string> = {
-		text: 'bg-accent/10 text-accent',
-		markdown: 'bg-purple-500/10 text-purple-500',
-		html: 'bg-warning/10 text-warning',
-		pdf: 'bg-danger/10 text-danger',
-		code: 'bg-success/10 text-success',
+		manual: 'bg-accent/10 text-accent',
+		tutorial: 'bg-purple-500/10 text-purple-500',
 		api_spec: 'bg-cyan-500/10 text-cyan-500',
+		faq: 'bg-warning/10 text-warning',
+		policy: 'bg-danger/10 text-danger',
+		reference: 'bg-success/10 text-success',
 		other: 'bg-text-secondary/10 text-text-secondary'
 	};
+
+	const DOCUMENT_TYPES = [
+		{ value: 'manual', label: 'Manual' },
+		{ value: 'tutorial', label: 'Tutorial' },
+		{ value: 'api_spec', label: 'API Spec' },
+		{ value: 'faq', label: 'FAQ' },
+		{ value: 'policy', label: 'Policy' },
+		{ value: 'reference', label: 'Reference' },
+		{ value: 'other', label: 'Other' }
+	];
 
 	function isOpenAPISpec(doc: KnowledgeDocument): boolean {
 		if (doc.document_type === 'api_spec') return true;
@@ -423,6 +436,18 @@
 					</label>
 
 					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-text-secondary">Document Type</span>
+						<select
+							bind:value={editForm.document_type}
+							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+						>
+							{#each DOCUMENT_TYPES as dt}
+								<option value={dt.value}>{dt.label}</option>
+							{/each}
+						</select>
+					</label>
+
+					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Tags (comma-separated)</span>
 						<input
 							type="text"
@@ -432,18 +457,29 @@
 					</label>
 
 					{#if workspaces && workspaces.length > 0}
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-text-secondary">Workspace</span>
-							<select
-								bind:value={editForm.workspace_id}
-								class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-							>
-								<option value="">No workspace</option>
+						<div class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+							<div class="flex flex-wrap gap-1.5">
 								{#each workspaces as ws}
-									<option value={ws.id}>{ws.name}</option>
+									<button
+										type="button"
+										onclick={() => {
+											if (editForm.workspace_ids.includes(ws.id)) {
+												editForm.workspace_ids = editForm.workspace_ids.filter(id => id !== ws.id);
+											} else {
+												editForm.workspace_ids = [...editForm.workspace_ids, ws.id];
+											}
+										}}
+										class="rounded-full px-3 py-1 text-xs font-medium transition-colors
+											{editForm.workspace_ids.includes(ws.id)
+											? 'bg-accent text-white'
+											: 'bg-surface-secondary text-text-secondary hover:bg-surface-hover'}"
+									>
+										{ws.name}
+									</button>
 								{/each}
-							</select>
-						</label>
+							</div>
+						</div>
 					{/if}
 
 					<div class="flex flex-col gap-1">
@@ -566,6 +602,20 @@
 										class="rounded-full bg-surface-secondary px-2.5 py-0.5 text-xs text-text-secondary"
 									>
 										{tag}
+									</span>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<!-- Workspaces -->
+					{#if (doc.workspace_ids ?? []).length > 0}
+						<div class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+							<div class="flex flex-wrap gap-1.5">
+								{#each (doc.workspace_ids ?? []) as wid}
+									<span class="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
+										{workspaces?.find((w) => w.id === wid)?.name ?? wid}
 									</span>
 								{/each}
 							</div>

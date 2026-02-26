@@ -51,13 +51,13 @@ def mock_job_runner():
 @pytest.fixture
 def trigger(mock_config, mock_job_runner):
     """AutoTriggerService with a very short debounce window for tests."""
-    return AutoTriggerService(mock_config, mock_job_runner, debounce_seconds=0.05)
+    return AutoTriggerService(mock_config, mock_job_runner, debounce_seconds=0.05, auto_kg_extract=True)
 
 
 @pytest.fixture
 def trigger_disabled(mock_config_disabled, mock_job_runner):
-    """AutoTriggerService with auto_analyze disabled."""
-    return AutoTriggerService(mock_config_disabled, mock_job_runner, debounce_seconds=0.05)
+    """AutoTriggerService with auto_analyze and auto_kg_extract disabled."""
+    return AutoTriggerService(mock_config_disabled, mock_job_runner, debounce_seconds=0.05, auto_kg_extract=False)
 
 
 # ---------------------------------------------------------------------------
@@ -68,26 +68,27 @@ def trigger_disabled(mock_config_disabled, mock_job_runner):
 class TestOnDocumentIndexed:
     """Tests for the on_document_indexed event hook."""
 
-    async def test_schedules_kg_recompute(self, trigger, mock_job_runner):
-        """Documents trigger kg_recompute when auto_analyze is enabled."""
+    async def test_submits_kg_extract_single(self, trigger, mock_job_runner):
+        """Documents trigger per-doc kg_extract_single immediately."""
         await trigger.on_document_indexed("doc-1")
-        # Wait for debounce to fire
-        await asyncio.sleep(0.15)
-        mock_job_runner.submit.assert_called_once_with("kg_recompute", {})
+        mock_job_runner.submit.assert_called_once_with(
+            "kg_extract_single", {"document_id": "doc-1"}
+        )
 
     async def test_no_trigger_when_disabled(self, trigger_disabled, mock_job_runner):
-        """No trigger fires when auto_analyze is disabled."""
+        """No trigger fires when auto_kg_extract is disabled."""
         await trigger_disabled.on_document_indexed("doc-1")
-        await asyncio.sleep(0.15)
         mock_job_runner.submit.assert_not_called()
 
-    async def test_debounces_rapid_documents(self, trigger, mock_job_runner):
-        """Rapid document events are coalesced into a single trigger."""
+    async def test_each_document_gets_own_job(self, trigger, mock_job_runner):
+        """Each document triggers its own kg_extract_single job (not debounced)."""
         for i in range(5):
             await trigger.on_document_indexed(f"doc-{i}")
-        await asyncio.sleep(0.15)
-        # Should only fire once (debounced)
-        mock_job_runner.submit.assert_called_once_with("kg_recompute", {})
+        assert mock_job_runner.submit.call_count == 5
+        for i in range(5):
+            mock_job_runner.submit.assert_any_call(
+                "kg_extract_single", {"document_id": f"doc-{i}"}
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ class TestDebounceLogic:
 
     async def test_pending_triggers_cleared_after_fire(self, trigger, mock_job_runner):
         """After firing, the pending triggers set is empty."""
-        await trigger.on_document_indexed("doc-1")
+        await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
         assert len(trigger._pending_triggers) == 0
 
@@ -141,28 +142,30 @@ class TestDebounceLogic:
         await trigger.on_document_indexed("doc-1")
         await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
-        # kg_recompute (from both) and process_discovery (from catalog) = 2 types
-        assert mock_job_runner.submit.call_count == 2
-        submitted_types = {call.args[0] for call in mock_job_runner.submit.call_args_list}
-        assert submitted_types == {"kg_recompute", "process_discovery"}
+        # kg_extract_single (immediate from doc) + kg_recompute + process_discovery (debounced from catalog)
+        assert mock_job_runner.submit.call_count == 3
+        submitted = [(call.args[0], call.args[1]) for call in mock_job_runner.submit.call_args_list]
+        submitted_types = {s[0] for s in submitted}
+        assert submitted_types == {"kg_extract_single", "kg_recompute", "process_discovery"}
 
     async def test_timer_reset_on_new_event(self, trigger, mock_job_runner):
-        """A new event resets the debounce timer."""
-        await trigger.on_document_indexed("doc-1")
+        """A new catalog event resets the debounce timer."""
+        await trigger.on_catalog_updated("sys-1")
         # Wait less than the debounce period
         await asyncio.sleep(0.02)
         # This should reset the timer
-        await trigger.on_document_indexed("doc-2")
+        await trigger.on_catalog_updated("sys-2")
         # If we waited the original time, it should not have fired yet
         await asyncio.sleep(0.04)
         mock_job_runner.submit.assert_not_called()
         # Wait for the reset timer to fire
         await asyncio.sleep(0.1)
-        mock_job_runner.submit.assert_called_once()
+        # Both kg_recompute and process_discovery (debounced)
+        assert mock_job_runner.submit.call_count == 2
 
     async def test_cancel_pending(self, trigger, mock_job_runner):
-        """cancel_pending() prevents scheduled triggers from firing."""
-        await trigger.on_document_indexed("doc-1")
+        """cancel_pending() prevents scheduled debounced triggers from firing."""
+        await trigger.on_catalog_updated("sys-1")
         trigger.cancel_pending()
         await asyncio.sleep(0.15)
         mock_job_runner.submit.assert_not_called()
@@ -172,10 +175,13 @@ class TestDebounceLogic:
     async def test_fire_triggers_handles_submit_error(self, trigger, mock_job_runner):
         """_fire_triggers gracefully handles job submission errors."""
         mock_job_runner.submit.side_effect = RuntimeError("Queue full")
-        await trigger.on_document_indexed("doc-1")
-        # Should not raise
+        # on_document_indexed catches errors internally
+        await trigger.on_document_indexed("doc-1")  # Should not raise
+        # Debounced triggers also handle errors gracefully
+        mock_job_runner.submit.reset_mock()
+        mock_job_runner.submit.side_effect = RuntimeError("Queue full")
+        await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
-        # The error is logged but no exception propagates
         assert len(trigger._pending_triggers) == 0
 
 
@@ -220,14 +226,13 @@ class TestMultipleCycles:
 
     async def test_sequential_trigger_cycles(self, trigger, mock_job_runner):
         """Service can handle multiple independent trigger cycles."""
-        # First cycle
+        # First cycle: immediate kg_extract_single
         await trigger.on_document_indexed("doc-1")
-        await asyncio.sleep(0.15)
         assert mock_job_runner.submit.call_count == 1
 
         mock_job_runner.submit.reset_mock()
 
-        # Second cycle
+        # Second cycle: debounced kg_recompute + process_discovery
         await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
         assert mock_job_runner.submit.call_count == 2  # kg_recompute + process_discovery

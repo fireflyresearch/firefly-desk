@@ -68,7 +68,7 @@
 	let saving = $state(false);
 	let error = $state('');
 	let success = $state('');
-	let selectedWorkspaceId = $state('');
+	let selectedWorkspaceIds = $state<string[]>([]);
 
 	// Text form
 	let textForm = $state({
@@ -144,7 +144,7 @@
 				.split(',')
 				.map((t) => t.trim())
 				.filter(Boolean),
-			workspace_id: selectedWorkspaceId || undefined
+			workspace_ids: selectedWorkspaceIds.length > 0 ? selectedWorkspaceIds : undefined
 		};
 
 		try {
@@ -219,8 +219,8 @@
 		if (fileForm.tags) {
 			formData.append('tags', fileForm.tags);
 		}
-		if (selectedWorkspaceId) {
-			formData.append('workspace_id', selectedWorkspaceId);
+		if (selectedWorkspaceIds.length > 0) {
+			formData.append('workspace_ids', JSON.stringify(selectedWorkspaceIds));
 		}
 
 		try {
@@ -281,7 +281,7 @@
 				.split(',')
 				.map((t) => t.trim())
 				.filter(Boolean),
-			workspace_id: selectedWorkspaceId || undefined
+			workspace_ids: selectedWorkspaceIds.length > 0 ? selectedWorkspaceIds : undefined
 		};
 
 		try {
@@ -413,7 +413,7 @@
 						spec: entry.spec,
 						title: entry.title || undefined,
 						tags,
-						workspace_id: selectedWorkspaceId || undefined
+						workspace_ids: selectedWorkspaceIds.length > 0 ? selectedWorkspaceIds : undefined
 					})
 				});
 				results.push({ title: label, success: true });
@@ -450,18 +450,29 @@
 <div class="flex flex-col gap-4">
 	<!-- Workspace selector -->
 	{#if workspaces.length > 0}
-		<label class="flex flex-col gap-1">
-			<span class="text-xs font-medium text-text-secondary">Workspace</span>
-			<select
-				bind:value={selectedWorkspaceId}
-				class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-			>
-				<option value="">No workspace</option>
+		<div class="flex flex-col gap-1">
+			<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+			<div class="flex flex-wrap gap-1.5">
 				{#each workspaces as ws}
-					<option value={ws.id}>{ws.name}</option>
+					<button
+						type="button"
+						onclick={() => {
+							if (selectedWorkspaceIds.includes(ws.id)) {
+								selectedWorkspaceIds = selectedWorkspaceIds.filter(id => id !== ws.id);
+							} else {
+								selectedWorkspaceIds = [...selectedWorkspaceIds, ws.id];
+							}
+						}}
+						class="rounded-full px-3 py-1 text-xs font-medium transition-colors
+							{selectedWorkspaceIds.includes(ws.id)
+							? 'bg-accent text-white'
+							: 'bg-surface-secondary text-text-secondary hover:bg-surface-hover'}"
+					>
+						{ws.name}
+					</button>
 				{/each}
-			</select>
-		</label>
+			</div>
+		</div>
 	{/if}
 
 	<!-- Sub-tab bar -->

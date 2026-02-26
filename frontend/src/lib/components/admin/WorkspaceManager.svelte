@@ -277,14 +277,16 @@
 			<h1 class="text-lg font-semibold text-text-primary">Workspaces</h1>
 			<p class="text-sm text-text-secondary">Organize resources into isolated workspaces</p>
 		</div>
-		<button
-			type="button"
-			onclick={openCreateModal}
-			class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			<Plus size={16} />
-			Create Workspace
-		</button>
+		{#if workspaces.length > 0}
+			<button
+				type="button"
+				onclick={openCreateModal}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				<Plus size={16} />
+				Create Workspace
+			</button>
+		{/if}
 	</div>
 
 	<!-- Error banner -->
