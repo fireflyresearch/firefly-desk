@@ -31,6 +31,7 @@ import flydesk
 from flydesk.api.audit import router as audit_router
 from flydesk.api.auth import router as auth_router
 from flydesk.api.catalog import router as catalog_router
+from flydesk.api.cloud_import import router as cloud_import_router
 from flydesk.api.chat import router as chat_router
 from flydesk.api.conversations import router as conversations_router
 from flydesk.api.credentials import router as credentials_router
@@ -974,5 +975,6 @@ def create_app() -> FastAPI:
     app.include_router(memory_router)
     app.include_router(workspace_router)
     app.include_router(document_sources_router)
+    app.include_router(cloud_import_router)
 
     return app
