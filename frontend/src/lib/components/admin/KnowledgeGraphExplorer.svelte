@@ -1,11 +1,11 @@
 <!--
   KnowledgeGraphExplorer.svelte - Knowledge graph visualization and management.
 
-  D3 force-directed graph designed for large graphs (hundreds of nodes).
-  Features: collapsible filter sidebar with type counts, zoom/pan,
-  node search, grouped list view, entity detail/edit slide-out panel,
-  stats overlay, and CRUD operations. All panels contained within the
-  parent flex container — no width overflow.
+  3D WebGL force-directed graph (via 3d-force-graph / Three.js) designed for
+  large graphs (hundreds of nodes). Features: collapsible filter sidebar with
+  type counts, orbit/zoom/pan, node search, grouped list view, entity
+  detail/edit slide-out panel, stats overlay, and CRUD operations. All panels
+  contained within the parent flex container — no width overflow.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -13,7 +13,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { fly, slide } from 'svelte/transition';
-	import * as d3 from 'd3';
 	import {
 		Search,
 		Loader2,
@@ -29,8 +28,6 @@
 		Save,
 		Check,
 		RefreshCw,
-		ZoomIn,
-		ZoomOut,
 		Maximize2,
 		PanelLeftClose,
 		PanelLeft
@@ -58,19 +55,6 @@
 		type: string;
 		properties: string;
 		confidence: number;
-	}
-
-	interface SimNode extends d3.SimulationNodeDatum {
-		id: string;
-		name: string;
-		type: string;
-		entity: GraphEntity;
-	}
-
-	interface SimLink extends d3.SimulationLinkDatum<SimNode> {
-		id: string;
-		label: string;
-		relation: GraphRelation;
 	}
 
 	// -----------------------------------------------------------------------
@@ -109,11 +93,10 @@
 	// List view state
 	let expandedTypes = $state<Set<string>>(new Set());
 
-	// D3 refs
-	let svgEl: SVGSVGElement;
+	// 3D graph refs
+	let graphInstance: any = null;
+	let graphContainerEl: HTMLDivElement;
 	let containerEl: HTMLDivElement;
-	let simulation: d3.Simulation<SimNode, SimLink> | null = null;
-	let currentZoom: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
 
 	// -----------------------------------------------------------------------
 	// Constants
@@ -146,8 +129,6 @@
 	function getTypeColor(type: string): string {
 		return typeColors[(type ?? '').toLowerCase()] ?? typeColors.default;
 	}
-
-	const NODE_RADIUS = 5;
 
 	// -----------------------------------------------------------------------
 	// Derived
@@ -216,29 +197,32 @@
 	let visibleTypeCount = $derived(typeCounts.length - hiddenTypes.size);
 
 	// -----------------------------------------------------------------------
-	// D3 Force Graph
+	// 3D Force Graph
 	// -----------------------------------------------------------------------
 
-	function buildGraph() {
-		if (!svgEl || !containerEl) return;
+	async function buildGraph3D() {
+		if (!containerEl) return;
 
-		// Clear previous
-		d3.select(svgEl).selectAll('*').remove();
-		if (simulation) {
-			simulation.stop();
-			simulation = null;
+		// Clear previous instance
+		if (graphInstance) {
+			graphInstance._destructor?.();
+			graphInstance = null;
+		}
+		// Also clear any leftover children from previous instance
+		if (graphContainerEl) {
+			while (graphContainerEl.firstChild) {
+				graphContainerEl.removeChild(graphContainerEl.firstChild);
+			}
 		}
 
 		if (filteredEntities.length === 0) return;
 
 		const rect = containerEl.getBoundingClientRect();
-		const width = rect.width;
-		const height = rect.height;
-		if (width === 0 || height === 0) return;
+		if (rect.width === 0 || rect.height === 0) return;
 
 		const filteredIds = new Set(filteredEntities.map((e) => e.id));
 
-		const nodes: SimNode[] = filteredEntities.map((e) => ({
+		const nodes = filteredEntities.map((e) => ({
 			id: e.id,
 			name: e.name ?? 'Unnamed',
 			type: (e.type ?? 'unknown').toLowerCase(),
@@ -249,275 +233,50 @@
 			(r) => filteredIds.has(r.source_id) && filteredIds.has(r.target_id)
 		);
 
-		const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-		const links: SimLink[] = visibleRelations
-			.filter((r) => nodeMap.has(r.source_id) && nodeMap.has(r.target_id))
+		const nodeIdSet = new Set(nodes.map((n) => n.id));
+		const links = visibleRelations
+			.filter((r) => nodeIdSet.has(r.source_id) && nodeIdSet.has(r.target_id))
 			.map((r) => ({
-				id: r.id,
-				source: nodeMap.get(r.source_id)!,
-				target: nodeMap.get(r.target_id)!,
+				source: r.source_id,
+				target: r.target_id,
 				label: r.label || r.relation_type,
 				relation: r
 			}));
 
-		const svg = d3
-			.select(svgEl)
-			.attr('width', width)
-			.attr('height', height)
-			.attr('viewBox', `0 0 ${width} ${height}`);
+		// Dynamic import to avoid SSR issues
+		const ForceGraph3DModule = await import('3d-force-graph');
+		const ForceGraph3D = ForceGraph3DModule.default as any;
 
-		// Arrow marker
-		const defs = svg.append('defs');
-		defs
-			.append('marker')
-			.attr('id', 'arrowhead')
-			.attr('viewBox', '0 -4 8 8')
-			.attr('refX', NODE_RADIUS + 10)
-			.attr('refY', 0)
-			.attr('markerWidth', 5)
-			.attr('markerHeight', 5)
-			.attr('orient', 'auto')
-			.append('path')
-			.attr('d', 'M0,-3L7,0L0,3')
-			.attr('fill', 'var(--color-text-secondary)')
-			.attr('opacity', 0.35);
-
-		const g = svg.append('g');
-
-		const zoom = d3
-			.zoom<SVGSVGElement, unknown>()
-			.scaleExtent([0.02, 10])
-			.on('zoom', (event) => {
-				g.attr('transform', event.transform);
+		graphInstance = ForceGraph3D()(graphContainerEl)
+			.width(rect.width)
+			.height(rect.height)
+			.backgroundColor('rgba(0,0,0,0)')
+			.graphData({ nodes, links })
+			.nodeId('id')
+			.nodeLabel((node: any) => `<b>${node.name}</b><br/><span style="color:${getTypeColor(node.type)}">${node.type}</span>`)
+			.nodeColor((node: any) => getTypeColor(node.type))
+			.nodeRelSize(4)
+			.nodeOpacity(0.9)
+			.linkSource('source')
+			.linkTarget('target')
+			.linkColor(() => 'rgba(128,128,128,0.2)')
+			.linkWidth(0.5)
+			.linkDirectionalArrowLength(3)
+			.linkDirectionalArrowRelPos(1)
+			.onNodeClick((node: any) => {
+				if (node.entity) {
+					selectEntity(node.entity);
+				}
+			})
+			.onNodeHover((node: any) => {
+				if (graphContainerEl) {
+					graphContainerEl.style.cursor = node ? 'pointer' : 'default';
+				}
 			});
-
-		svg.call(zoom);
-		currentZoom = zoom;
-
-		// Links
-		const link = g
-			.append('g')
-			.attr('class', 'links')
-			.selectAll('line')
-			.data(links)
-			.join('line')
-			.attr('stroke', 'var(--color-border)')
-			.attr('stroke-width', 0.5)
-			.attr('stroke-opacity', 0.35)
-			.attr('marker-end', 'url(#arrowhead)');
-
-		// Edge labels (visible at high zoom)
-		const edgeLabel = g
-			.append('g')
-			.attr('class', 'edge-labels')
-			.selectAll('text')
-			.data(links)
-			.join('text')
-			.text((d) => d.label)
-			.attr('font-size', 7)
-			.attr('fill', 'var(--color-text-secondary)')
-			.attr('text-anchor', 'middle')
-			.attr('dy', -3)
-			.attr('opacity', 0);
-
-		// Nodes
-		const node = g
-			.append('g')
-			.attr('class', 'nodes')
-			.selectAll<SVGCircleElement, SimNode>('circle')
-			.data(nodes)
-			.join('circle')
-			.attr('r', NODE_RADIUS)
-			.attr('fill', (d) => getTypeColor(d.type))
-			.attr('stroke', 'var(--color-surface)')
-			.attr('stroke-width', 1)
-			.attr('cursor', 'pointer')
-			.on('mouseover', function (event, d) {
-				d3.select(this).transition().duration(100).attr('r', NODE_RADIUS * 1.8).attr('stroke-width', 2);
-				tooltip
-					.style('opacity', 1)
-					.html(
-						`<strong>${d.name}</strong><br/><span style="color:${getTypeColor(d.type)}">${d.type}</span>`
-					)
-					.style('left', event.pageX + 12 + 'px')
-					.style('top', event.pageY - 10 + 'px');
-			})
-			.on('mouseout', function () {
-				d3.select(this).transition().duration(100).attr('r', NODE_RADIUS).attr('stroke-width', 1);
-				tooltip.style('opacity', 0);
-			})
-			.on('click', (_event, d) => {
-				selectEntity(d.entity);
-				highlightNode(d.id);
-			})
-			.call(
-				d3
-					.drag<SVGCircleElement, SimNode>()
-					.on('start', (event, d) => {
-						if (!event.active) simulation!.alphaTarget(0.3).restart();
-						d.fx = d.x;
-						d.fy = d.y;
-					})
-					.on('drag', (event, d) => {
-						d.fx = event.x;
-						d.fy = event.y;
-					})
-					.on('end', (event, d) => {
-						if (!event.active) simulation!.alphaTarget(0);
-						d.fx = null;
-						d.fy = null;
-					})
-			);
-
-		// Node labels (visible at medium+ zoom)
-		const label = g
-			.append('g')
-			.attr('class', 'labels')
-			.selectAll('text')
-			.data(nodes)
-			.join('text')
-			.text((d) => d.name.length > 20 ? d.name.slice(0, 18) + '…' : d.name)
-			.attr('font-size', 8)
-			.attr('fill', 'var(--color-text-primary)')
-			.attr('dx', NODE_RADIUS + 3)
-			.attr('dy', 3)
-			.attr('pointer-events', 'none')
-			.attr('opacity', 0);
-
-		// Tooltip
-		const tooltip = d3
-			.select(containerEl)
-			.selectAll<HTMLDivElement, unknown>('.kg-tooltip')
-			.data([0])
-			.join('div')
-			.attr('class', 'kg-tooltip')
-			.style('position', 'fixed')
-			.style('pointer-events', 'none')
-			.style('padding', '6px 10px')
-			.style('background', 'var(--color-surface)')
-			.style('border', '1px solid var(--color-border)')
-			.style('border-radius', '6px')
-			.style('font-size', '11px')
-			.style('color', 'var(--color-text-primary)')
-			.style('box-shadow', '0 4px 12px rgba(0,0,0,0.15)')
-			.style('z-index', '50')
-			.style('opacity', '0')
-			.style('transition', 'opacity 0.15s');
-
-		// Force simulation — tuned for large graphs
-		const n = nodes.length;
-		const chargeStrength = n > 300 ? -50 : n > 150 ? -80 : n > 50 ? -120 : -200;
-		const linkDistance = n > 300 ? 30 : n > 150 ? 45 : n > 50 ? 60 : 80;
-
-		simulation = d3
-			.forceSimulation<SimNode>(nodes)
-			.force(
-				'link',
-				d3
-					.forceLink<SimNode, SimLink>(links)
-					.id((d) => d.id)
-					.distance(linkDistance)
-			)
-			.force('charge', d3.forceManyBody().strength(chargeStrength))
-			.force('center', d3.forceCenter(width / 2, height / 2))
-			.force('collision', d3.forceCollide(NODE_RADIUS + 2))
-			.force('x', d3.forceX(width / 2).strength(0.04))
-			.force('y', d3.forceY(height / 2).strength(0.04))
-			.on('tick', () => {
-				link
-					.attr('x1', (d) => (d.source as SimNode).x!)
-					.attr('y1', (d) => (d.source as SimNode).y!)
-					.attr('x2', (d) => (d.target as SimNode).x!)
-					.attr('y2', (d) => (d.target as SimNode).y!);
-
-				edgeLabel
-					.attr('x', (d) => ((d.source as SimNode).x! + (d.target as SimNode).x!) / 2)
-					.attr('y', (d) => ((d.source as SimNode).y! + (d.target as SimNode).y!) / 2);
-
-				node.attr('cx', (d) => d.x!).attr('cy', (d) => d.y!);
-				label.attr('x', (d) => d.x!).attr('y', (d) => d.y!);
-			});
-
-		// Adaptive rendering based on zoom
-		zoom.on('zoom.adaptive', (event) => {
-			const k = event.transform.k;
-			// Show labels when zoomed in enough to read them
-			label.attr('opacity', k > 0.8 ? Math.min(1, (k - 0.8) * 2) : 0);
-			// Show edge labels only when very zoomed in
-			edgeLabel.attr('opacity', k > 2 ? 0.7 : 0);
-		});
-
-		// Fit after simulation settles
-		setTimeout(() => fitToView(), 1000);
-	}
-
-	function fitToView() {
-		if (!svgEl || !currentZoom || !containerEl) return;
-		const svg = d3.select(svgEl);
-		const g = svg.select<SVGGElement>('g');
-		const gNode = g.node();
-		if (!gNode) return;
-		const bounds = gNode.getBBox();
-		if (bounds.width === 0 || bounds.height === 0) return;
-
-		const rect = containerEl.getBoundingClientRect();
-		const padding = 40;
-		const scale = Math.min(
-			(rect.width - padding * 2) / bounds.width,
-			(rect.height - padding * 2) / bounds.height,
-			2
-		);
-		const tx = rect.width / 2 - scale * (bounds.x + bounds.width / 2);
-		const ty = rect.height / 2 - scale * (bounds.y + bounds.height / 2);
-		(svg as any)
-			.transition()
-			.duration(500)
-			.call(currentZoom!.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
-	}
-
-	function highlightNode(nodeId: string) {
-		if (!svgEl) return;
-		const svg = d3.select(svgEl);
-
-		const neighborIds = new Set<string>([nodeId]);
-		for (const r of relations) {
-			if (r.source_id === nodeId) neighborIds.add(r.target_id);
-			if (r.target_id === nodeId) neighborIds.add(r.source_id);
-		}
-
-		svg.selectAll<SVGCircleElement, SimNode>('.nodes circle')
-			.attr('opacity', (d) => neighborIds.has(d.id) ? 1 : 0.15)
-			.attr('stroke-width', (d) => d.id === nodeId ? 3 : 1);
-
-		svg.selectAll<SVGLineElement, SimLink>('.links line')
-			.attr('stroke-opacity', (d) =>
-				(d.source as SimNode).id === nodeId || (d.target as SimNode).id === nodeId ? 0.8 : 0.03
-			)
-			.attr('stroke-width', (d) =>
-				(d.source as SimNode).id === nodeId || (d.target as SimNode).id === nodeId ? 1.5 : 0.5
-			);
-
-		svg.selectAll<SVGTextElement, SimNode>('.labels text')
-			.attr('opacity', (d) => neighborIds.has(d.id) ? 1 : 0);
 	}
 
 	function clearHighlight() {
-		if (!svgEl) return;
-		const svg = d3.select(svgEl);
-		svg.selectAll('.nodes circle').attr('opacity', 1).attr('stroke-width', 1);
-		svg.selectAll('.links line').attr('stroke-opacity', 0.35).attr('stroke-width', 0.5);
-		// Labels controlled by zoom level, just reset to hidden for now
-		svg.selectAll('.labels text').attr('opacity', 0);
-	}
-
-	function handleZoomIn() {
-		if (!svgEl || !currentZoom) return;
-		d3.select(svgEl).transition().duration(300).call(currentZoom.scaleBy, 1.5);
-	}
-
-	function handleZoomOut() {
-		if (!svgEl || !currentZoom) return;
-		d3.select(svgEl).transition().duration(300).call(currentZoom.scaleBy, 0.67);
+		/* 3D graph handles highlighting internally */
 	}
 
 	// Rebuild graph when data changes
@@ -529,7 +288,7 @@
 		void graphVersion;
 
 		if (viewMode === 'graph' && !loading && filteredEntities.length > 0) {
-			tick().then(() => buildGraph());
+			tick().then(() => buildGraph3D());
 		}
 	});
 
@@ -540,8 +299,9 @@
 		const observer = new ResizeObserver(() => {
 			clearTimeout(debounce);
 			debounce = setTimeout(() => {
-				if (viewMode === 'graph' && filteredEntities.length > 0) {
-					buildGraph();
+				if (graphInstance && containerEl) {
+					const rect = containerEl.getBoundingClientRect();
+					graphInstance.width(rect.width).height(rect.height);
 				}
 			}, 200);
 		});
@@ -549,6 +309,16 @@
 		return () => {
 			observer.disconnect();
 			clearTimeout(debounce);
+		};
+	});
+
+	// Cleanup on destroy
+	$effect(() => {
+		return () => {
+			if (graphInstance) {
+				graphInstance._destructor?.();
+				graphInstance = null;
+			}
 		};
 	});
 
@@ -957,30 +727,14 @@
 							{/if}
 						</div>
 					{:else}
-						<svg bind:this={svgEl} class="h-full w-full"></svg>
+						<div bind:this={graphContainerEl} class="h-full w-full"></div>
 					{/if}
 
-					<!-- Zoom controls -->
+					<!-- Camera controls — fit-to-view for 3D -->
 					<div class="absolute bottom-3 right-3 flex flex-col gap-1">
 						<button
 							type="button"
-							onclick={handleZoomIn}
-							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
-							title="Zoom In"
-						>
-							<ZoomIn size={14} />
-						</button>
-						<button
-							type="button"
-							onclick={handleZoomOut}
-							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
-							title="Zoom Out"
-						>
-							<ZoomOut size={14} />
-						</button>
-						<button
-							type="button"
-							onclick={() => fitToView()}
+							onclick={() => { if (graphInstance) graphInstance.zoomToFit(500, 50); }}
 							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
 							title="Fit to View"
 						>

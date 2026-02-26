@@ -8,7 +8,7 @@ export default defineConfig({
 		sveltekit()
 	],
 	optimizeDeps: {
-		include: ['swagger-ui-dist']
+		include: ['swagger-ui-dist', '3d-force-graph']
 	},
 	server: {
 		proxy: {
