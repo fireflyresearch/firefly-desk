@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
+from flydesk.knowledge.analyzer import _MAX_CONTENT_LENGTH
+
 if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
 
@@ -108,7 +110,7 @@ class KGExtractor:
         system_prompt = self._render_document_system()
         user_prompt = self._render_document_user(
             title=title,
-            content=content[:8000],  # Truncate to avoid token limits
+            content=content[:_MAX_CONTENT_LENGTH],
         )
         return await self._extract(system_prompt, user_prompt, source_system=None)
 

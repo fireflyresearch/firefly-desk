@@ -17,6 +17,9 @@ from starlette.responses import Response
 
 from flydesk.auth.models import UserSession
 
+DEV_USER_ID = "dev-user-001"
+DEV_TENANT_ID = "dev-tenant"
+
 
 def _build_dev_user() -> UserSession:
     """Build a synthetic admin session from environment variables.
@@ -38,19 +41,19 @@ def _build_dev_user() -> UserSession:
     title = os.environ.get("FLYDESK_DEV_USER_TITLE") or None
 
     return UserSession(
-        user_id="dev-user-001",
+        user_id=DEV_USER_ID,
         email=email,
         display_name=display_name,
         roles=roles,
         permissions=["*"],
-        tenant_id="dev-tenant",
+        tenant_id=DEV_TENANT_ID,
         picture_url=picture_url,
         department=department,
         title=title,
         session_id=str(uuid.uuid4()),
         token_expires_at=datetime(2099, 12, 31, tzinfo=timezone.utc),
         raw_claims={
-            "sub": "dev-user-001",
+            "sub": DEV_USER_ID,
             "name": display_name,
             "email": email,
         },

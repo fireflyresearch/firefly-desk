@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.auth.dev import DEV_USER_ID
 from flydesk.conversation.models import Conversation
 from flydesk.conversation.repository import ConversationRepository
 from flydesk.models.base import Base
@@ -74,7 +75,7 @@ class TestUserList:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
-        assert data[0]["user_id"] == "dev-user-001"
+        assert data[0]["user_id"] == DEV_USER_ID
         assert data[0]["display_name"] == "Dev Admin"
 
     async def test_list_users_from_conversations(self, client):
@@ -161,7 +162,7 @@ class TestProfile:
         response = await ac.get("/api/profile")
         assert response.status_code == 200
         data = response.json()
-        assert data["user_id"] == "dev-user-001"
+        assert data["user_id"] == DEV_USER_ID
         assert data["email"] == "admin@localhost"
         assert data["display_name"] == "Dev Admin"
         assert "admin" in data["roles"]

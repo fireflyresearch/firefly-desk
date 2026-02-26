@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-from flydesk.auth.dev import _build_dev_user
+from flydesk.auth.dev import DEV_TENANT_ID, DEV_USER_ID, _build_dev_user
 
 
 class TestBuildDevUserDefaults:
@@ -45,8 +45,8 @@ class TestBuildDevUserDefaults:
         """user_id, tenant_id, and permissions have fixed default values."""
         with patch.dict(os.environ, {}, clear=True):
             user = _build_dev_user()
-        assert user.user_id == "dev-user-001"
-        assert user.tenant_id == "dev-tenant"
+        assert user.user_id == DEV_USER_ID
+        assert user.tenant_id == DEV_TENANT_ID
         assert user.permissions == ["*"]
 
 
@@ -145,4 +145,4 @@ class TestBuildDevUserCustomEnv:
             user = _build_dev_user()
         assert user.raw_claims["name"] == "Custom Name"
         assert user.raw_claims["email"] == "custom@test.io"
-        assert user.raw_claims["sub"] == "dev-user-001"
+        assert user.raw_claims["sub"] == DEV_USER_ID

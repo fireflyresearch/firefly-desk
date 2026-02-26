@@ -200,10 +200,12 @@ async def list_users(
         logger.debug("Failed to query local users.", exc_info=True)
 
     # 2. Show dev user when in dev mode and no local users
+    from flydesk.auth.dev import DEV_USER_ID
+
     config = get_config()
     if config.dev_mode and not users:
-        users["dev-user-001"] = UserSummary(
-            user_id="dev-user-001",
+        users[DEV_USER_ID] = UserSummary(
+            user_id=DEV_USER_ID,
             display_name="Dev Admin",
             email="admin@localhost",
             roles=["admin"],

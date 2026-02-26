@@ -17,7 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from flydesk.api.deps import get_settings_repo
+from flydesk.config import DeskConfig
 from flydesk.rbac.guards import AdminSettings
+
+# Canonical defaults from DeskConfig — single source of truth for fallbacks.
+_DEFAULT_EMBEDDING_MODEL: str = DeskConfig.model_fields["embedding_model"].default
+_DEFAULT_EMBEDDING_DIMS: int = DeskConfig.model_fields["embedding_dimensions"].default
 from flydesk.settings.models import AgentSettings, UserSettings
 from flydesk.settings.repository import SettingsRepository
 
@@ -152,12 +157,15 @@ async def update_analysis_config(
 # ---------------------------------------------------------------------------
 
 class EmbeddingConfig(BaseModel):
-    """Embedding provider configuration."""
+    """Embedding provider configuration.
 
-    embedding_model: str = "openai:text-embedding-3-small"
+    Defaults mirror :class:`flydesk.config.DeskConfig`.
+    """
+
+    embedding_model: str = _DEFAULT_EMBEDDING_MODEL
     embedding_api_key: str = ""
     embedding_base_url: str = ""
-    embedding_dimensions: int = 1536
+    embedding_dimensions: int = _DEFAULT_EMBEDDING_DIMS
 
 
 class EmbeddingTestResult(BaseModel):
@@ -180,7 +188,7 @@ async def get_embedding_config(request: Request, repo: Repo) -> EmbeddingConfig:
     return EmbeddingConfig(
         embedding_model=settings.get(
             "embedding_model",
-            config.embedding_model if config else "openai:text-embedding-3-small",
+            config.embedding_model if config else _DEFAULT_EMBEDDING_MODEL,
         ),
         embedding_api_key=_mask_key(
             settings.get(
@@ -195,7 +203,7 @@ async def get_embedding_config(request: Request, repo: Repo) -> EmbeddingConfig:
         embedding_dimensions=int(
             settings.get(
                 "embedding_dimensions",
-                str(config.embedding_dimensions) if config else "1536",
+                str(config.embedding_dimensions) if config else str(_DEFAULT_EMBEDDING_DIMS),
             )
         ),
     )
@@ -235,7 +243,7 @@ async def test_embedding(request: Request, repo: Repo) -> EmbeddingTestResult:
 
     model_str = settings.get(
         "embedding_model",
-        config.embedding_model if config else "openai:text-embedding-3-small",
+        config.embedding_model if config else _DEFAULT_EMBEDDING_MODEL,
     )
     api_key = settings.get(
         "embedding_api_key",
@@ -248,7 +256,7 @@ async def test_embedding(request: Request, repo: Repo) -> EmbeddingTestResult:
     dimensions = int(
         settings.get(
             "embedding_dimensions",
-            str(config.embedding_dimensions) if config else "1536",
+            str(config.embedding_dimensions) if config else str(_DEFAULT_EMBEDDING_DIMS),
         )
     )
 
@@ -337,7 +345,7 @@ async def _reinitialize_embedding_provider(app: object, repo: SettingsRepository
 
         model_str = settings.get(
             "embedding_model",
-            app_config.embedding_model if app_config else "openai:text-embedding-3-small",
+            app_config.embedding_model if app_config else _DEFAULT_EMBEDDING_MODEL,
         )
         api_key = settings.get(
             "embedding_api_key",
@@ -350,7 +358,7 @@ async def _reinitialize_embedding_provider(app: object, repo: SettingsRepository
         dimensions = int(
             settings.get(
                 "embedding_dimensions",
-                str(app_config.embedding_dimensions) if app_config else "1536",
+                str(app_config.embedding_dimensions) if app_config else str(_DEFAULT_EMBEDDING_DIMS),
             )
         )
 

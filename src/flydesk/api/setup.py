@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from flydesk.api.events import SSEEvent, SSEEventType
+from flydesk.config import DeskConfig
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -147,7 +148,7 @@ class EmbeddingSetupConfig(BaseModel):
     model: str
     api_key: str | None = None
     base_url: str | None = None
-    dimensions: int = 1536
+    dimensions: int = DeskConfig.model_fields["embedding_dimensions"].default
 
 
 class VectorStoreSetupConfig(BaseModel):
@@ -355,7 +356,7 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
     import httpx
 
     model_str = f"{body.provider}:{body.model}"
-    dimensions = body.dimensions or 1536
+    dimensions = body.dimensions or DeskConfig.model_fields["embedding_dimensions"].default
 
     try:
         from flydesk.knowledge.embeddings import LLMEmbeddingProvider

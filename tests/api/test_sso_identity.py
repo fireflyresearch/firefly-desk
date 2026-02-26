@@ -30,6 +30,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
+from flydesk.auth.dev import DEV_USER_ID
 from flydesk.auth.local_user_repository import LocalUserRepository
 from flydesk.auth.models import UserSession
 from flydesk.models.base import Base
@@ -272,7 +273,7 @@ class _DevAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> StarletteResponse:
         request.state.user_session = UserSession(
-            user_id="dev-user-001",
+            user_id=DEV_USER_ID,
             email="admin@localhost",
             display_name="Dev Admin",
             roles=["admin"],
