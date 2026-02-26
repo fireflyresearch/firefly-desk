@@ -15,9 +15,6 @@ when running from a worktree.
 
 from __future__ import annotations
 
-import importlib
-import os
-import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,22 +28,7 @@ from httpx import ASGITransport, AsyncClient
 
 
 def _build_app() -> FastAPI:
-    """Build a minimal FastAPI app with a freshly-loaded GitHub router.
-
-    Forces Python to load the worktree source by clearing all cached
-    ``flydesk`` modules and prepending the worktree ``src/`` to sys.path.
-    """
-    worktree_src = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "src")
-    )
-    if worktree_src not in sys.path:
-        sys.path.insert(0, worktree_src)
-
-    # Evict all cached flydesk modules so they reload from the worktree.
-    for key in list(sys.modules):
-        if key.startswith("flydesk"):
-            del sys.modules[key]
-
+    """Build a minimal FastAPI app containing only the GitHub router."""
     import flydesk.api.github as gh_api
 
     app = FastAPI()

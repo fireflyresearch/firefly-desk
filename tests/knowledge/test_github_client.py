@@ -11,10 +11,8 @@
 from __future__ import annotations
 
 import base64
-import importlib
 import json
 import os
-import sys
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -28,16 +26,7 @@ from flydesk.knowledge.github import (
 
 
 def _get_worktree_client():
-    """Return GitHubClient from the worktree source (for testing new methods)."""
-    worktree_src = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "src")
-    )
-    if worktree_src not in sys.path:
-        sys.path.insert(0, worktree_src)
-    # Clear ALL flydesk modules to force a clean re-import from the worktree.
-    for key in list(sys.modules):
-        if key.startswith("flydesk"):
-            del sys.modules[key]
+    """Return the flydesk.knowledge.github module."""
     import flydesk.knowledge.github as gh
     return gh
 

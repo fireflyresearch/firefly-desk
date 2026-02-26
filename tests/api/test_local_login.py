@@ -160,6 +160,7 @@ async def test_login_jwt_is_decodable():
         )
 
     token = resp.json()["access_token"]
+    # Decode using the same secret the endpoint used (the cached config's secret)
     config = get_config()
     claims = pyjwt.decode(
         token,
