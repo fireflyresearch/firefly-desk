@@ -77,6 +77,12 @@ class DeskConfig(BaseSettings):
     rag_top_k: int = 3
     kg_max_entities_in_context: int = 5
 
+    # -- Knowledge Quality --
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    chunking_mode: Literal["fixed", "structural", "auto"] = "auto"
+    auto_kg_extract: bool = True
+
     # -- Vector Store --
     vector_store: Literal["pgvector", "chromadb", "pinecone", "sqlite"] = "sqlite"
     chroma_path: str = ""

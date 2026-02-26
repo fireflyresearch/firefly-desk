@@ -135,6 +135,77 @@ class TestStructuralChunking:
             assert c.metadata["section_path"] == "## Big Section"
 
 
+# ---------------------------------------------------------------------------
+# Auto-detection mode
+# ---------------------------------------------------------------------------
+
+
+class TestAutoDetectionMode:
+    def test_auto_detects_markdown_headings(self):
+        """Auto mode uses structural chunking when Markdown headings are found."""
+        indexer = KnowledgeIndexer(
+            session_factory=None,
+            embedding_provider=_FakeEmbeddingProvider(),
+            chunk_size=500,
+            chunk_overlap=50,
+            chunking_mode="auto",
+        )
+        md_text = "# Heading 1\nContent under heading 1.\n## Heading 2\nContent under heading 2."
+        chunks = indexer.chunk_document("doc-auto-md", md_text)
+
+        assert len(chunks) == 2
+        assert chunks[0].metadata.get("section_path") == "# Heading 1"
+        assert chunks[1].metadata.get("section_path") == "## Heading 2"
+
+    def test_auto_falls_back_to_fixed_for_plain_text(self):
+        """Auto mode uses fixed chunking when no headings are found."""
+        indexer = KnowledgeIndexer(
+            session_factory=None,
+            embedding_provider=_FakeEmbeddingProvider(),
+            chunk_size=50,
+            chunk_overlap=10,
+            chunking_mode="auto",
+        )
+        plain_text = "A" * 200
+        chunks = indexer.chunk_document("doc-auto-plain", plain_text)
+
+        assert len(chunks) > 1
+        # Fixed chunks don't have section_path metadata
+        assert chunks[0].metadata == {}
+
+    def test_auto_ignores_h3_headings(self):
+        """Auto mode only detects H1/H2 headings, not H3+."""
+        indexer = KnowledgeIndexer(
+            session_factory=None,
+            embedding_provider=_FakeEmbeddingProvider(),
+            chunk_size=50,
+            chunk_overlap=10,
+            chunking_mode="auto",
+        )
+        text = "### Only H3\nSome content here that is long enough." + "X" * 100
+        chunks = indexer.chunk_document("doc-auto-h3", text)
+
+        # H3 not detected -> falls back to fixed chunking -> no section_path
+        assert all(c.metadata == {} for c in chunks)
+
+    def test_constructor_default_is_auto(self):
+        """Default chunking_mode in constructor is 'auto'."""
+        indexer = KnowledgeIndexer(
+            session_factory=None,
+            embedding_provider=_FakeEmbeddingProvider(),
+        )
+        assert indexer._chunking_mode == "auto"
+
+    def test_constructor_accepts_chunking_mode(self):
+        """Constructor properly stores a custom chunking_mode."""
+        indexer = KnowledgeIndexer(
+            session_factory=None,
+            embedding_provider=_FakeEmbeddingProvider(),
+            chunking_mode="structural",
+        )
+        assert indexer._chunking_mode == "structural"
+
+
 class TestFixedModeUnchanged:
     def test_fixed_mode_produces_overlapping_chunks(self, indexer):
         """Fixed mode via chunk_document behaves identically to _chunk_text."""
@@ -147,12 +218,12 @@ class TestFixedModeUnchanged:
             assert a.content == b.content
             assert a.chunk_index == b.chunk_index
 
-    def test_default_mode_is_fixed(self, indexer):
-        """When no mode is supplied, the default (fixed) is used."""
+    def test_explicit_fixed_mode_matches_chunk_text(self, indexer):
+        """When fixed mode is explicitly supplied, it matches _chunk_text."""
         text = "C" * 100
-        chunks_default = indexer.chunk_document("doc-d1", text)
-        chunks_fixed = indexer.chunk_document("doc-d2", text, mode="fixed")
-        assert len(chunks_default) == len(chunks_fixed)
+        chunks_explicit = indexer.chunk_document("doc-d1", text, mode="fixed")
+        chunks_direct = indexer._chunk_text("doc-d2", text)
+        assert len(chunks_explicit) == len(chunks_direct)
 
 
 class TestChunkIndicesSequential:

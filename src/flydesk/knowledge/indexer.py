@@ -54,13 +54,14 @@ class KnowledgeIndexer:
         embedding_provider: EmbeddingProvider,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
+        chunking_mode: str = "auto",
         vector_store: VectorStore | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
-        self._chunking_mode: str = "fixed"
+        self._chunking_mode: str = chunking_mode
         self._vector_store = vector_store
 
     async def index_document(self, document: KnowledgeDocument) -> list[DocumentChunk]:
@@ -73,14 +74,15 @@ class KnowledgeIndexer:
                 content=document.content,
                 document_type=str(document.document_type),
                 source=document.source,
+                workspace_ids=_to_json(document.workspace_ids),
                 tags=_to_json(document.tags),
                 metadata_=_to_json(document.metadata),
             )
             session.add(doc_row)
             await session.commit()
 
-        # 2. Chunk the content
-        chunks = self._chunk_text(document.id, document.content)
+        # 2. Chunk the content (routes through structural/fixed/auto mode)
+        chunks = self.chunk_document(document.id, document.content)
 
         # 3. Generate embeddings
         texts = [c.content for c in chunks]
@@ -236,10 +238,15 @@ class KnowledgeIndexer:
         Parameters:
             document_id: Identifier for the parent document.
             text: The full document text.
-            mode: ``"fixed"`` or ``"structural"``.  Falls back to
-                ``self._chunking_mode`` when *None*.
+            mode: ``"fixed"``, ``"structural"``, or ``"auto"``.  Falls back
+                to ``self._chunking_mode`` when *None*.
+
+        ``"auto"`` mode detects Markdown H1/H2 headings and uses structural
+        chunking when found, fixed otherwise.
         """
         effective_mode = mode or self._chunking_mode
+        if effective_mode == "auto":
+            effective_mode = "structural" if re.search(r"^#{1,2}\s+", text, re.MULTILINE) else "fixed"
         if effective_mode == "structural":
             return self._chunk_text_structural(document_id, text)
         return self._chunk_text(document_id, text)
@@ -265,6 +272,7 @@ class KnowledgeIndexer:
             source=document.source or "",
             tags=document.tags,
             metadata=document.metadata,
+            workspace_ids=document.workspace_ids,
         )
         await producer.enqueue(task)
 

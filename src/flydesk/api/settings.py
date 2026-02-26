@@ -410,3 +410,195 @@ def _mask_key(key: str) -> str:
     if not key or len(key) <= 8:
         return key
     return "***" + key[-4:]
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Quality Configuration (admin only)
+# ---------------------------------------------------------------------------
+
+_KNOWLEDGE_KEYS = {
+    "chunk_size": "knowledge",
+    "chunk_overlap": "knowledge",
+    "chunking_mode": "knowledge",
+    "auto_kg_extract": "knowledge",
+}
+
+
+class KnowledgeQualityConfig(BaseModel):
+    """Knowledge quality / chunking configuration."""
+
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    chunking_mode: str = "auto"  # "fixed" | "structural" | "auto"
+    auto_kg_extract: bool = True
+
+
+@router.get("/knowledge", dependencies=[AdminSettings])
+async def get_knowledge_config(request: Request, repo: Repo) -> KnowledgeQualityConfig:
+    """Return current knowledge quality configuration (from DB, falling back to env)."""
+    settings = await repo.get_all_app_settings(category="knowledge")
+    config = getattr(request.app.state, "config", None)
+
+    return KnowledgeQualityConfig(
+        chunk_size=int(
+            settings.get("chunk_size", str(config.chunk_size) if config else "500")
+        ),
+        chunk_overlap=int(
+            settings.get("chunk_overlap", str(config.chunk_overlap) if config else "50")
+        ),
+        chunking_mode=settings.get(
+            "chunking_mode", config.chunking_mode if config else "auto"
+        ),
+        auto_kg_extract=settings.get(
+            "auto_kg_extract",
+            str(config.auto_kg_extract).lower() if config else "true",
+        )
+        in ("true", "1", "True"),
+    )
+
+
+@router.put("/knowledge", dependencies=[AdminSettings])
+async def update_knowledge_config(
+    body: KnowledgeQualityConfig, request: Request, repo: Repo
+) -> KnowledgeQualityConfig:
+    """Update knowledge quality configuration and reinitialize the indexer."""
+    await repo.set_app_setting("chunk_size", str(body.chunk_size), category="knowledge")
+    await repo.set_app_setting("chunk_overlap", str(body.chunk_overlap), category="knowledge")
+    await repo.set_app_setting("chunking_mode", body.chunking_mode, category="knowledge")
+    await repo.set_app_setting(
+        "auto_kg_extract", str(body.auto_kg_extract).lower(), category="knowledge"
+    )
+
+    # Reinitialize the indexer with new chunking parameters
+    await _reinitialize_indexer(request.app, repo)
+
+    # Update auto_kg_extract on app state
+    app_state = getattr(request.app, "state", None)
+    if app_state is not None:
+        app_state.auto_kg_extract = body.auto_kg_extract
+
+    return await get_knowledge_config(request, repo)
+
+
+async def _reinitialize_indexer(app: object, repo: SettingsRepository) -> None:
+    """Reinitialize the live KnowledgeIndexer from updated DB settings."""
+    try:
+        from flydesk.api.knowledge import get_knowledge_indexer
+        from flydesk.knowledge.indexer import KnowledgeIndexer
+
+        state = getattr(app, "state", None)
+        if state is None:
+            return
+        app_config = getattr(state, "config", None)
+
+        # Read knowledge settings
+        knowledge_settings = await repo.get_all_app_settings(category="knowledge")
+        chunk_size = int(
+            knowledge_settings.get("chunk_size", str(app_config.chunk_size) if app_config else "500")
+        )
+        chunk_overlap = int(
+            knowledge_settings.get("chunk_overlap", str(app_config.chunk_overlap) if app_config else "50")
+        )
+        chunking_mode = knowledge_settings.get(
+            "chunking_mode", app_config.chunking_mode if app_config else "auto"
+        )
+
+        session_factory = getattr(state, "session_factory", None)
+        if not session_factory:
+            return
+
+        # Resolve the current embedding provider from the desk_agent's enricher
+        embedding_provider = None
+        desk_agent = getattr(state, "desk_agent", None)
+        if desk_agent and hasattr(desk_agent, "_context_enricher"):
+            enricher = desk_agent._context_enricher
+            if hasattr(enricher, "_retriever"):
+                embedding_provider = enricher._retriever._embedding_provider
+
+        if embedding_provider is None:
+            logger.warning("Cannot reinitialize indexer: no embedding provider found.")
+            return
+
+        # Resolve existing vector store from the current indexer
+        vector_store = None
+        current_overrides = getattr(app, "dependency_overrides", {})
+        current_indexer_fn = current_overrides.get(get_knowledge_indexer)
+        if current_indexer_fn:
+            try:
+                current_indexer = current_indexer_fn()
+                vector_store = getattr(current_indexer, "_vector_store", None)
+            except Exception:
+                pass
+
+        new_indexer = KnowledgeIndexer(
+            session_factory=session_factory,
+            embedding_provider=embedding_provider,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            chunking_mode=chunking_mode,
+            vector_store=vector_store,
+        )
+
+        app.dependency_overrides[get_knowledge_indexer] = lambda: new_indexer  # type: ignore[union-attr]
+
+        logger.info(
+            "Knowledge indexer reinitialized: mode=%s, size=%d, overlap=%d",
+            chunking_mode,
+            chunk_size,
+            chunk_overlap,
+        )
+
+    except Exception:
+        logger.warning("Failed to reinitialize knowledge indexer.", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Embedding Status (admin only)
+# ---------------------------------------------------------------------------
+
+
+class EmbeddingStatusResult(BaseModel):
+    """Result of an embedding provider health check."""
+
+    status: str  # "ok" | "warning" | "error"
+    message: str
+    dimensions: int | None = None
+
+
+@router.get("/embedding/status", dependencies=[AdminSettings])
+async def get_embedding_status(request: Request) -> EmbeddingStatusResult:
+    """Check the health of the current embedding provider."""
+    provider = getattr(request.app.state, "embedding_provider", None)
+
+    # Try to find provider via desk agent's enricher
+    if provider is None:
+        desk_agent = getattr(request.app.state, "desk_agent", None)
+        if desk_agent and hasattr(desk_agent, "_context_enricher"):
+            enricher = desk_agent._context_enricher
+            if hasattr(enricher, "_retriever"):
+                provider = getattr(enricher._retriever, "_embedding_provider", None)
+
+    if provider is None:
+        return EmbeddingStatusResult(
+            status="error", message="No embedding provider configured"
+        )
+
+    if hasattr(provider, "check_status"):
+        result = await provider.check_status()
+        return EmbeddingStatusResult(**result)
+
+    # Fallback: try a test embed
+    try:
+        vectors = await provider.embed(["health check"])
+        if vectors and all(v == 0.0 for v in vectors[0]):
+            return EmbeddingStatusResult(
+                status="warning",
+                message="No API key configured. Using keyword search fallback.",
+            )
+        return EmbeddingStatusResult(
+            status="ok",
+            message="Embeddings working",
+            dimensions=len(vectors[0]) if vectors else None,
+        )
+    except Exception as e:
+        return EmbeddingStatusResult(status="error", message=str(e))

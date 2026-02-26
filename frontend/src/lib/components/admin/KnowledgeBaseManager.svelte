@@ -19,7 +19,12 @@
 		Network,
 		Archive,
 		RefreshCw,
-		Maximize2
+		Maximize2,
+		Settings,
+		CheckCircle,
+		AlertTriangle,
+		XCircle,
+		Save
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -41,14 +46,14 @@
 		chunk_count?: number;
 		created_at?: string;
 		metadata?: Record<string, unknown>;
-		workspace_id?: string | null;
+		workspace_ids?: string[];
 	}
 
 	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
 
-	let activeTab = $state<'documents' | 'add' | 'graph'>('documents');
+	let activeTab = $state<'documents' | 'add' | 'graph' | 'settings'>('documents');
 	let documents = $state<KnowledgeDocument[]>([]);
 	let loading = $state(true);
 	let error = $state('');
@@ -75,6 +80,19 @@
 	let kgRecomputeMessage = $state('');
 	let kgRecomputeProgress = $state(0);
 
+	// Knowledge quality settings
+	let settingsLoading = $state(false);
+	let settingsSaving = $state(false);
+	let settingsSaved = $state(false);
+	let settingsChunkingMode = $state<'auto' | 'structural' | 'fixed'>('auto');
+	let settingsChunkSize = $state(500);
+	let settingsChunkOverlap = $state(50);
+	let settingsAutoKgExtract = $state(true);
+
+	// Embedding status
+	let embeddingStatus = $state<'ok' | 'warning' | 'error' | null>(null);
+	let embeddingStatusMessage = $state('');
+
 	// -----------------------------------------------------------------------
 	// Derived
 	// -----------------------------------------------------------------------
@@ -88,7 +106,7 @@
 				(d.source ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				d.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
 			const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
-			const matchesWorkspace = workspaceFilter === 'all' || d.workspace_id === workspaceFilter;
+			const matchesWorkspace = workspaceFilter === 'all' || (d.workspace_ids ?? []).includes(workspaceFilter);
 			return matchesSearch && matchesStatus && matchesWorkspace;
 		});
 	});
@@ -167,6 +185,62 @@
 			error = e instanceof Error ? e.message : 'Failed to trigger KG recompute';
 			recomputingKG = false;
 			kgRecomputeMessage = '';
+		}
+	}
+
+	async function loadKnowledgeSettings() {
+		settingsLoading = true;
+		try {
+			const config = await apiJson<{
+				chunk_size: number;
+				chunk_overlap: number;
+				chunking_mode: string;
+				auto_kg_extract: boolean;
+			}>('/settings/knowledge');
+			settingsChunkSize = config.chunk_size;
+			settingsChunkOverlap = config.chunk_overlap;
+			settingsChunkingMode = config.chunking_mode as typeof settingsChunkingMode;
+			settingsAutoKgExtract = config.auto_kg_extract;
+		} catch {
+			// Use defaults on error
+		} finally {
+			settingsLoading = false;
+		}
+	}
+
+	async function loadEmbeddingStatus() {
+		try {
+			const result = await apiJson<{ status: string; message: string; dimensions?: number }>(
+				'/settings/embedding/status'
+			);
+			embeddingStatus = result.status as typeof embeddingStatus;
+			embeddingStatusMessage = result.message;
+		} catch {
+			embeddingStatus = 'error';
+			embeddingStatusMessage = 'Unable to check embedding status';
+		}
+	}
+
+	async function saveKnowledgeSettings() {
+		settingsSaving = true;
+		settingsSaved = false;
+		error = '';
+		try {
+			await apiJson('/settings/knowledge', {
+				method: 'PUT',
+				body: JSON.stringify({
+					chunk_size: settingsChunkSize,
+					chunk_overlap: settingsChunkOverlap,
+					chunking_mode: settingsChunkingMode,
+					auto_kg_extract: settingsAutoKgExtract
+				})
+			});
+			settingsSaved = true;
+			setTimeout(() => (settingsSaved = false), 3000);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save settings';
+		} finally {
+			settingsSaving = false;
 		}
 	}
 
@@ -396,6 +470,17 @@
 				<Network size={14} />
 				Graph Explorer
 			</button>
+			<button
+				type="button"
+				onclick={() => { activeTab = 'settings'; loadKnowledgeSettings(); loadEmbeddingStatus(); }}
+				class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors
+					{activeTab === 'settings'
+					? 'border-b-2 border-accent text-accent'
+					: 'text-text-secondary hover:text-text-primary'}"
+			>
+				<Settings size={14} />
+				Settings
+			</button>
 		</div>
 
 		<!-- ================================================================= -->
@@ -537,38 +622,165 @@
 		<!-- Graph Explorer Tab                                                 -->
 		<!-- ================================================================= -->
 		{:else if activeTab === 'graph'}
-			<div class="flex flex-1 flex-col overflow-hidden">
-				<!-- KG recompute bar -->
-				<div class="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
-					<button
-						type="button"
-						onclick={triggerKGRecompute}
-						disabled={recomputingKG}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-					>
-						{#if recomputingKG}
-							<Loader2 size={14} class="animate-spin" />
-							Recomputing...
-						{:else}
-							<RefreshCw size={14} />
-							Regenerate Knowledge Graph
+			<div class="min-h-0 flex-1 overflow-hidden">
+				<KnowledgeGraphExplorer
+					onRegenerate={triggerKGRecompute}
+					regenerating={recomputingKG}
+					regenerateMessage={kgRecomputeMessage}
+					regenerateProgress={kgRecomputeProgress}
+				/>
+			</div>
+
+		<!-- ================================================================= -->
+		<!-- Settings Tab                                                       -->
+		<!-- ================================================================= -->
+		{:else if activeTab === 'settings'}
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				{#if settingsLoading}
+					<div class="flex items-center justify-center py-12">
+						<Loader2 size={24} class="animate-spin text-text-secondary" />
+					</div>
+				{:else}
+					<div class="mx-auto max-w-2xl space-y-6 py-2">
+						<!-- Embedding Status -->
+						{#if embeddingStatus}
+							<div
+								class="flex items-start gap-3 rounded-lg border px-4 py-3
+									{embeddingStatus === 'ok'
+									? 'border-success/30 bg-success/5'
+									: embeddingStatus === 'warning'
+									? 'border-warning/30 bg-warning/5'
+									: 'border-danger/30 bg-danger/5'}"
+							>
+								{#if embeddingStatus === 'ok'}
+									<CheckCircle size={18} class="mt-0.5 shrink-0 text-success" />
+								{:else if embeddingStatus === 'warning'}
+									<AlertTriangle size={18} class="mt-0.5 shrink-0 text-warning" />
+								{:else}
+									<XCircle size={18} class="mt-0.5 shrink-0 text-danger" />
+								{/if}
+								<div>
+									<span class="block text-sm font-medium
+										{embeddingStatus === 'ok' ? 'text-success' : embeddingStatus === 'warning' ? 'text-warning' : 'text-danger'}">
+										Embedding Status: {embeddingStatus === 'ok' ? 'Active' : embeddingStatus === 'warning' ? 'Warning' : 'Error'}
+									</span>
+									<span class="block text-xs text-text-secondary">{embeddingStatusMessage}</span>
+								</div>
+							</div>
 						{/if}
-					</button>
-					{#if kgRecomputeMessage}
-						<span class="text-xs text-text-secondary">{kgRecomputeMessage}</span>
-					{/if}
-				</div>
-				{#if recomputingKG}
-					<div class="h-1.5 w-full shrink-0 overflow-hidden bg-surface">
-						<div
-							class="h-full rounded-full bg-accent transition-all duration-500"
-							style="width: {kgRecomputeProgress}%"
-						></div>
+
+						<!-- Chunking Mode -->
+						<section>
+							<h3 class="mb-3 text-sm font-semibold text-text-primary">Chunking Mode</h3>
+							<div class="grid grid-cols-3 gap-3">
+								{#each [
+									{ value: 'auto', label: 'Auto', desc: 'Detect headings in Markdown, fall back to fixed for plain text' },
+									{ value: 'structural', label: 'Structural', desc: 'Always split on H1/H2 headings, sub-chunk large sections' },
+									{ value: 'fixed', label: 'Fixed', desc: 'Sliding window chunking with overlap' }
+								] as mode}
+									<button
+										type="button"
+										onclick={() => (settingsChunkingMode = mode.value as typeof settingsChunkingMode)}
+										class="rounded-lg border px-4 py-3 text-left transition-all
+											{settingsChunkingMode === mode.value
+											? 'border-accent bg-accent/5 shadow-sm'
+											: 'border-border hover:border-text-secondary/40 hover:bg-surface-hover'}"
+									>
+										<span class="block text-sm font-medium
+											{settingsChunkingMode === mode.value ? 'text-accent' : 'text-text-primary'}">
+											{mode.label}
+										</span>
+										<span class="mt-1 block text-[11px] leading-tight text-text-secondary">{mode.desc}</span>
+									</button>
+								{/each}
+							</div>
+						</section>
+
+						<!-- Chunk Size & Overlap -->
+						<section>
+							<h3 class="mb-3 text-sm font-semibold text-text-primary">Chunk Parameters</h3>
+							<div class="grid grid-cols-2 gap-4">
+								<div>
+									<label for="settings-chunk-size" class="mb-1.5 block text-xs font-medium text-text-secondary">
+										Chunk Size <span class="text-text-secondary/60">(chars)</span>
+									</label>
+									<input
+										id="settings-chunk-size"
+										type="number"
+										bind:value={settingsChunkSize}
+										min={100}
+										max={2000}
+										step={50}
+										class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none"
+									/>
+								</div>
+								<div>
+									<label for="settings-chunk-overlap" class="mb-1.5 block text-xs font-medium text-text-secondary">
+										Chunk Overlap <span class="text-text-secondary/60">(chars)</span>
+									</label>
+									<input
+										id="settings-chunk-overlap"
+										type="number"
+										bind:value={settingsChunkOverlap}
+										min={0}
+										max={500}
+										step={10}
+										class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none"
+									/>
+								</div>
+							</div>
+						</section>
+
+						<!-- Auto KG Extract -->
+						<section>
+							<div class="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+								<div>
+									<span class="block text-sm font-medium text-text-primary">Auto KG Extraction</span>
+									<span class="block text-xs text-text-secondary">
+										Automatically extract entities and relations when new documents are indexed
+									</span>
+								</div>
+								<button
+									type="button"
+									role="switch"
+									aria-checked={settingsAutoKgExtract}
+									onclick={() => (settingsAutoKgExtract = !settingsAutoKgExtract)}
+									class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors
+										{settingsAutoKgExtract ? 'bg-accent' : 'bg-border'}"
+								>
+									<span
+										class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
+											{settingsAutoKgExtract ? 'translate-x-5' : 'translate-x-0'}"
+									/>
+								</button>
+							</div>
+						</section>
+
+						<!-- Info & Save -->
+						<div class="flex items-center justify-between border-t border-border pt-4">
+							<p class="text-xs text-text-secondary">
+								Changes apply to newly indexed documents. Use bulk re-index to apply to existing documents.
+							</p>
+							<button
+								type="button"
+								onclick={saveKnowledgeSettings}
+								disabled={settingsSaving}
+								class="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								{#if settingsSaving}
+									<Loader2 size={16} class="animate-spin" />
+									Saving...
+								{:else if settingsSaved}
+									<CheckCircle size={16} />
+									Saved
+								{:else}
+									<Save size={16} />
+									Save Settings
+								{/if}
+							</button>
+						</div>
 					</div>
 				{/if}
-				<div class="min-h-0 flex-1 overflow-hidden">
-					<KnowledgeGraphExplorer />
-				</div>
 			</div>
 		{/if}
 	</div>
@@ -646,8 +858,21 @@
 									</span>
 								{/if}
 							</td>
-							<td class="px-4 py-2 text-xs text-text-secondary">
-								{workspaces.find((w) => w.id === doc.workspace_id)?.name || '--'}
+							<td class="px-4 py-2">
+								{#if (doc.workspace_ids ?? []).length > 0}
+									<div class="flex flex-wrap gap-1">
+										{#each (doc.workspace_ids ?? []).slice(0, 2) as wid}
+											<span class="rounded bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary">
+												{workspaces.find((w) => w.id === wid)?.name ?? wid}
+											</span>
+										{/each}
+										{#if (doc.workspace_ids ?? []).length > 2}
+											<span class="text-xs text-text-secondary">+{(doc.workspace_ids ?? []).length - 2}</span>
+										{/if}
+									</div>
+								{:else}
+									<span class="text-xs text-text-secondary">--</span>
+								{/if}
 							</td>
 							<td class="px-4 py-2 text-text-secondary">{doc.source || '--'}</td>
 							<td class="px-4 py-2">

@@ -78,6 +78,7 @@ class IndexingJobHandler:
             source=task.source,
             tags=task.tags,
             metadata=task.metadata,
+            workspace_ids=task.workspace_ids,
         )
         await self._indexer.index_document(doc)
 
@@ -125,6 +126,87 @@ class SystemDiscoveryHandler:
     ) -> dict:
         """Run system discovery analysis."""
         return await self._engine._analyze(job_id, payload, on_progress)
+
+
+class KGExtractSingleHandler:
+    """Extract KG entities/relations from a single document.
+
+    Submitted automatically after a document is indexed when
+    ``auto_kg_extract`` is enabled.
+    """
+
+    def __init__(
+        self,
+        catalog_repo: CatalogRepository,
+        knowledge_graph: KnowledgeGraph,
+        extractor: KGExtractor,
+    ) -> None:
+        self._catalog_repo = catalog_repo
+        self._knowledge_graph = knowledge_graph
+        self._extractor = extractor
+
+    async def execute(
+        self,
+        job_id: str,
+        payload: dict,
+        on_progress: ProgressCallback,
+    ) -> dict:
+        """Extract entities/relations from a single document and upsert into the KG."""
+        from flydesk.knowledge.graph import Entity, Relation
+
+        doc_id = payload["document_id"]
+        doc = await self._catalog_repo.get_knowledge_document(doc_id)
+        if doc is None:
+            return {"document_id": doc_id, "entities": 0, "relations": 0, "skipped": True}
+
+        doc_title = getattr(doc, "title", None) or (doc.get("title") if isinstance(doc, dict) else "Untitled")
+        doc_content = getattr(doc, "content", None) or (doc.get("content") if isinstance(doc, dict) else "")
+
+        if not doc_content:
+            return {"document_id": doc_id, "entities": 0, "relations": 0, "skipped": True}
+
+        await on_progress(10, f"Extracting entities from {doc_title}")
+
+        try:
+            entities, relations = await self._extractor.extract_from_document(
+                doc_content, doc_title
+            )
+        except Exception:
+            logger.warning("KG extraction failed for doc '%s'.", doc_title, exc_info=True)
+            return {"document_id": doc_id, "entities": 0, "relations": 0, "error": True}
+
+        entities_added = 0
+        relations_added = 0
+
+        for ent_dict in entities:
+            entity = Entity(
+                id=ent_dict["id"],
+                entity_type=ent_dict["entity_type"],
+                name=ent_dict["name"],
+                properties=ent_dict.get("properties", {}),
+                source_system=ent_dict.get("source_system"),
+                confidence=ent_dict.get("confidence", 1.0),
+            )
+            await self._knowledge_graph.upsert_entity(entity)
+            entities_added += 1
+
+        for rel_dict in relations:
+            relation = Relation(
+                source_id=rel_dict["source_id"],
+                target_id=rel_dict["target_id"],
+                relation_type=rel_dict["relation_type"],
+                properties=rel_dict.get("properties", {}),
+                confidence=rel_dict.get("confidence", 1.0),
+            )
+            await self._knowledge_graph.add_relation(relation)
+            relations_added += 1
+
+        await on_progress(100, "Extraction complete")
+        return {
+            "document_id": doc_id,
+            "entities": entities_added,
+            "relations": relations_added,
+        }
 
 
 class KGRecomputeHandler:

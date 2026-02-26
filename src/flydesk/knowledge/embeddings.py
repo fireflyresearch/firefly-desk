@@ -142,6 +142,35 @@ class LLMEmbeddingProvider:
         )
         return None
 
+    async def check_status(self) -> dict:
+        """Check embedding provider health and return a status dict.
+
+        Returns one of:
+        - ``{"status": "warning", "message": "..."}`` — no key / zero vectors
+        - ``{"status": "ok", "message": "...", "dimensions": N}``
+        - ``{"status": "error", "message": "..."}``
+        """
+        api_key = await self._resolve_api_key()
+        if not api_key and self._provider not in ("ollama",):
+            return {
+                "status": "warning",
+                "message": "No API key configured. Using keyword search fallback.",
+            }
+        try:
+            result = await self.embed(["embedding health check"])
+            if all(v == 0.0 for v in result[0]):
+                return {
+                    "status": "warning",
+                    "message": "Embedding provider returned zero vectors. Check API key.",
+                }
+            return {
+                "status": "ok",
+                "message": "Embeddings working",
+                "dimensions": len(result[0]),
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for the given texts.
 

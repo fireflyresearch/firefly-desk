@@ -115,6 +115,7 @@ async def _apply_column_migrations(conn):
         ("external_systems", "workspace_id", "VARCHAR(255)"),
         ("kb_documents", "workspace_id", "VARCHAR(255)"),
         ("business_processes", "workspace_id", "VARCHAR(255)"),
+        ("kb_documents", "workspace_ids", "TEXT NOT NULL DEFAULT '[]'"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -125,6 +126,20 @@ async def _apply_column_migrations(conn):
             await nested.commit()
         except Exception:
             await nested.rollback()  # Column already exists
+
+    # Backfill workspace_ids from legacy workspace_id column
+    try:
+        nested = await conn.begin_nested()
+        await conn.execute(text(
+            "UPDATE kb_documents SET workspace_ids = "
+            "CASE WHEN workspace_id IS NOT NULL AND workspace_id != '' "
+            "THEN '[\"' || workspace_id || '\"]' "
+            "ELSE '[]' END "
+            "WHERE workspace_ids = '[]'"
+        ))
+        await nested.commit()
+    except Exception:
+        await nested.rollback()
 
 
 @asynccontextmanager
@@ -272,9 +287,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)
 
-        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_id=None):
+        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_ids=None):
             return await catalog_repo.update_knowledge_document(
-                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status, workspace_id=workspace_id
+                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status, workspace_ids=workspace_ids
             )
 
     doc_store = _LiveDocStore()
@@ -310,6 +325,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         base_url=embed_url or None,
     )
 
+    # Knowledge quality settings (chunk size, overlap, chunking mode)
+    knowledge_settings = await settings_repo.get_all_app_settings(category="knowledge")
+    chunk_size = int(knowledge_settings.get("chunk_size", str(config.chunk_size)))
+    chunk_overlap = int(knowledge_settings.get("chunk_overlap", str(config.chunk_overlap)))
+    chunking_mode = knowledge_settings.get("chunking_mode", config.chunking_mode)
+    auto_kg_extract = knowledge_settings.get(
+        "auto_kg_extract", str(config.auto_kg_extract)
+    ).lower() in ("true", "1")
+
     # Instantiate the configured vector store backend
     try:
         vector_store = create_vector_store(config, session_factory)
@@ -320,6 +344,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     indexer = KnowledgeIndexer(
         session_factory=session_factory,
         embedding_provider=embedding_provider,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        chunking_mode=chunking_mode,
         vector_store=vector_store,
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
@@ -482,12 +509,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.system_discovery_engine = system_discovery_engine
 
     # KG extraction and recomputation handler
-    from flydesk.jobs.handlers import KGRecomputeHandler
+    from flydesk.jobs.handlers import KGExtractSingleHandler, KGRecomputeHandler
     from flydesk.knowledge.kg_extractor import KGExtractor
 
     kg_extractor = KGExtractor(agent_factory)
     kg_recompute_handler = KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor)
     job_runner.register_handler("kg_recompute", kg_recompute_handler)
+
+    kg_extract_single_handler = KGExtractSingleHandler(catalog_repo, knowledge_graph, kg_extractor)
+    job_runner.register_handler("kg_extract_single", kg_extract_single_handler)
     app.state.kg_extractor = kg_extractor
 
     # Document analyser for GitHub import enrichment
@@ -500,8 +530,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Auto-trigger service (debounced triggers for KG recompute and process discovery)
     from flydesk.triggers.auto_trigger import AutoTriggerService
 
-    auto_trigger = AutoTriggerService(config, job_runner)
+    auto_trigger = AutoTriggerService(config, job_runner, auto_kg_extract=auto_kg_extract)
     app.state.auto_trigger = auto_trigger
+    app.state.auto_kg_extract = auto_kg_extract
     app.dependency_overrides[knowledge_get_auto_trigger] = lambda: auto_trigger
     app.dependency_overrides[catalog_get_auto_trigger] = lambda: auto_trigger
     builtin_executor.set_auto_trigger(auto_trigger)

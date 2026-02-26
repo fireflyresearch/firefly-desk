@@ -46,10 +46,12 @@ class AutoTriggerService:
         job_runner: JobRunner,
         *,
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
+        auto_kg_extract: bool = True,
     ) -> None:
         self._config = config
         self._job_runner = job_runner
         self._debounce_seconds = debounce_seconds
+        self._auto_kg_extract = auto_kg_extract
 
         # Pending trigger types accumulated during the debounce window.
         self._pending_triggers: set[str] = set()
@@ -64,12 +66,18 @@ class AutoTriggerService:
     async def on_document_indexed(self, doc_id: str) -> None:
         """Called after a knowledge document is successfully indexed.
 
-        Schedules a ``kg_recompute`` job if auto-analysis is enabled.
+        Submits a per-document KG extraction job (immediate, not debounced)
+        when ``auto_kg_extract`` is enabled.
         """
-        if not self._config.auto_analyze:
+        if not self._auto_kg_extract:
             return
-        logger.debug("Document indexed: %s -- scheduling kg_recompute", doc_id)
-        self._schedule_trigger("kg_recompute")
+        try:
+            await self._job_runner.submit("kg_extract_single", {"document_id": doc_id})
+            logger.info("Auto-triggered KG extraction for document %s", doc_id)
+        except Exception:
+            logger.warning(
+                "Failed to submit kg_extract_single for %s", doc_id, exc_info=True
+            )
 
     async def on_catalog_updated(self, system_id: str) -> None:
         """Called after a catalog system or endpoint is created/updated.

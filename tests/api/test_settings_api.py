@@ -278,3 +278,70 @@ class TestEmbeddingTest:
     async def test_non_admin_cannot_test(self, non_admin_client):
         response = await non_admin_client.post("/api/settings/embedding/test")
         assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Quality Configuration
+# ---------------------------------------------------------------------------
+
+
+class TestGetKnowledgeConfig:
+    async def test_returns_defaults_when_no_db_settings(self, admin_client, mock_repo):
+        """GET /settings/knowledge returns defaults when no DB values are set."""
+        mock_repo.get_all_app_settings.return_value = {}
+        response = await admin_client.get("/api/settings/knowledge")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["chunk_size"] == 500
+        assert data["chunk_overlap"] == 50
+        assert data["chunking_mode"] == "auto"
+        assert data["auto_kg_extract"] is True
+
+    async def test_returns_db_values_when_set(self, admin_client, mock_repo):
+        """GET /settings/knowledge returns values from DB settings."""
+        mock_repo.get_all_app_settings.return_value = {
+            "chunk_size": "1000",
+            "chunk_overlap": "100",
+            "chunking_mode": "structural",
+            "auto_kg_extract": "false",
+        }
+        response = await admin_client.get("/api/settings/knowledge")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["chunk_size"] == 1000
+        assert data["chunk_overlap"] == 100
+        assert data["chunking_mode"] == "structural"
+        assert data["auto_kg_extract"] is False
+
+    async def test_non_admin_cannot_access(self, non_admin_client):
+        response = await non_admin_client.get("/api/settings/knowledge")
+        assert response.status_code == 403
+
+
+class TestUpdateKnowledgeConfig:
+    async def test_saves_knowledge_config(self, admin_client, mock_repo):
+        """PUT /settings/knowledge saves all knowledge quality fields."""
+        mock_repo.get_all_app_settings.return_value = {}
+        payload = {
+            "chunk_size": 750,
+            "chunk_overlap": 75,
+            "chunking_mode": "structural",
+            "auto_kg_extract": False,
+        }
+        response = await admin_client.put("/api/settings/knowledge", json=payload)
+        assert response.status_code == 200
+        # Should have called set_app_setting for each of the 4 fields
+        assert mock_repo.set_app_setting.await_count >= 4
+
+    async def test_non_admin_cannot_update(self, non_admin_client):
+        response = await non_admin_client.put(
+            "/api/settings/knowledge",
+            json={"chunk_size": 500, "chunk_overlap": 50, "chunking_mode": "auto", "auto_kg_extract": True},
+        )
+        assert response.status_code == 403
+
+
+class TestEmbeddingStatus:
+    async def test_non_admin_cannot_check_status(self, non_admin_client):
+        response = await non_admin_client.get("/api/settings/embedding/status")
+        assert response.status_code == 403

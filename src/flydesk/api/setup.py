@@ -51,6 +51,11 @@ class SetupStatus(BaseModel):
     accent_color: str
     agent_avatar_url: str = ""
     agent_display_name: str = ""
+    # Knowledge quality
+    chunking_mode: str = "auto"
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    auto_kg_extract: bool = True
 
 
 class CreateAdminRequest(BaseModel):
@@ -156,6 +161,15 @@ class VectorStoreSetupConfig(BaseModel):
     pinecone_environment: str | None = None
 
 
+class KnowledgeQualitySetupConfig(BaseModel):
+    """Knowledge quality configuration from the setup wizard."""
+
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    chunking_mode: str = "auto"  # "fixed" | "structural" | "auto"
+    auto_kg_extract: bool = True
+
+
 class ConfigureRequest(BaseModel):
     """Request body for the setup wizard configure endpoint."""
 
@@ -164,6 +178,7 @@ class ConfigureRequest(BaseModel):
     vector_store: VectorStoreSetupConfig | None = None
     seed_data: bool | None = None
     agent_settings: AgentSettingsConfig | None = None
+    knowledge_quality: KnowledgeQualitySetupConfig | None = None
 
 
 class ConfigureResult(BaseModel):
@@ -536,6 +551,23 @@ async def get_setup_status(request: Request) -> SetupStatus:
         except Exception:
             logger.debug("Failed to load agent settings for setup status.", exc_info=True)
 
+    # Load knowledge quality settings
+    kq_chunking_mode = config.chunking_mode
+    kq_chunk_size = config.chunk_size
+    kq_chunk_overlap = config.chunk_overlap
+    kq_auto_kg_extract = config.auto_kg_extract
+    if session_factory:
+        try:
+            kq_settings = await settings_repo.get_all_app_settings(category="knowledge")
+            kq_chunking_mode = kq_settings.get("chunking_mode", config.chunking_mode)
+            kq_chunk_size = int(kq_settings.get("chunk_size", str(config.chunk_size)))
+            kq_chunk_overlap = int(kq_settings.get("chunk_overlap", str(config.chunk_overlap)))
+            kq_auto_kg_extract = kq_settings.get(
+                "auto_kg_extract", str(config.auto_kg_extract)
+            ).lower() in ("true", "1")
+        except Exception:
+            logger.debug("Failed to load knowledge quality settings.", exc_info=True)
+
     return SetupStatus(
         dev_mode=config.dev_mode,
         database_configured="sqlite" not in config.database_url,
@@ -553,6 +585,10 @@ async def get_setup_status(request: Request) -> SetupStatus:
         accent_color=config.accent_color,
         agent_avatar_url=agent_avatar_url,
         agent_display_name=agent_display_name,
+        chunking_mode=kq_chunking_mode,
+        chunk_size=kq_chunk_size,
+        chunk_overlap=kq_chunk_overlap,
+        auto_kg_extract=kq_auto_kg_extract,
     )
 
 
@@ -1272,7 +1308,38 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 message=f"Failed to save agent settings: {exc}",
             )
 
-    # 5. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
+    # 5. Save knowledge quality settings if provided
+    if body.knowledge_quality:
+        try:
+            from flydesk.settings.repository import SettingsRepository as _KQSettingsRepo
+
+            kq_repo = _KQSettingsRepo(session_factory)
+            kq = body.knowledge_quality
+            await kq_repo.set_app_setting("chunk_size", str(kq.chunk_size), category="knowledge")
+            await kq_repo.set_app_setting("chunk_overlap", str(kq.chunk_overlap), category="knowledge")
+            await kq_repo.set_app_setting("chunking_mode", kq.chunking_mode, category="knowledge")
+            await kq_repo.set_app_setting(
+                "auto_kg_extract", str(kq.auto_kg_extract).lower(), category="knowledge"
+            )
+            details["knowledge_quality"] = "configured"
+            logger.info(
+                "Knowledge quality configured via setup: mode=%s, size=%d",
+                kq.chunking_mode,
+                kq.chunk_size,
+            )
+
+            # Reinitialize indexer with new knowledge quality settings
+            from flydesk.api.settings import _reinitialize_indexer
+
+            await _reinitialize_indexer(request.app, kq_repo)
+        except Exception as exc:
+            logger.error("Failed to save knowledge quality settings: %s", exc)
+            return ConfigureResult(
+                success=False,
+                message=f"Failed to save knowledge quality settings: {exc}",
+            )
+
+    # 6. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
     if body.embedding and body.seed_data and details.get("seed_data") != "already_loaded":
         job_runner = getattr(request.app.state, "job_runner", None)
         if job_runner:

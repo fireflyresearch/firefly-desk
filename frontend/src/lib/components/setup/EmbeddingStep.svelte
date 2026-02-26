@@ -16,7 +16,9 @@
 		ArrowLeft,
 		ArrowRight,
 		Eye,
-		EyeOff
+		EyeOff,
+		ChevronDown,
+		ChevronRight
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
@@ -138,6 +140,16 @@
 	let pineconeIndexName = $state('');
 	let pineconeEnvironment = $state('');
 	let showPineconeKey = $state(false);
+
+	// -----------------------------------------------------------------------
+	// State -- Knowledge Quality
+	// -----------------------------------------------------------------------
+
+	let showAdvanced = $state(false);
+	let chunkingMode = $state<'auto' | 'structural' | 'fixed'>('auto');
+	let chunkSize = $state(500);
+	let chunkOverlap = $state(50);
+	let autoKgExtract = $state(true);
 
 	// -----------------------------------------------------------------------
 	// State -- Test & Navigation
@@ -264,6 +276,12 @@
 				pinecone_api_key: pineconeApiKey || null,
 				pinecone_index_name: pineconeIndexName || null,
 				pinecone_environment: pineconeEnvironment || null
+			},
+			knowledge_quality: {
+				chunk_size: chunkSize,
+				chunk_overlap: chunkOverlap,
+				chunking_mode: chunkingMode,
+				auto_kg_extract: autoKgExtract
 			}
 		});
 	}
@@ -581,6 +599,123 @@
 							placeholder="us-east-1"
 							class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder-text-secondary/50 transition-colors focus:border-ember focus:outline-none"
 						/>
+					</div>
+				</div>
+			{/if}
+		</section>
+
+		<!-- ================================================================= -->
+		<!-- Section C: Knowledge Quality (collapsible) -->
+		<!-- ================================================================= -->
+		<section>
+			<button
+				type="button"
+				onclick={() => (showAdvanced = !showAdvanced)}
+				class="flex w-full items-center gap-2 text-xs font-semibold tracking-wider text-text-secondary uppercase hover:text-text-primary"
+			>
+				{#if showAdvanced}
+					<ChevronDown size={14} />
+				{:else}
+					<ChevronRight size={14} />
+				{/if}
+				Knowledge Quality
+				<span class="font-normal normal-case tracking-normal text-text-secondary/60">(advanced)</span>
+			</button>
+
+			{#if showAdvanced}
+				<div class="mt-3 space-y-4 rounded-lg border border-border/50 bg-surface-hover/30 p-4">
+					<!-- Chunking Mode -->
+					<div>
+						<label class="mb-2 block text-xs font-medium text-text-secondary">
+							Chunking Mode
+						</label>
+						<div class="flex gap-3">
+							{#each [
+								{ value: 'auto', label: 'Auto', desc: 'Detect headings automatically' },
+								{ value: 'structural', label: 'Structural', desc: 'Always split on headings' },
+								{ value: 'fixed', label: 'Fixed', desc: 'Sliding window only' }
+							] as mode}
+								<label
+									class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-all
+										{chunkingMode === mode.value
+										? 'border-ember bg-ember/5'
+										: 'border-border hover:border-text-secondary/40'}"
+								>
+									<input
+										type="radio"
+										name="chunking-mode"
+										value={mode.value}
+										checked={chunkingMode === mode.value}
+										onchange={() => (chunkingMode = mode.value as typeof chunkingMode)}
+										class="mt-0.5 accent-ember"
+									/>
+									<div>
+										<span class="block text-sm font-medium text-text-primary">{mode.label}</span>
+										<span class="block text-[11px] text-text-secondary">{mode.desc}</span>
+									</div>
+								</label>
+							{/each}
+						</div>
+						{#if chunkingMode === 'auto'}
+							<p class="mt-1.5 text-[11px] text-text-secondary">
+								Recommended. Uses structural chunking for Markdown documents with headings, fixed for plain text.
+							</p>
+						{/if}
+					</div>
+
+					<!-- Chunk Size & Overlap -->
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label for="chunk-size" class="mb-1.5 block text-xs font-medium text-text-secondary">
+								Chunk Size <span class="text-text-secondary/60">(chars)</span>
+							</label>
+							<input
+								id="chunk-size"
+								type="number"
+								bind:value={chunkSize}
+								min={100}
+								max={2000}
+								step={50}
+								class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-ember focus:outline-none"
+							/>
+						</div>
+						<div>
+							<label for="chunk-overlap" class="mb-1.5 block text-xs font-medium text-text-secondary">
+								Chunk Overlap <span class="text-text-secondary/60">(chars)</span>
+							</label>
+							<input
+								id="chunk-overlap"
+								type="number"
+								bind:value={chunkOverlap}
+								min={0}
+								max={500}
+								step={10}
+								class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary transition-colors focus:border-ember focus:outline-none"
+							/>
+						</div>
+					</div>
+
+					<!-- Auto KG Extract -->
+					<div class="flex items-center justify-between">
+						<div>
+							<span class="block text-sm font-medium text-text-primary">Auto KG Extraction</span>
+							<span class="block text-[11px] text-text-secondary">
+								Automatically extract entities and relations when documents are indexed
+							</span>
+						</div>
+						<button
+							type="button"
+							role="switch"
+							aria-checked={autoKgExtract}
+							onclick={() => (autoKgExtract = !autoKgExtract)}
+							class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors
+								{autoKgExtract ? 'bg-ember' : 'bg-border'}"
+						>
+							<span
+								class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
+									{autoKgExtract ? 'translate-x-5' : 'translate-x-0'}"
+							/>
+						</button>
 					</div>
 				</div>
 			{/if}
