@@ -36,6 +36,7 @@ from flydesk.api.conversations import router as conversations_router
 from flydesk.api.credentials import router as credentials_router
 from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.dashboard import router as dashboard_router
+from flydesk.api.document_sources import router as document_sources_router
 from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
@@ -45,6 +46,7 @@ from flydesk.api.deps import (
     get_credential_store,
     get_custom_tool_repo,
     get_document_analyzer,
+    get_document_source_repo,
     get_export_repo,
     get_export_service,
     get_export_storage,
@@ -971,5 +973,6 @@ def create_app() -> FastAPI:
     app.include_router(help_docs_router)
     app.include_router(memory_router)
     app.include_router(workspace_router)
+    app.include_router(document_sources_router)
 
     return app

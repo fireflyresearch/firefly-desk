@@ -46,6 +46,7 @@ from flydesk.settings.repository import SettingsRepository
 from flydesk.tools.custom_repository import CustomToolRepository
 from flydesk.tools.sandbox import SandboxExecutor
 from flydesk.triggers.auto_trigger import AutoTriggerService
+from flydesk.knowledge.document_source_repository import DocumentSourceRepository
 from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
@@ -126,6 +127,17 @@ def get_document_analyzer() -> DocumentAnalyzer:
     """Provide a DocumentAnalyzer instance -- overridden in server lifespan."""
     raise NotImplementedError(
         "get_document_analyzer must be overridden via app.dependency_overrides"
+    )
+
+
+def get_document_source_repo() -> DocumentSourceRepository:
+    """Provide a DocumentSourceRepository instance.
+
+    In production this is wired to the real database session factory.
+    In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_document_source_repo must be overridden via app.dependency_overrides"
     )
 
 
