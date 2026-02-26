@@ -77,7 +77,7 @@
 			const memory = await apiJson<UserMemory>('/memory', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ content: newContent.trim(), category: newCategory })
+				body: JSON.stringify({ content: newContent.trim(), category: newCategory, source: 'user' })
 			});
 			memories = [memory, ...memories];
 			newContent = '';
