@@ -70,6 +70,25 @@ export function endTool(id: string, result?: Record<string, unknown>): void {
 	});
 }
 
+/** Merge agent tool calls from a TOOL_SUMMARY event into completedTools. */
+export function mergeAgentToolCalls(
+	toolCalls: Array<{ tool_name: string; tool_call_id?: string; success?: boolean }>
+): void {
+	if (!toolCalls || toolCalls.length === 0) return;
+
+	const now = new Date();
+	const entries: ToolExecution[] = toolCalls.map((tc) => ({
+		id: tc.tool_call_id || crypto.randomUUID(),
+		toolName: tc.tool_name,
+		status: tc.success === false ? 'error' : 'completed',
+		startedAt: now,
+		completedAt: now,
+		duration: 0
+	}));
+
+	completedTools.update((completed) => [...completed, ...entries]);
+}
+
 /** Clear all tool state (call at end of streaming). */
 export function clearToolState(): void {
 	activeTools.set([]);

@@ -28,7 +28,7 @@ import {
 	loadConversations
 } from '../stores/chat.js';
 import { pushPanel } from '../stores/panel.js';
-import { startTool, endTool, clearToolState, completedTools } from '../stores/tools.js';
+import { startTool, endTool, mergeAgentToolCalls, clearToolState, completedTools } from '../stores/tools.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -270,6 +270,14 @@ function handleSSEEvent(msg: SSEMessage): void {
 			const toolId = msg.data.tool_call_id as string;
 			const result = msg.data.result as Record<string, unknown> | undefined;
 			if (toolId) endTool(toolId, result);
+			break;
+		}
+
+		case 'tool_summary': {
+			const toolCalls = msg.data.tool_calls as
+				| Array<{ tool_name: string; tool_call_id?: string; success?: boolean }>
+				| undefined;
+			if (toolCalls) mergeAgentToolCalls(toolCalls);
 			break;
 		}
 

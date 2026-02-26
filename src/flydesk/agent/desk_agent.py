@@ -76,6 +76,12 @@ _LLM_RETRY_BASE_DELAY = 3.0  # seconds
 _LLM_RETRY_MAX_DELAY = 15.0  # seconds
 # Number of fallback model attempts after exhausting primary retries.
 _LLM_FALLBACK_RETRIES = 2
+# Timeout for a single LLM streaming turn (seconds).  Must be long enough
+# to cover the initial streaming response, tool execution, and the follow-up
+# call that produces the final answer after tool results are available.
+_LLM_STREAM_TIMEOUT = 300
+# Timeout for the follow-up LLM call after tool execution (seconds).
+_LLM_FOLLOWUP_TIMEOUT = 120
 
 # Strings that indicate a transient/retryable LLM error.
 _TRANSIENT_ERROR_INDICATORS = (
@@ -982,7 +988,7 @@ class DeskAgent:
         last_exc: Exception | None = None
         for attempt in range(_LLM_MAX_RETRIES):
             try:
-                async with asyncio.timeout(120):
+                async with asyncio.timeout(_LLM_STREAM_TIMEOUT):
                     async with await agent.run_stream(
                         message,
                         streaming_mode="incremental",
@@ -1022,7 +1028,7 @@ class DeskAgent:
                 )
                 return
             except TimeoutError:
-                _logger.warning("LLM streaming timed out after 120s")
+                _logger.warning("LLM streaming timed out after %ds", _LLM_STREAM_TIMEOUT)
                 yield (
                     "The language model took too long to respond. "
                     "Please try again or check your LLM provider configuration."
@@ -1064,7 +1070,7 @@ class DeskAgent:
                     continue
                 for fb_attempt in range(_LLM_FALLBACK_RETRIES):
                     try:
-                        async with asyncio.timeout(120):
+                        async with asyncio.timeout(_LLM_STREAM_TIMEOUT):
                             async with await fb_agent.run_stream(
                                 message,
                                 streaming_mode="incremental",
@@ -1151,10 +1157,11 @@ class DeskAgent:
             # Use the underlying pydantic-ai agent directly so we can pass
             # message_history without re-injecting memory.
             inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
-            result = await inner_agent.run(
-                "Based on the tool results above, provide a complete answer.",
-                message_history=message_history,
-            )
+            async with asyncio.timeout(_LLM_FOLLOWUP_TIMEOUT):
+                result = await inner_agent.run(
+                    "Based on the tool results above, provide a complete answer.",
+                    message_history=message_history,
+                )
             follow_up_text = str(result.output) if hasattr(result, "output") else str(result.data)
 
             if follow_up_text:
@@ -1173,6 +1180,9 @@ class DeskAgent:
                             usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
                     except Exception:
                         _logger.debug("Failed to extract follow-up usage.", exc_info=True)
+        except TimeoutError:
+            _logger.warning("Follow-up LLM call timed out after %ds", _LLM_FOLLOWUP_TIMEOUT)
+            yield "\n\n*The follow-up response timed out. The tool calls completed but the summary could not be generated.*"
         except Exception as exc:
             _logger.error("Follow-up LLM call after tool execution failed: %s", exc, exc_info=True)
             yield f"\n\n*Tool results could not be summarized: {exc}*"

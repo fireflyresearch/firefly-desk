@@ -214,12 +214,12 @@ Administrators can filter audit events by user, event type, and date range. This
 
 The Audit Viewer is particularly valuable when investigating why the agent took a specific action. Each audit record includes the enriched context that was available to the agent at the time of the interaction, making it possible to understand not just what happened but why the agent made the decisions it did.
 
-## Settings
+## Search Engine
 
-**Route:** `/admin/settings`
+**Route:** `/admin/search-engine`
 
-The Settings page centralises platform-wide configuration that can be changed without restarting the application. It is organised into three sections:
+The Search Engine page configures the web search provider that gives the agent internet search capabilities. Currently supported providers include Tavily.
 
-- **Search Engine:** Configure a web search provider (currently Tavily) to give the agent internet search capabilities. The panel includes inline setup instructions for obtaining an API key, configuring max results per query, and a one-click connection test. Changes take effect immediately for subsequent conversation turns.
-- **Branding:** Application title and accent colour. The colour picker provides a live preview swatch.
-- **Knowledge Quality:** Chunking mode (auto, structural, or fixed), chunk size, chunk overlap, and automatic knowledge graph entity extraction. Saving these settings reinitialises the knowledge indexer with the new parameters.
+When no search provider is configured, the page displays a getting-started view explaining what web search enables and offering a one-click setup for Tavily. The configuration form includes an inline setup tutorial with step-by-step instructions for creating a Tavily account and obtaining an API key, a max results slider, a connection test button, and a save action. Changes take effect immediately for subsequent conversation turns.
+
+Administrators can also disable search entirely, which removes the agent's ability to look up real-time information from the web.

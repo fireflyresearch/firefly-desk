@@ -30,7 +30,7 @@
 		FolderOpen,
 		HelpCircle,
 		Cloud,
-		Settings
+		Globe
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -63,8 +63,10 @@
 		{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },
 		{ href: '/admin/document-sources', label: 'Document Sources', icon: Cloud },
 
-		// Platform
-		{ href: '/admin/settings', label: 'Settings', icon: Settings },
+		// Integrations
+		{ href: '/admin/search-engine', label: 'Search Engine', icon: Globe },
+
+		// Help
 		{ href: '/admin/help', label: 'Help & Guides', icon: HelpCircle }
 	];
 
