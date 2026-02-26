@@ -730,22 +730,25 @@
 						</div>
 					</div>
 
-					<div class="relative overflow-x-auto">
+					<div class="relative">
 						<!-- Month headers -->
-						<div class="mb-1 flex pl-7" style="gap: 0;">
+						<div class="mb-1 flex pl-7" style="gap: 2px;">
 							{#each heatmapData.monthHeaders as header, i}
 								{@const nextCol = i < heatmapData.monthHeaders.length - 1 ? heatmapData.monthHeaders[i + 1].col : heatmapData.weeks.length}
 								{@const span = nextCol - header.col}
-								<div style="width: {span * 13}px; {i === 0 && header.col > 0 ? `margin-left: ${header.col * 13}px;` : ''}"
+								{#if i === 0 && header.col > 0}
+									<div style="flex: {header.col}"></div>
+								{/if}
+								<div style="flex: {span}"
 									 class="text-[10px] leading-none text-text-secondary truncate {header.isFutureMonth ? 'opacity-20' : ''}">
 									{header.label}
 								</div>
 							{/each}
 						</div>
 
-						<div class="flex gap-1.5">
-							<!-- Day-of-week labels — height = 7 cells × h-3 (12px) + 6 gaps × 2px -->
-							<div class="flex shrink-0 flex-col justify-between" style="height: calc(7 * 11px + 6 * 2px);">
+						<div class="flex items-stretch gap-1.5">
+							<!-- Day-of-week labels -->
+							<div class="flex shrink-0 flex-col justify-between">
 								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
 								<span class="text-[10px] leading-[11px] text-text-secondary">Mon</span>
 								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
@@ -755,13 +758,13 @@
 								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
 							</div>
 
-							<!-- Heatmap grid -->
-							<div class="flex gap-[2px]">
+							<!-- Heatmap grid — flex-1 stretches to fill container -->
+							<div class="flex flex-1 min-w-0 gap-[2px]">
 								{#each heatmapData.weeks as week, wi}
-									<div class="flex flex-col gap-[2px]">
+									<div class="flex flex-1 min-w-0 flex-col gap-[2px]">
 										{#each week.cells as cell}
 											<div
-												class="h-[11px] w-[11px] rounded-[2px] {heatmapLevelClasses[cell.level]} {cell.isFuture ? 'opacity-20' : ''}"
+												class="aspect-square w-full rounded-[2px] {heatmapLevelClasses[cell.level]} {cell.isFuture ? 'opacity-20' : ''}"
 												role="presentation"
 												onmouseenter={(e) => showTooltip(cell, e)}
 												onmouseleave={hideTooltip}
