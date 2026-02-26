@@ -278,6 +278,40 @@ def _recall_memories_tool() -> ToolDefinition:
     )
 
 
+def _web_search_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__web_search",
+        name="web_search",
+        description=(
+            "Search the internet for current information using a web search engine. "
+            "Returns web results with titles, URLs, and snippets. "
+            "Use when: the user asks about current events, needs up-to-date "
+            "information, or wants to research a topic beyond internal knowledge."
+        ),
+        risk_level=RiskLevel.READ,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.GET.value,
+        path="/__builtin__/search/web",
+        parameters={
+            "query": {
+                "type": "string",
+                "description": "Search query",
+                "required": True,
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum number of results (default 5)",
+                "required": False,
+            },
+            "include_content": {
+                "type": "boolean",
+                "description": "Include full page content in results (slower but more detailed)",
+                "required": False,
+            },
+        },
+    )
+
+
 def _call_rest_endpoint_tool() -> ToolDefinition:
     return ToolDefinition(
         endpoint_id="__builtin__call_rest_endpoint",
@@ -413,6 +447,9 @@ class BuiltinToolRegistry:
         tools.append(_save_memory_tool())
         tools.append(_recall_memories_tool())
 
+        # Web search tool (always available -- requires configured provider at runtime)
+        tools.append(_web_search_tool())
+
         # Knowledge tools (require knowledge:read or *)
         if has_all or "knowledge:read" in user_permissions:
             tools.append(_knowledge_search_tool())
@@ -498,6 +535,7 @@ class BuiltinToolExecutor:
         process_repo: ProcessRepository | None = None,
         memory_repo: Any | None = None,
         tool_executor: ToolExecutor | None = None,
+        search_provider: Any | None = None,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._audit_logger = audit_logger
@@ -505,6 +543,7 @@ class BuiltinToolExecutor:
         self._process_repo = process_repo
         self._memory_repo = memory_repo
         self._tool_executor = tool_executor
+        self._search_provider = search_provider
         self._user_id: str | None = None
         self._doc_executor: DocumentToolExecutor | None = None
         self._auto_trigger: AutoTriggerService | None = None
@@ -554,6 +593,7 @@ class BuiltinToolExecutor:
             "call_soap_endpoint": self._call_soap,
             "call_grpc_endpoint": self._call_grpc,
             "call_websocket": self._call_websocket,
+            "web_search": self._web_search,
         }
 
         handler = handlers.get(tool_name)
@@ -919,6 +959,49 @@ class BuiltinToolExecutor:
                 for m in memories
             ],
             "count": len(memories),
+        }
+
+    async def _web_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute a web search using the configured search provider."""
+        query = arguments.get("query", "").strip()
+        if not query:
+            return {"error": "query is required"}
+
+        if self._search_provider is None:
+            return {
+                "error": "No search provider configured. "
+                "Ask an admin to configure one in Settings > Search Engine."
+            }
+
+        max_results = int(arguments.get("max_results", 5))
+        include_content = arguments.get("include_content", False)
+
+        try:
+            if include_content:
+                results = await self._search_provider.search_with_content(
+                    query, max_results=max_results
+                )
+            else:
+                results = await self._search_provider.search(
+                    query, max_results=max_results
+                )
+        except Exception as exc:
+            logger.warning("Web search failed: %s", exc, exc_info=True)
+            return {"error": f"Search failed: {exc}"}
+
+        return {
+            "query": query,
+            "results": [
+                {
+                    "title": r.title,
+                    "url": r.url,
+                    "snippet": r.snippet,
+                    "content": r.content[:2000] if r.content else None,
+                    "score": r.score,
+                }
+                for r in results
+            ],
+            "count": len(results),
         }
 
     # ------------------------------------------------------------------

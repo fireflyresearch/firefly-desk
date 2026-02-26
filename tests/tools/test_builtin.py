@@ -120,6 +120,7 @@ class TestBuiltinToolRegistry:
             "get_platform_status",
             "save_memory",
             "recall_memories",
+            "web_search",
             "grep_result",
             "parse_json",
             "filter_rows",
