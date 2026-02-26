@@ -87,10 +87,6 @@
 				method: 'POST',
 				body: formData
 			});
-			if (!resp.ok) {
-				const body = await resp.json().catch(() => ({}));
-				throw new Error(body.detail || 'Upload failed');
-			}
 			const data = await resp.json();
 			// Update the user store with the new picture URL
 			if ($currentUser) {

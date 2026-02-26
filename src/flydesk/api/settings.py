@@ -162,14 +162,6 @@ async def update_analysis_config(
 # Embedding Configuration (admin only)
 # ---------------------------------------------------------------------------
 
-_EMBEDDING_KEYS = {
-    "embedding_model": "embedding",
-    "embedding_api_key": "embedding",
-    "embedding_base_url": "embedding",
-    "embedding_dimensions": "embedding",
-}
-
-
 class EmbeddingConfig(BaseModel):
     """Embedding provider configuration."""
 
@@ -415,14 +407,6 @@ def _mask_key(key: str) -> str:
 # ---------------------------------------------------------------------------
 # Knowledge Quality Configuration (admin only)
 # ---------------------------------------------------------------------------
-
-_KNOWLEDGE_KEYS = {
-    "chunk_size": "knowledge",
-    "chunk_overlap": "knowledge",
-    "chunking_mode": "knowledge",
-    "auto_kg_extract": "knowledge",
-}
-
 
 class KnowledgeQualityConfig(BaseModel):
     """Knowledge quality / chunking configuration."""

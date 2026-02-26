@@ -52,7 +52,6 @@ def get_job_runner() -> JobRunner:
 
 
 JobRepo = Annotated[JobRepository, Depends(get_job_repo)]
-Runner = Annotated[JobRunner, Depends(get_job_runner)]  # Used by future submit endpoint
 
 
 # ---------------------------------------------------------------------------

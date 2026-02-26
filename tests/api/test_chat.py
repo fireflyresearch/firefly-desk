@@ -122,8 +122,26 @@ def parse_sse_events(text: str) -> list[dict]:
 
 
 class TestSendMessage:
-    async def test_send_message_returns_sse_stream(self, client):
+    async def test_no_agent_returns_503(self, client):
+        """POST without a configured DeskAgent returns 503."""
+        response = await client.post(
+            "/api/chat/conversations/conv-1/send",
+            json={"message": "Hello"},
+        )
+        assert response.status_code == 503
+        assert "not configured" in response.json()["detail"]
+
+    async def test_chat_message_validation(self, client):
+        """Message body must have 'message' field."""
+        response = await client.post(
+            "/api/chat/conversations/conv-1/send",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_send_message_returns_sse_stream(self, client_with_agent):
         """POST returns 200 with text/event-stream content type."""
+        client, _ = client_with_agent
         response = await client.post(
             "/api/chat/conversations/conv-1/send",
             json={"message": "Hello"},
@@ -131,8 +149,9 @@ class TestSendMessage:
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
-    async def test_sse_stream_contains_token_events(self, client):
+    async def test_sse_stream_contains_token_events(self, client_with_agent):
         """Stream contains 'event: token' lines."""
+        client, _ = client_with_agent
         response = await client.post(
             "/api/chat/conversations/conv-1/send",
             json={"message": "Hello"},
@@ -141,8 +160,9 @@ class TestSendMessage:
         token_events = [e for e in events if e["event"] == "token"]
         assert len(token_events) >= 1
 
-    async def test_sse_stream_ends_with_done(self, client):
+    async def test_sse_stream_ends_with_done(self, client_with_agent):
         """Last event is 'event: done'."""
+        client, _ = client_with_agent
         response = await client.post(
             "/api/chat/conversations/conv-1/send",
             json={"message": "Hello"},
@@ -152,8 +172,9 @@ class TestSendMessage:
         assert events[-1]["event"] == "done"
         assert events[-1]["data"]["conversation_id"] == "conv-1"
 
-    async def test_sse_event_format(self, client):
+    async def test_sse_event_format(self, client_with_agent):
         """Each event follows 'event: type\\ndata: json\\n\\n' format."""
+        client, _ = client_with_agent
         response = await client.post(
             "/api/chat/conversations/conv-1/send",
             json={"message": "Hello"},
@@ -171,27 +192,9 @@ class TestSendMessage:
             # Data must be valid JSON
             json.loads(lines[1][len("data: "):])
 
-    async def test_chat_message_validation(self, client):
-        """Message body must have 'message' field."""
-        response = await client.post(
-            "/api/chat/conversations/conv-1/send",
-            json={},
-        )
-        assert response.status_code == 422
-
-    async def test_sse_stream_echoes_message(self, client):
-        """Stream echoes the user message as a token event."""
-        response = await client.post(
-            "/api/chat/conversations/conv-2/send",
-            json={"message": "world"},
-        )
-        events = parse_sse_events(response.text)
-        token_events = [e for e in events if e["event"] == "token"]
-        contents = [e["data"]["content"] for e in token_events]
-        assert "world" in contents
-
-    async def test_sse_headers(self, client):
+    async def test_sse_headers(self, client_with_agent):
         """Response includes expected SSE headers."""
+        client, _ = client_with_agent
         response = await client.post(
             "/api/chat/conversations/conv-1/send",
             json={"message": "Hello"},

@@ -8,7 +8,7 @@
  * Licensed under the Apache License, Version 2.0.
  */
 
-import { writable, derived } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
 const STORAGE_KEY = 'firefly_sidebar_open';
@@ -28,16 +28,6 @@ sidebarOpen.subscribe((value) => {
 		localStorage.setItem(STORAGE_KEY, String(value));
 	}
 });
-
-/**
- * Effective sidebar visibility — tracks whether the user wants the sidebar open.
- * The sidebar always renders when open (even with 0 conversations) so users
- * can start a new conversation.
- */
-export const effectiveSidebarOpen = derived(
-	sidebarOpen,
-	($sidebarOpen) => $sidebarOpen
-);
 
 /** Toggle the sidebar open/closed state. */
 export function toggleSidebar(): void {

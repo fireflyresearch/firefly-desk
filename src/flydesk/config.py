@@ -143,21 +143,14 @@ class DeskConfig(BaseSettings):
     def effective_jwt_secret(self) -> str:
         """Return the JWT signing secret, generating one if not configured.
 
-        Unlike ``effective_encryption_key``, this value is cached so that all
-        tokens issued during the process lifetime can be verified.
+        The generated value is cached so that all tokens issued during the
+        process lifetime can be verified.
         """
         if self.jwt_secret_key:
             return self.jwt_secret_key
         if self._cached_jwt_secret is None:
             object.__setattr__(self, "_cached_jwt_secret", secrets.token_urlsafe(32))
         return self._cached_jwt_secret  # type: ignore[return-value]
-
-    @property
-    def effective_encryption_key(self) -> str:
-        """Return the encryption key, generating a dev key if empty."""
-        if self.credential_encryption_key:
-            return self.credential_encryption_key
-        return secrets.token_urlsafe(32)
 
 
 @lru_cache(maxsize=1)

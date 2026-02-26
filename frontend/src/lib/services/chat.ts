@@ -12,7 +12,7 @@ import { get } from 'svelte/store';
 import { apiFetch, apiJson } from './api.js';
 import { parseSSEStream } from './sse.js';
 import type { SSEMessage } from './sse.js';
-import type { WidgetDirective, MessageFile, ReasoningStep, ReasoningPlanStep, TokenUsage } from '../stores/chat.js';
+import type { WidgetDirective, MessageFile, ReasoningStep, TokenUsage } from '../stores/chat.js';
 import {
 	addMessage,
 	updateStreamingMessage,

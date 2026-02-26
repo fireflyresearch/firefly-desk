@@ -528,40 +528,8 @@ async def send_message(
             },
         )
 
-    # Fallback echo for tests and environments without DeskAgent
-    async def event_stream():
-        collected: list[str] = []
-
-        token1 = f"Processing your message in conversation {conversation_id}..."
-        collected.append(token1)
-        yield SSEEvent(
-            event=SSEEventType.TOKEN,
-            data={"content": token1},
-        ).to_sse()
-
-        collected.append(body.message)
-        yield SSEEvent(
-            event=SSEEventType.TOKEN,
-            data={"content": body.message},
-        ).to_sse()
-
-        yield SSEEvent(
-            event=SSEEventType.DONE,
-            data={"conversation_id": conversation_id},
-        ).to_sse()
-
-        # Persist after stream completes
-        await _persist_messages(
-            request, conversation_id, body.message, "".join(collected),
-            file_ids=body.file_ids or None,
-        )
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    # No DeskAgent configured -- return a proper error instead of echoing.
+    raise HTTPException(
+        status_code=503,
+        detail="The chat agent is not configured. Please complete setup first.",
     )

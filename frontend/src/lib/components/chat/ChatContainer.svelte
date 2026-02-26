@@ -10,7 +10,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { fly, fade } from 'svelte/transition';
+	import { fade } from 'svelte/transition';
 	import { ArrowDown } from 'lucide-svelte';
 	import MessageBubble from './MessageBubble.svelte';
 	import StreamingMessage from './StreamingMessage.svelte';

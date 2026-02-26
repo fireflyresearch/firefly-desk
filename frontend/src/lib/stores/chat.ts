@@ -123,20 +123,6 @@ export function replaceStreamingContent(content: string): void {
 }
 
 /**
- * Append a widget directive to the last assistant message that is currently
- * streaming. If no streaming message exists this is a no-op.
- */
-export function appendWidget(widget: WidgetDirective): void {
-	messages.update((msgs) => {
-		const idx = msgs.findLastIndex((m) => m.role === 'assistant' && m.isStreaming);
-		if (idx === -1) return msgs;
-		const updated = [...msgs];
-		updated[idx] = { ...updated[idx], widgets: [...updated[idx].widgets, widget] };
-		return updated;
-	});
-}
-
-/**
  * Upsert a widget directive into the last streaming assistant message.
  * If a widget with the same `widget_id` already exists, its props are merged.
  * Otherwise the widget is appended.
