@@ -513,6 +513,25 @@ async def _init_agent(  # noqa: PLR0913
 
     from flydesk.tools.builtin import BuiltinToolExecutor
 
+    # Initialize search provider from settings (if configured)
+    search_provider = None
+    try:
+        search_settings = await settings_repo.get_all_app_settings(category="search")
+        search_provider_name = search_settings.get("search_provider", "")
+        search_api_key = search_settings.get("search_api_key", "")
+        if search_provider_name and search_api_key:
+            import flydesk.search.adapters.tavily  # noqa: F401
+            from flydesk.search.provider import SearchProviderFactory
+
+            search_max = int(search_settings.get("search_max_results", "5"))
+            search_provider = SearchProviderFactory.create(
+                search_provider_name,
+                {"api_key": search_api_key, "max_results": search_max},
+            )
+            logger.info("Search provider initialized: %s", search_provider_name)
+    except Exception:
+        logger.warning("Failed to initialize search provider.", exc_info=True)
+
     builtin_executor = BuiltinToolExecutor(
         catalog_repo=catalog_repo,
         audit_logger=audit_logger,
@@ -520,7 +539,9 @@ async def _init_agent(  # noqa: PLR0913
         process_repo=process_repo,
         memory_repo=memory_repo,
         tool_executor=tool_executor,
+        search_provider=search_provider,
     )
+    app.state.search_provider = search_provider
 
     from flydesk.tools.document_tools import DocumentToolExecutor
 
@@ -899,6 +920,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     yield
+
+    search_provider = getattr(app.state, "search_provider", None)
+    if search_provider and hasattr(search_provider, "aclose"):
+        await search_provider.aclose()
 
     await ctx.shutdown()
 
