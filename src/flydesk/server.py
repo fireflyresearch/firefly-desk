@@ -212,6 +212,13 @@ async def _init_repositories(
 
     llm_repo = LLMProviderRepository(session_factory, config.credential_encryption_key)
 
+    from flydesk.knowledge.document_source_repository import DocumentSourceRepository
+
+    doc_source_repo = DocumentSourceRepository(
+        session_factory=session_factory,
+        encryption_key=config.credential_encryption_key,
+    )
+
     # Wire dependency overrides
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
@@ -222,6 +229,7 @@ async def _init_repositories(
     app.dependency_overrides[get_custom_tool_repo] = lambda: custom_tool_repo
     app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
     app.dependency_overrides[get_llm_repo] = lambda: llm_repo
+    app.dependency_overrides[get_document_source_repo] = lambda: doc_source_repo
 
     return {
         "catalog_repo": catalog_repo,
@@ -230,6 +238,7 @@ async def _init_repositories(
         "settings_repo": settings_repo,
         "memory_repo": memory_repo,
         "llm_repo": llm_repo,
+        "doc_source_repo": doc_source_repo,
     }
 
 
@@ -380,6 +389,7 @@ async def _init_jobs(
     config: DeskConfig,
     session_factory: async_sessionmaker[AsyncSession],
     indexer: Any,
+    doc_source_repo: Any = None,
 ) -> dict[str, Any]:
     """Wire job runner, register indexing handler, and start indexing queue."""
     from flydesk.jobs.handlers import IndexingJobHandler
@@ -389,6 +399,13 @@ async def _init_jobs(
     job_repo = JobRepository(session_factory)
     job_runner = JobRunner(job_repo)
     job_runner.register_handler("indexing", IndexingJobHandler(indexer))
+
+    if doc_source_repo is not None:
+        from flydesk.jobs.source_sync import SourceSyncHandler
+
+        sync_handler = SourceSyncHandler(doc_source_repo)
+        job_runner.register_handler("source_sync", sync_handler)
+
     await job_runner.start()
     app.state.job_runner = job_runner
     app.state.job_repo = job_repo
@@ -823,7 +840,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ctx.closables.append(knowledge["vector_store"])
 
     # 7. Background jobs and indexing queue
-    jobs = await _init_jobs(app, config, session_factory, knowledge["indexer"])
+    jobs = await _init_jobs(
+        app, config, session_factory, knowledge["indexer"],
+        doc_source_repo=repos["doc_source_repo"],
+    )
     ctx.closables.append(jobs["indexing_consumer"])
     ctx.closables.append(jobs["indexing_producer"])
     ctx.closables.append(jobs["job_runner"])
