@@ -103,13 +103,27 @@ class MemoryRepository:
             return result.rowcount > 0
 
     async def search(self, user_id: str, query: str) -> list[UserMemory]:
-        """Simple text search in memory content."""
+        """Word-level text search in memory content.
+
+        Extracts words of 3+ characters from the query and OR-matches
+        them against memory content.  At most 5 keywords are used.
+        """
+        from sqlalchemy import or_
+
+        words = [w for w in query.lower().split() if len(w) >= 3]
+        if not words:
+            return []
+        words = words[:5]
+
         async with self._session_factory() as session:
+            conditions = [
+                UserMemoryRow.content.ilike(f"%{word}%") for word in words
+            ]
             stmt = (
                 select(UserMemoryRow)
                 .where(
                     UserMemoryRow.user_id == user_id,
-                    UserMemoryRow.content.ilike(f"%{query}%"),
+                    or_(*conditions),
                 )
                 .order_by(UserMemoryRow.created_at.desc())
                 .limit(10)
