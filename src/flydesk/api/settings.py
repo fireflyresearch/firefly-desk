@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated
 
@@ -128,6 +129,28 @@ class AnalysisConfig(BaseModel):
     auto_analyze: bool = False
 
 
+# ---------------------------------------------------------------------------
+# Discovery Configuration (admin only)
+# ---------------------------------------------------------------------------
+
+
+class ProcessDiscoveryConfig(BaseModel):
+    """Configuration for process discovery scope and behavior."""
+
+    workspace_ids: list[str] = []
+    document_types: list[str] = []
+    focus_hint: str = ""
+
+
+class SystemDiscoveryConfig(BaseModel):
+    """Configuration for system discovery scope and behavior."""
+
+    workspace_ids: list[str] = []
+    document_types: list[str] = []
+    focus_hint: str = ""
+    confidence_threshold: float = 0.5
+
+
 @router.get("/analysis", dependencies=[AdminSettings])
 async def get_analysis_config(request: Request, repo: Repo) -> AnalysisConfig:
     """Return the current analysis configuration (from DB, falling back to env)."""
@@ -148,6 +171,62 @@ async def update_analysis_config(
     """Update analysis configuration (auto_analyze toggle)."""
     await repo.set_app_setting(
         "auto_analyze", str(body.auto_analyze).lower(), category="analysis"
+    )
+    return body
+
+
+@router.get("/process-discovery", dependencies=[AdminSettings])
+async def get_process_discovery_config(repo: Repo) -> ProcessDiscoveryConfig:
+    """Return the current process discovery configuration."""
+    settings = await repo.get_all_app_settings(category="process_discovery")
+    return ProcessDiscoveryConfig(
+        workspace_ids=json.loads(settings.get("workspace_ids", "[]")),
+        document_types=json.loads(settings.get("document_types", "[]")),
+        focus_hint=settings.get("focus_hint", ""),
+    )
+
+
+@router.put("/process-discovery", dependencies=[AdminSettings])
+async def update_process_discovery_config(
+    body: ProcessDiscoveryConfig, repo: Repo
+) -> ProcessDiscoveryConfig:
+    """Update process discovery configuration."""
+    await repo.set_app_setting(
+        "workspace_ids", json.dumps(body.workspace_ids), category="process_discovery"
+    )
+    await repo.set_app_setting(
+        "document_types", json.dumps(body.document_types), category="process_discovery"
+    )
+    await repo.set_app_setting("focus_hint", body.focus_hint, category="process_discovery")
+    return body
+
+
+@router.get("/system-discovery", dependencies=[AdminSettings])
+async def get_system_discovery_config(repo: Repo) -> SystemDiscoveryConfig:
+    """Return the current system discovery configuration."""
+    settings = await repo.get_all_app_settings(category="system_discovery")
+    return SystemDiscoveryConfig(
+        workspace_ids=json.loads(settings.get("workspace_ids", "[]")),
+        document_types=json.loads(settings.get("document_types", "[]")),
+        focus_hint=settings.get("focus_hint", ""),
+        confidence_threshold=float(settings.get("confidence_threshold", "0.5")),
+    )
+
+
+@router.put("/system-discovery", dependencies=[AdminSettings])
+async def update_system_discovery_config(
+    body: SystemDiscoveryConfig, repo: Repo
+) -> SystemDiscoveryConfig:
+    """Update system discovery configuration."""
+    await repo.set_app_setting(
+        "workspace_ids", json.dumps(body.workspace_ids), category="system_discovery"
+    )
+    await repo.set_app_setting(
+        "document_types", json.dumps(body.document_types), category="system_discovery"
+    )
+    await repo.set_app_setting("focus_hint", body.focus_hint, category="system_discovery")
+    await repo.set_app_setting(
+        "confidence_threshold", str(body.confidence_threshold), category="system_discovery"
     )
     return body
 
