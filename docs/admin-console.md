@@ -184,6 +184,26 @@ The LLM Provider Manager configures the language model providers that power the 
 
 API keys are encrypted at rest using the same encryption key as the credential vault.
 
+## Document Sources
+
+**Route:** `/admin/document-sources`
+
+The Document Sources page manages connections to cloud storage and drive services for document import and sync. Supported source types include Amazon S3, Azure Blob Storage, Google Cloud Storage, OneDrive, SharePoint, and Google Drive.
+
+When no sources are configured, the page displays a guided getting-started view with clickable source type cards. Selecting a source type opens the configuration form with an inline setup tutorial containing step-by-step instructions specific to that provider, including how to create credentials, which permissions to grant, and security best practices.
+
+Each source supports automatic sync on a configurable schedule (every 6 hours, 12 hours, or daily), manual sync triggers, connectivity testing, and active/inactive toggling.
+
+## Git Providers
+
+**Route:** `/admin/git-providers`
+
+The Git Providers page configures connections to GitHub, GitLab, and Bitbucket for repository browsing and knowledge import. Each provider supports two authentication methods: Personal Access Token (PAT) and OAuth App.
+
+The interface includes inline setup tutorials that adapt based on the selected provider type and authentication method. For example, selecting GitHub with PAT authentication shows step-by-step instructions for generating a fine-grained token with the correct repository scopes. Selecting GitLab with OAuth shows how to create an application in the GitLab admin area and configure the redirect URI.
+
+When no providers are configured, the empty state displays provider cards that launch the guided setup flow directly.
+
 ## Audit Viewer
 
 **Route:** `/admin/audit`
@@ -198,9 +218,8 @@ The Audit Viewer is particularly valuable when investigating why the agent took 
 
 **Route:** `/admin/settings`
 
-The Settings page provides runtime configuration options that can be changed without restarting the application. This includes:
+The Settings page centralises platform-wide configuration that can be changed without restarting the application. It is organised into three sections:
 
-- **Branding:** Application title, logo URL, and accent color
-- **Search Engine:** Configure a web search provider (e.g. Tavily) to give the agent internet search capabilities. Set the API key, max results per query, and test the connection
-- **Knowledge Quality:** Chunking mode, chunk size, overlap, and auto-extraction settings
-- **Operational Parameters:** Rate limits, cost guards, and circuit breaker settings
+- **Search Engine:** Configure a web search provider (currently Tavily) to give the agent internet search capabilities. The panel includes inline setup instructions for obtaining an API key, configuring max results per query, and a one-click connection test. Changes take effect immediately for subsequent conversation turns.
+- **Branding:** Application title and accent colour. The colour picker provides a live preview swatch.
+- **Knowledge Quality:** Chunking mode (auto, structural, or fixed), chunk size, chunk overlap, and automatic knowledge graph entity extraction. Saving these settings reinitialises the knowledge indexer with the new parameters.

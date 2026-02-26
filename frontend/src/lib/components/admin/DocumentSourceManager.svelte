@@ -25,7 +25,10 @@
 		Cloud,
 		HardDrive,
 		Lock,
-		Clock
+		Clock,
+		BookOpen,
+		ArrowRight,
+		Info
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -157,6 +160,69 @@
 		{ value: '0 */12 * * *', label: 'Every 12 hours' },
 		{ value: '0 0 * * *', label: 'Daily (midnight)' }
 	];
+
+	const SOURCE_GUIDES: Record<string, { title: string; steps: string[]; tip: string }> = {
+		s3: {
+			title: 'Amazon S3 Setup',
+			steps: [
+				'Create an IAM user with S3 read access (AmazonS3ReadOnlyAccess policy)',
+				'Generate an Access Key ID and Secret Access Key for that user',
+				'Enter the bucket name, region, and optional prefix below',
+				'Use "Test Connection" to verify access before saving'
+			],
+			tip: 'For production, use IAM Roles instead of access keys. Attach the role to your EC2 or ECS instance.'
+		},
+		azure_blob: {
+			title: 'Azure Blob Storage Setup',
+			steps: [
+				'In Azure Portal, go to your Storage Account > Access Keys',
+				'Copy the full Connection String (starts with DefaultEndpointsProtocol=...)',
+				'Enter the account name, container name, and paste the connection string below',
+				'Use "Test Connection" to verify access'
+			],
+			tip: 'For better security, use Shared Access Signatures (SAS) with read-only permissions scoped to the container.'
+		},
+		gcs: {
+			title: 'Google Cloud Storage Setup',
+			steps: [
+				'In Google Cloud Console, go to IAM & Admin > Service Accounts',
+				'Create a service account with Storage Object Viewer role',
+				'Generate a JSON key and paste its contents below',
+				'Enter your GCP project ID and bucket name'
+			],
+			tip: 'Store the service account key securely. Consider using Workload Identity for GKE deployments.'
+		},
+		onedrive: {
+			title: 'OneDrive Setup',
+			steps: [
+				'In Azure Portal > App Registrations, create a new app',
+				'Under API Permissions, add Microsoft Graph > Files.Read.All (Application)',
+				'Grant admin consent for the permissions',
+				'Copy the Tenant ID, Client ID, and create a Client Secret'
+			],
+			tip: 'Use a dedicated App Registration for Firefly Desk. Set the client secret to expire in 12+ months.'
+		},
+		sharepoint: {
+			title: 'SharePoint Setup',
+			steps: [
+				'In Azure Portal > App Registrations, create a new app',
+				'Under API Permissions, add SharePoint > Sites.Read.All (Application)',
+				'Grant admin consent for the permissions',
+				'Get your SharePoint site URL (e.g. https://contoso.sharepoint.com/sites/docs)'
+			],
+			tip: 'Use Sites.Selected permission for least-privilege access to specific SharePoint sites.'
+		},
+		google_drive: {
+			title: 'Google Drive Setup',
+			steps: [
+				'In Google Cloud Console, enable the Google Drive API',
+				'Create a service account and download the JSON key',
+				'Share the target folder with the service account email',
+				'Copy the folder ID from the Google Drive URL and enter it below'
+			],
+			tip: 'The folder ID is the last segment of the folder URL: drive.google.com/drive/folders/<folder-id>'
+		}
+	};
 
 	// -----------------------------------------------------------------------
 	// State
@@ -398,6 +464,19 @@
 	function currentAuthMethods(): { value: string; label: string }[] {
 		return AUTH_METHODS[formData.source_type] ?? [];
 	}
+
+	function startGuidedSetup(sourceType: string) {
+		editingId = null;
+		formData = {
+			name: '',
+			source_type: sourceType,
+			auth_method: AUTH_METHODS[sourceType]?.[0]?.value ?? 'credentials',
+			config: {},
+			sync_enabled: false,
+			sync_cron: ''
+		};
+		showForm = true;
+	}
 </script>
 
 <div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
@@ -454,6 +533,26 @@
 					<X size={16} />
 				</button>
 			</div>
+
+			<!-- Setup guide -->
+			{#if !editingId && SOURCE_GUIDES[formData.source_type]}
+				{@const guide = SOURCE_GUIDES[formData.source_type]}
+				<div class="mb-4 rounded-lg border border-accent/20 bg-accent/5 p-4">
+					<div class="mb-2 flex items-center gap-2">
+						<BookOpen size={14} class="text-accent" />
+						<span class="text-xs font-semibold text-accent">{guide.title}</span>
+					</div>
+					<ol class="mb-2 list-inside list-decimal space-y-1 text-xs text-text-secondary">
+						{#each guide.steps as step}
+							<li>{step}</li>
+						{/each}
+					</ol>
+					<div class="flex items-start gap-1.5 rounded-md bg-accent/5 px-2.5 py-1.5">
+						<Info size={12} class="mt-0.5 shrink-0 text-accent/70" />
+						<p class="text-[11px] text-accent/80">{guide.tip}</p>
+					</div>
+				</div>
+			{/if}
 
 			<form
 				onsubmit={(e) => {
@@ -813,11 +912,28 @@
 							</tr>
 						{:else}
 							<tr>
-								<td
-									colspan="7"
-									class="px-4 py-8 text-center text-sm text-text-secondary"
-								>
-									No document sources configured. Add one to enable cloud document import and sync.
+								<td colspan="7" class="px-4 py-6">
+									<div class="mx-auto max-w-2xl text-center">
+										<Cloud size={32} class="mx-auto mb-2 text-text-secondary/40" />
+										<h3 class="text-sm font-semibold text-text-primary">
+											Connect your first document source
+										</h3>
+										<p class="mb-4 text-xs text-text-secondary">
+											Import documents from cloud storage or drive services to build your knowledge base.
+										</p>
+										<div class="grid grid-cols-3 gap-2">
+											{#each SOURCE_TYPES as st}
+												<button
+													type="button"
+													onclick={() => startGuidedSetup(st.value)}
+													class="flex flex-col items-center gap-1.5 rounded-lg border border-border p-3 text-text-secondary transition-all hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+												>
+													<svelte:component this={st.icon} size={20} />
+													<span class="text-xs font-medium">{st.label}</span>
+												</button>
+											{/each}
+										</div>
+									</div>
 								</td>
 							</tr>
 						{/each}

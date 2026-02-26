@@ -21,7 +21,9 @@
 		ToggleLeft,
 		ToggleRight,
 		GitBranch,
-		Lock
+		Lock,
+		BookOpen,
+		Info
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -91,6 +93,73 @@
 			oauth_authorize_url: 'https://bitbucket.org/site/oauth2/authorize',
 			oauth_token_url: 'https://bitbucket.org/site/oauth2/access_token',
 			scopes: 'repository'
+		}
+	};
+
+	const PROVIDER_GUIDES: Record<
+		string,
+		{ pat: { steps: string[]; tip: string }; oauth: { steps: string[]; tip: string } }
+	> = {
+		github: {
+			pat: {
+				steps: [
+					'Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens',
+					'Click "Generate new token", name it (e.g. "Firefly Desk")',
+					'Select repository access scope: All repositories or specific ones',
+					'Under Permissions > Repository, grant "Contents" read-only access',
+					'Copy the token (starts with github_pat_ or ghp_) and paste it below'
+				],
+				tip: 'Fine-grained tokens are recommended over classic tokens for better security scoping.'
+			},
+			oauth: {
+				steps: [
+					'Go to GitHub > Settings > Developer settings > OAuth Apps > New OAuth App',
+					'Set the Authorization callback URL to your Firefly Desk URL + /api/auth/callback/github',
+					'Copy the Client ID and generate a Client Secret',
+					'Paste both values below; the default URLs are pre-filled for github.com'
+				],
+				tip: 'For GitHub Enterprise, update the Base URL and OAuth URLs to your instance domain.'
+			}
+		},
+		gitlab: {
+			pat: {
+				steps: [
+					'Go to GitLab > User Settings (avatar menu) > Access Tokens',
+					'Click "Add new token", set a name and expiration date',
+					'Select the "read_api" and "read_repository" scopes',
+					'Copy the token (starts with glpat-) and paste it below'
+				],
+				tip: 'For self-hosted GitLab, update the Base URL to your instance (e.g. https://gitlab.example.com).'
+			},
+			oauth: {
+				steps: [
+					'Go to GitLab > Admin Area > Applications > New Application (or user-level Application)',
+					'Set the Redirect URI to your Firefly Desk URL + /api/auth/callback/gitlab',
+					'Select "read_api" and "read_repository" scopes',
+					'Copy the Application ID (Client ID) and Secret'
+				],
+				tip: 'Admin-level applications work for all users; user-level ones only for the creating user.'
+			}
+		},
+		bitbucket: {
+			pat: {
+				steps: [
+					'Go to Bitbucket > Personal settings > App passwords',
+					'Click "Create app password"',
+					'Grant "Repositories: Read" permission',
+					'Copy the generated password and paste it below'
+				],
+				tip: 'Bitbucket app passwords are scoped per-user. Each team member needs their own.'
+			},
+			oauth: {
+				steps: [
+					'Go to Bitbucket > Workspace settings > OAuth consumers > Add consumer',
+					'Set the Callback URL to your Firefly Desk URL + /api/auth/callback/bitbucket',
+					'Grant "Repositories: Read" permission',
+					'Copy the Key (Client ID) and Secret'
+				],
+				tip: 'OAuth consumers in Bitbucket are workspace-scoped, not user-scoped.'
+			}
 		}
 	};
 
@@ -313,6 +382,23 @@
 	function providerLabel(type: string): string {
 		return PROVIDER_TYPES.find((t) => t.value === type)?.label ?? type;
 	}
+
+	function startGuidedSetup(providerType: string) {
+		editingId = null;
+		const defaults = PROVIDER_DEFAULTS[providerType] ?? {};
+		formData = {
+			provider_type: providerType,
+			display_name: '',
+			base_url: defaults.base_url || '',
+			auth_method: 'pat',
+			client_id: '',
+			client_secret: '',
+			oauth_authorize_url: defaults.oauth_authorize_url || '',
+			oauth_token_url: defaults.oauth_token_url || '',
+			scopes: defaults.scopes || ''
+		};
+		showForm = true;
+	}
 </script>
 
 <div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
@@ -369,6 +455,28 @@
 					<X size={16} />
 				</button>
 			</div>
+
+			<!-- Setup guide -->
+			{#if !editingId && PROVIDER_GUIDES[formData.provider_type]}
+				{@const guide = PROVIDER_GUIDES[formData.provider_type][formData.auth_method]}
+				<div class="mb-4 rounded-lg border border-accent/20 bg-accent/5 p-4">
+					<div class="mb-2 flex items-center gap-2">
+						<BookOpen size={14} class="text-accent" />
+						<span class="text-xs font-semibold text-accent">
+							{providerLabel(formData.provider_type)} — {formData.auth_method === 'pat' ? 'Personal Access Token' : 'OAuth App'} Setup
+						</span>
+					</div>
+					<ol class="mb-2 list-inside list-decimal space-y-1 text-xs text-text-secondary">
+						{#each guide.steps as step}
+							<li>{step}</li>
+						{/each}
+					</ol>
+					<div class="flex items-start gap-1.5 rounded-md bg-accent/5 px-2.5 py-1.5">
+						<Info size={12} class="mt-0.5 shrink-0 text-accent/70" />
+						<p class="text-[11px] text-accent/80">{guide.tip}</p>
+					</div>
+				</div>
+			{/if}
 
 			<form
 				onsubmit={(e) => {
@@ -702,11 +810,28 @@
 							</tr>
 						{:else}
 							<tr>
-								<td
-									colspan="6"
-									class="px-4 py-8 text-center text-sm text-text-secondary"
-								>
-									No Git providers configured. Add one to enable repository browsing and import.
+								<td colspan="6" class="px-4 py-6">
+									<div class="mx-auto max-w-md text-center">
+										<GitBranch size={32} class="mx-auto mb-2 text-text-secondary/40" />
+										<h3 class="text-sm font-semibold text-text-primary">
+											Connect your first Git provider
+										</h3>
+										<p class="mb-4 text-xs text-text-secondary">
+											Import knowledge from repositories via GitHub, GitLab, or Bitbucket.
+										</p>
+										<div class="flex justify-center gap-3">
+											{#each PROVIDER_TYPES as pt}
+												<button
+													type="button"
+													onclick={() => startGuidedSetup(pt.value)}
+													class="flex flex-col items-center gap-1.5 rounded-lg border border-border px-5 py-3 text-text-secondary transition-all hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
+												>
+													<GitBranch size={20} />
+													<span class="text-xs font-medium">{pt.label}</span>
+												</button>
+											{/each}
+										</div>
+									</div>
 								</td>
 							</tr>
 						{/each}
