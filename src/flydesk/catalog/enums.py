@@ -55,3 +55,4 @@ class ProtocolType(StrEnum):
     GRAPHQL = "graphql"
     SOAP = "soap"
     GRPC = "grpc"
+    WEBSOCKET = "websocket"

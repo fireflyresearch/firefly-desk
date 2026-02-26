@@ -9,7 +9,7 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram, traces-timeline, metrics-chart, service-map, log-viewer, span-detail.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
@@ -324,6 +324,111 @@ Props:
   - `borderColor` (optional): Border color(s). Auto-assigned if omitted.
   - `borderWidth` (optional): Border width in pixels.
 - `options` (optional): Chart.js options object for advanced customization.
+
+## traces-timeline
+
+Distributed trace waterfall/timeline view. Shows spans as horizontal bars with nesting, duration labels, and status-based coloring.
+
+```
+:::widget{type="traces-timeline" panel=true}
+{"title": "Request Trace", "traces": [{"traceId": "abc123", "spanId": "s1", "operationName": "GET /api/users", "serviceName": "api-gateway", "duration": 245, "startTime": 1000, "status": "ok", "children": [{"traceId": "abc123", "spanId": "s2", "operationName": "SELECT users", "serviceName": "user-service", "duration": 120, "startTime": 1050, "status": "ok"}]}]}
+:::
+```
+
+Props:
+- `traces` (required): Array of span objects, each with:
+  - `traceId` (required): Trace identifier.
+  - `spanId` (required): Span identifier.
+  - `operationName` (required): Name of the operation.
+  - `serviceName` (required): Originating service name.
+  - `duration` (required): Duration in milliseconds.
+  - `startTime` (required): Start time as numeric timestamp (ms).
+  - `status` (required): "ok", "success", "error", or "unset".
+  - `children` (optional): Array of nested child spans (same structure).
+- `title` (optional): Heading displayed above the timeline.
+
+## metrics-chart
+
+Time-series metrics chart. Renders line, bar, or area charts for OTEL-style metric data with formatted time axis.
+
+```
+:::widget{type="metrics-chart" panel=true}
+{"title": "CPU Usage", "chartType": "area", "metrics": [{"name": "cpu_percent", "unit": "%", "values": [{"timestamp": "2026-02-26T10:00:00Z", "value": 45}, {"timestamp": "2026-02-26T10:05:00Z", "value": 62}, {"timestamp": "2026-02-26T10:10:00Z", "value": 38}]}]}
+:::
+```
+
+Props:
+- `metrics` (required): Array of metric series, each with:
+  - `name` (required): Metric name (used as legend label).
+  - `values` (required): Array of `{timestamp, value}` data points.
+  - `unit` (optional): Unit suffix displayed in the legend (e.g. "%", "ms", "req/s").
+- `chartType` (optional, default "line"): Chart type — "line", "bar", or "area".
+- `title` (optional): Heading displayed above the chart.
+
+## service-map
+
+Service dependency diagram. Shows services as nodes with connection arrows indicating dependencies, request rates, and error rates.
+
+```
+:::widget{type="service-map" panel=true}
+{"title": "Microservice Dependencies", "services": [{"id": "gw", "name": "API Gateway", "status": "healthy"}, {"id": "users", "name": "User Service", "status": "healthy"}, {"id": "db", "name": "PostgreSQL", "status": "degraded"}], "connections": [{"source": "gw", "target": "users", "requestRate": 1200}, {"source": "users", "target": "db", "requestRate": 800, "errorRate": 2.5}]}
+:::
+```
+
+Props:
+- `services` (required): Array of service nodes, each with:
+  - `id` (required): Unique service identifier.
+  - `name` (required): Display name.
+  - `status` (optional): "healthy", "degraded", "unhealthy", "error", "ok", "warning".
+- `connections` (required): Array of connection edges, each with:
+  - `source` (required): Source service ID.
+  - `target` (required): Target service ID.
+  - `requestRate` (optional): Requests per second (displayed on edge).
+  - `errorRate` (optional): Error percentage (displayed on edge; highlights edge in red when > 0).
+- `title` (optional): Heading displayed above the diagram.
+
+## log-viewer
+
+Structured log display with level-based filtering and expandable attribute rows. Supports ERROR, WARN, INFO, and DEBUG levels.
+
+```
+:::widget{type="log-viewer" panel=true}
+{"title": "Application Logs", "logs": [{"timestamp": "2026-02-26 10:00:01", "level": "INFO", "message": "Server started on port 8080", "service": "api"}, {"timestamp": "2026-02-26 10:00:05", "level": "ERROR", "message": "Connection refused to database", "service": "api", "traceId": "abc123", "attributes": {"host": "db-01", "port": 5432, "retries": 3}}]}
+:::
+```
+
+Props:
+- `logs` (required): Array of log entries, each with:
+  - `timestamp` (required): Display timestamp string.
+  - `level` (required): Log level — "ERROR", "WARN", "INFO", or "DEBUG".
+  - `message` (required): Log message text.
+  - `service` (optional): Originating service name.
+  - `traceId` (optional): Associated trace ID.
+  - `attributes` (optional): Object of additional key-value attributes (expandable).
+- `title` (optional): Heading displayed above the log viewer.
+
+## span-detail
+
+Single span/trace detail view. Shows comprehensive span information including IDs, timing, status, attributes, events, and linked spans.
+
+```
+:::widget{type="span-detail" panel=true}
+{"span": {"traceId": "abc123", "spanId": "span-456", "operationName": "POST /api/orders", "serviceName": "order-service", "startTime": "2026-02-26T10:00:00.000Z", "endTime": "2026-02-26T10:00:00.245Z", "status": "ok", "attributes": {"http.method": "POST", "http.status_code": 201, "http.url": "/api/orders"}, "events": [{"name": "order.validated", "timestamp": "2026-02-26T10:00:00.050Z"}, {"name": "order.persisted", "timestamp": "2026-02-26T10:00:00.200Z"}]}}
+:::
+```
+
+Props:
+- `span` (required): Span data object with:
+  - `traceId` (required): Trace identifier.
+  - `spanId` (required): Span identifier.
+  - `operationName` (required): Operation name displayed as the header.
+  - `serviceName` (required): Service name displayed below the header.
+  - `startTime` (required): Start time (ISO string or timestamp).
+  - `endTime` (required): End time (ISO string or timestamp).
+  - `status` (required): "ok", "success", "error", or "unset".
+  - `attributes` (optional): Key-value pairs displayed in the attributes section.
+  - `events` (optional): Array of `{name, timestamp, attributes?}` span events.
+  - `links` (optional): Array of `{traceId, spanId, attributes?}` linked spans.
 
 ## Usage Guidelines
 

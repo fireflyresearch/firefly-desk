@@ -15,12 +15,16 @@ an external HTTP round-trip.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
+from flydesk.tools.executor import _parse_response
 from flydesk.tools.factory import ToolDefinition
 
 if TYPE_CHECKING:
@@ -29,12 +33,14 @@ if TYPE_CHECKING:
     from flydesk.knowledge.retriever import KnowledgeRetriever
     from flydesk.processes.repository import ProcessRepository
     from flydesk.tools.document_tools import DocumentToolExecutor
+    from flydesk.tools.executor import ToolExecutor
     from flydesk.tools.transform_tools import TransformToolExecutor
     from flydesk.triggers.auto_trigger import AutoTriggerService
 
 logger = logging.getLogger(__name__)
 
 BUILTIN_SYSTEM_ID = "__flydesk__"
+_SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "x-api-key", "proxy-authorization"})
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +278,119 @@ def _recall_memories_tool() -> ToolDefinition:
     )
 
 
+def _call_rest_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__call_rest_endpoint",
+        name="call_rest_endpoint",
+        description=(
+            "Make an HTTP REST call to a registered system endpoint. "
+            "Supports GET, POST, PUT, PATCH, DELETE. "
+            "Use when: you need to call a REST API on a system from the catalog "
+            "but no pre-registered endpoint exists for the specific operation."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/call/rest",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the target system from the catalog", "required": True},
+            "method": {"type": "string", "description": "HTTP method (GET, POST, PUT, PATCH, DELETE)", "required": True},
+            "path": {"type": "string", "description": "URL path (appended to system base_url)", "required": True},
+            "query_params": {"type": "object", "description": "Query string parameters", "required": False},
+            "body": {"type": "object", "description": "Request body (JSON)", "required": False},
+            "headers": {"type": "object", "description": "Additional HTTP headers", "required": False},
+        },
+    )
+
+
+def _call_graphql_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__call_graphql_endpoint",
+        name="call_graphql_endpoint",
+        description=(
+            "Execute a GraphQL query or mutation against a registered system. "
+            "Use when: you need to run an ad-hoc GraphQL operation on a system "
+            "from the catalog."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/call/graphql",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the target system from the catalog", "required": True},
+            "query": {"type": "string", "description": "GraphQL query or mutation string", "required": True},
+            "variables": {"type": "object", "description": "GraphQL variables object", "required": False},
+            "operation_name": {"type": "string", "description": "GraphQL operation name (if query contains multiple operations)", "required": False},
+        },
+    )
+
+
+def _call_soap_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__call_soap_endpoint",
+        name="call_soap_endpoint",
+        description=(
+            "Send a SOAP XML request to a registered system. "
+            "Use when: you need to call a SOAP/XML web service on a system "
+            "from the catalog."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/call/soap",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the target system from the catalog", "required": True},
+            "soap_action": {"type": "string", "description": "SOAPAction header value", "required": True},
+            "body_xml": {"type": "string", "description": "SOAP XML request body", "required": True},
+            "path": {"type": "string", "description": "URL path (defaults to system base_url root)", "required": False},
+        },
+    )
+
+
+def _call_grpc_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__call_grpc_endpoint",
+        name="call_grpc_endpoint",
+        description=(
+            "Call a gRPC service method via JSON transcoding (gRPC-Web). "
+            "Use when: you need to invoke a gRPC method on a system from the "
+            "catalog using JSON request/response encoding."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/call/grpc",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the target system from the catalog", "required": True},
+            "service": {"type": "string", "description": "Fully qualified gRPC service name (e.g. 'mypackage.MyService')", "required": True},
+            "method": {"type": "string", "description": "gRPC method name (e.g. 'GetUser')", "required": True},
+            "body": {"type": "object", "description": "JSON object for the request message", "required": False},
+        },
+    )
+
+
+def _call_websocket_endpoint_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__call_websocket",
+        name="call_websocket",
+        description=(
+            "Open a WebSocket connection, send a message, and return the response. "
+            "For registered systems with WebSocket endpoints."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/call/websocket",
+        parameters={
+            "system_id": {"type": "string", "description": "ID of the target system", "required": True},
+            "path": {"type": "string", "description": "WebSocket path (appended to system base_url, ws:// or wss://)", "required": True},
+            "message": {"type": "string", "description": "Message to send (JSON string or plain text)", "required": True},
+            "timeout": {"type": "number", "description": "Timeout in seconds for response (default 30)", "required": False},
+            "headers": {"type": "object", "description": "Additional connection headers", "required": False},
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -302,6 +421,11 @@ class BuiltinToolRegistry:
         if has_all or "catalog:read" in user_permissions:
             tools.append(_list_catalog_systems_tool())
             tools.append(_list_system_endpoints_tool())
+            tools.append(_call_rest_endpoint_tool())
+            tools.append(_call_graphql_endpoint_tool())
+            tools.append(_call_soap_endpoint_tool())
+            tools.append(_call_grpc_endpoint_tool())
+            tools.append(_call_websocket_endpoint_tool())
 
         # Catalog write tools (require catalog:write or *)
         if has_all or "catalog:write" in user_permissions:
@@ -373,12 +497,14 @@ class BuiltinToolExecutor:
         knowledge_retriever: KnowledgeRetriever | None = None,
         process_repo: ProcessRepository | None = None,
         memory_repo: Any | None = None,
+        tool_executor: ToolExecutor | None = None,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._audit_logger = audit_logger
         self._knowledge_retriever = knowledge_retriever
         self._process_repo = process_repo
         self._memory_repo = memory_repo
+        self._tool_executor = tool_executor
         self._user_id: str | None = None
         self._doc_executor: DocumentToolExecutor | None = None
         self._auto_trigger: AutoTriggerService | None = None
@@ -423,6 +549,11 @@ class BuiltinToolExecutor:
             "search_processes": self._search_processes,
             "save_memory": self._save_memory,
             "recall_memories": self._recall_memories,
+            "call_rest_endpoint": self._call_rest,
+            "call_graphql_endpoint": self._call_graphql,
+            "call_soap_endpoint": self._call_soap,
+            "call_grpc_endpoint": self._call_grpc,
+            "call_websocket": self._call_websocket,
         }
 
         handler = handlers.get(tool_name)
@@ -789,3 +920,324 @@ class BuiltinToolExecutor:
             ],
             "count": len(memories),
         }
+
+    # ------------------------------------------------------------------
+    # System call handlers (REST, GraphQL, SOAP, gRPC, WebSocket)
+    # ------------------------------------------------------------------
+
+    async def _resolve_system(self, system_id: str) -> ExternalSystem | dict[str, Any]:
+        """Look up an external system by ID, returning the model or an error dict."""
+        if not system_id:
+            return {"error": "system_id is required"}
+
+        system = await self._catalog_repo.get_system(system_id)
+        if system is None:
+            return {"error": f"System '{system_id}' not found in catalog"}
+
+        if system.status not in (SystemStatus.ACTIVE, SystemStatus.DEGRADED):
+            return {
+                "error": (
+                    f"System '{system.name}' is not active "
+                    f"(status: {system.status.value})"
+                ),
+            }
+
+        if not system.agent_enabled:
+            return {"error": f"System '{system.name}' is not enabled for agent access"}
+
+        return system
+
+    async def _resolve_auth_headers(self, system: ExternalSystem) -> dict[str, str]:
+        """Resolve authentication headers for the given system.
+
+        Uses the :class:`AuthResolver` from the attached :class:`ToolExecutor`
+        when available, otherwise returns empty headers.
+        """
+        if system.auth_config is None:
+            return {}
+
+        if self._tool_executor is None:
+            return {}
+
+        return await self._tool_executor._auth_resolver.resolve_headers(system)
+
+    async def _execute_http_request(
+        self, request_kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute an HTTP request using the ToolExecutor's HTTP client.
+
+        Returns a result dict with ``status_code``, ``data``, and ``success``.
+        """
+        if self._tool_executor is None:
+            return {"error": "Tool executor not configured; cannot make external HTTP calls"}
+
+        try:
+            response = await self._tool_executor._http_client.request(**request_kwargs)
+            data = _parse_response(response)
+            success = 200 <= response.status_code < 400
+            return {
+                "status_code": response.status_code,
+                "data": data,
+                "success": success,
+                "error": None if success else f"HTTP {response.status_code}",
+            }
+        except httpx.TimeoutException:
+            return {"error": "Request timed out", "success": False}
+        except Exception as exc:
+            return {"error": str(exc), "success": False}
+
+    async def _call_rest(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle ``call_rest_endpoint`` tool invocations."""
+        system_id = arguments.get("system_id", "").strip()
+        result = await self._resolve_system(system_id)
+        if isinstance(result, dict):
+            return result
+        system = result
+
+        method_raw = arguments.get("method", "").strip().upper()
+        if not method_raw:
+            return {"error": "method is required"}
+        try:
+            HttpMethod(method_raw)
+        except ValueError:
+            valid = ", ".join(m.value for m in HttpMethod)
+            return {"error": f"Invalid method '{method_raw}'. Valid values: {valid}"}
+
+        path = arguments.get("path", "").strip()
+        if not path:
+            return {"error": "path is required"}
+
+        auth_headers = await self._resolve_auth_headers(system)
+
+        # Build URL
+        base = system.base_url.rstrip("/")
+        url = f"{base}/{path.lstrip('/')}"
+
+        # Guard: resolved URL must stay within system base_url
+        if not url.startswith(base + "/") or ".." in url:
+            return {"error": f"URL does not match system base_url: resolved={url!r}, base={system.base_url!r}"}
+
+        query_params = arguments.get("query_params", {})
+        body = arguments.get("body")
+        extra_headers = arguments.get("headers", {})
+
+        # Filter out security-sensitive headers to prevent auth override
+        extra_headers = {k: v for k, v in extra_headers.items() if k.lower() not in _SENSITIVE_HEADERS}
+
+        request_kwargs: dict[str, Any] = {
+            "method": method_raw,
+            "url": url,
+            "headers": {**auth_headers, **extra_headers},
+            "timeout": 30.0,
+        }
+        if query_params:
+            request_kwargs["params"] = query_params
+        if body is not None:
+            request_kwargs["json"] = body
+
+        return await self._execute_http_request(request_kwargs)
+
+    async def _call_graphql(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle ``call_graphql_endpoint`` tool invocations."""
+        system_id = arguments.get("system_id", "").strip()
+        result = await self._resolve_system(system_id)
+        if isinstance(result, dict):
+            return result
+        system = result
+
+        query = arguments.get("query", "").strip()
+        if not query:
+            return {"error": "query is required"}
+
+        variables = arguments.get("variables", {})
+        operation_name = arguments.get("operation_name")
+
+        auth_headers = await self._resolve_auth_headers(system)
+
+        # GraphQL endpoint is the system base_url itself
+        url = system.base_url.rstrip("/")
+
+        graphql_body: dict[str, Any] = {"query": query}
+        if variables:
+            graphql_body["variables"] = variables
+        if operation_name:
+            graphql_body["operationName"] = operation_name
+
+        request_kwargs: dict[str, Any] = {
+            "method": "POST",
+            "url": url,
+            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "json": graphql_body,
+            "timeout": 30.0,
+        }
+
+        return await self._execute_http_request(request_kwargs)
+
+    async def _call_soap(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle ``call_soap_endpoint`` tool invocations."""
+        system_id = arguments.get("system_id", "").strip()
+        result = await self._resolve_system(system_id)
+        if isinstance(result, dict):
+            return result
+        system = result
+
+        soap_action = arguments.get("soap_action", "").strip()
+        if not soap_action:
+            return {"error": "soap_action is required"}
+
+        body_xml = arguments.get("body_xml", "").strip()
+        if not body_xml:
+            return {"error": "body_xml is required"}
+
+        auth_headers = await self._resolve_auth_headers(system)
+
+        # Use optional path or fall back to system base_url
+        path = arguments.get("path", "").strip()
+        base = system.base_url.rstrip("/")
+        if path:
+            url = f"{base}/{path.lstrip('/')}"
+            # Guard: resolved URL must stay within system base_url
+            if not url.startswith(base + "/") or ".." in url:
+                return {"error": f"URL does not match system base_url: resolved={url!r}, base={system.base_url!r}"}
+        else:
+            url = base
+
+        headers = {
+            **auth_headers,
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": soap_action,
+        }
+
+        request_kwargs: dict[str, Any] = {
+            "method": "POST",
+            "url": url,
+            "headers": headers,
+            "content": body_xml.encode("utf-8"),
+            "timeout": 30.0,
+        }
+
+        return await self._execute_http_request(request_kwargs)
+
+    async def _call_grpc(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle ``call_grpc_endpoint`` tool invocations (gRPC-Web / JSON transcoding)."""
+        system_id = arguments.get("system_id", "").strip()
+        result = await self._resolve_system(system_id)
+        if isinstance(result, dict):
+            return result
+        system = result
+
+        service = arguments.get("service", "").strip()
+        if not service:
+            return {"error": "service is required"}
+
+        method = arguments.get("method", "").strip()
+        if not method:
+            return {"error": "method is required"}
+
+        # Guard: service and method must not contain path traversal characters
+        if ".." in service or "/" in service or ".." in method or "/" in method:
+            return {"error": "service and method must not contain path traversal characters"}
+
+        body = arguments.get("body", {})
+
+        auth_headers = await self._resolve_auth_headers(system)
+
+        base = system.base_url.rstrip("/")
+        url = f"{base}/{service}/{method}"
+
+        # Guard: resolved URL must stay within system base_url
+        if not url.startswith(base + "/") or ".." in url:
+            return {"error": f"URL does not match system base_url: resolved={url!r}, base={system.base_url!r}"}
+
+        request_kwargs: dict[str, Any] = {
+            "method": "POST",
+            "url": url,
+            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "json": body,
+            "timeout": 30.0,
+        }
+
+        return await self._execute_http_request(request_kwargs)
+
+    async def _call_websocket(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle ``call_websocket`` tool invocations."""
+        try:
+            import websockets
+        except ImportError:
+            return {
+                "error": (
+                    "The 'websockets' library is not installed. "
+                    "Install it with: pip install websockets"
+                ),
+                "success": False,
+            }
+
+        system_id = arguments.get("system_id", "").strip()
+        result = await self._resolve_system(system_id)
+        if isinstance(result, dict):
+            return result
+        system = result
+
+        path = arguments.get("path", "").strip()
+        if not path:
+            return {"error": "path is required"}
+
+        message = arguments.get("message", "")
+        if not message:
+            return {"error": "message is required"}
+
+        timeout = float(arguments.get("timeout", 30))
+        timeout = max(1.0, min(timeout, 120.0))
+        extra_headers = arguments.get("headers") or {}
+
+        # Filter out security-sensitive headers to prevent auth override
+        extra_headers = {
+            k: v
+            for k, v in extra_headers.items()
+            if k.lower() not in _SENSITIVE_HEADERS
+        }
+
+        auth_headers = await self._resolve_auth_headers(system)
+
+        # Convert http(s):// to ws(s):// scheme
+        base = system.base_url.rstrip("/")
+        if base.startswith("https://"):
+            ws_base = "wss://" + base[len("https://"):]
+        elif base.startswith("http://"):
+            ws_base = "ws://" + base[len("http://"):]
+        elif base.startswith(("ws://", "wss://")):
+            ws_base = base
+        else:
+            ws_base = "wss://" + base
+
+        ws_url = f"{ws_base}/{path.lstrip('/')}"
+
+        # Guard: resolved URL must stay within the base
+        if ".." in ws_url:
+            return {
+                "error": f"Path traversal not allowed: resolved={ws_url!r}",
+                "success": False,
+            }
+
+        connection_headers = {**auth_headers, **extra_headers}
+
+        try:
+            async with websockets.connect(
+                ws_url,
+                additional_headers=connection_headers,
+                open_timeout=timeout,
+                close_timeout=min(timeout, 5),
+            ) as ws:
+                await ws.send(message)
+                response = await asyncio.wait_for(ws.recv(), timeout=timeout)
+
+            return {
+                "url": ws_url,
+                "message_sent": message,
+                "response": response if isinstance(response, str) else response.decode("utf-8", errors="replace"),
+                "success": True,
+            }
+        except TimeoutError:
+            return {"error": "WebSocket response timed out", "success": False}
+        except Exception as exc:
+            return {"error": f"WebSocket error: {exc}", "success": False}

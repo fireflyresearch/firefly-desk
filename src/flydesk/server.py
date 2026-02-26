@@ -114,6 +114,7 @@ async def _apply_column_migrations(conn):
     migrations = [
         ("external_systems", "workspace_id", "VARCHAR(255)"),
         ("kb_documents", "workspace_id", "VARCHAR(255)"),
+        ("business_processes", "workspace_id", "VARCHAR(255)"),
     ]
     for table, column, col_type in migrations:
         try:
@@ -418,6 +419,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         knowledge_retriever=retriever,
         process_repo=process_repo,
         memory_repo=memory_repo,
+        tool_executor=tool_executor,
     )
 
     # Wire document tool executor into built-in tools

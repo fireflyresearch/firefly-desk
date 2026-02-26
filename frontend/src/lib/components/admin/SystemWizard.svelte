@@ -88,6 +88,14 @@
 		{ value: 'mutual_tls', label: 'Mutual TLS' }
 	] as const;
 
+	const PROTOCOL_TYPES = [
+		{ value: 'rest', label: 'REST' },
+		{ value: 'graphql', label: 'GraphQL' },
+		{ value: 'soap', label: 'SOAP' },
+		{ value: 'grpc', label: 'gRPC' },
+		{ value: 'websocket', label: 'WebSocket' }
+	] as const;
+
 	// -----------------------------------------------------------------------
 	// Initial values (captured once at mount — wizard is always freshly mounted)
 	// -----------------------------------------------------------------------
@@ -114,6 +122,7 @@
 	let tags = $state(_init?.tags?.join(', ') ?? '');
 	let healthCheckPath = $state(_init?.health_check_path ?? '');
 	let workspaceId = $state(_init?.workspace_id ?? '');
+	let protocolType = $state((_init?.metadata?.protocol_type as string) ?? 'rest');
 
 	// Step 2: Authentication
 	let authType = $state(_init?.auth_config?.auth_type ?? 'none');
@@ -230,7 +239,7 @@
 				.filter(Boolean),
 			status,
 			agent_enabled: agentEnabled,
-			metadata: _init?.metadata ?? {},
+			metadata: { ...(_init?.metadata ?? {}), protocol_type: protocolType },
 			workspace_id: workspaceId || null
 		};
 	}
@@ -269,6 +278,10 @@
 
 	function authTypeLabel(type: string): string {
 		return AUTH_TYPES.find((t) => t.value === type)?.label ?? type;
+	}
+
+	function protocolTypeLabel(type: string): string {
+		return PROTOCOL_TYPES.find((t) => t.value === type)?.label ?? type;
 	}
 
 	function handleBackdropClick(e: MouseEvent) {
@@ -397,7 +410,7 @@
 						/>
 					</label>
 
-					<div class="grid grid-cols-2 gap-4">
+					<div class="grid grid-cols-3 gap-4">
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-text-secondary">Status</span>
 							<select
@@ -407,6 +420,18 @@
 								<option value="active">Active</option>
 								<option value="inactive">Inactive</option>
 								<option value="degraded">Degraded</option>
+							</select>
+						</label>
+
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-text-secondary">Protocol Type</span>
+							<select
+								bind:value={protocolType}
+								class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+							>
+								{#each PROTOCOL_TYPES as pt}
+									<option value={pt.value}>{pt.label}</option>
+								{/each}
 							</select>
 						</label>
 
@@ -612,6 +637,8 @@
 									<span class="font-mono text-xs text-text-primary">{baseUrl}</span>
 									<span class="text-text-secondary">Status:</span>
 									<span class="text-text-primary capitalize">{status}</span>
+									<span class="text-text-secondary">Protocol:</span>
+									<span class="text-text-primary">{protocolTypeLabel(protocolType)}</span>
 									{#if healthCheckPath}
 										<span class="text-text-secondary">Health Check:</span>
 										<span class="font-mono text-xs text-text-primary">{healthCheckPath}</span>

@@ -32,6 +32,11 @@ import EditableDataTable from '$lib/components/widgets/EditableDataTable.svelte'
 import PaginatedTable from '$lib/components/widgets/PaginatedTable.svelte';
 import DynamicFilter from '$lib/components/widgets/DynamicFilter.svelte';
 import EntityView from '$lib/components/widgets/EntityView.svelte';
+import TracesTimeline from '$lib/components/widgets/TracesTimeline.svelte';
+import MetricsChart from '$lib/components/widgets/MetricsChart.svelte';
+import ServiceMap from '$lib/components/widgets/ServiceMap.svelte';
+import LogViewer from '$lib/components/widgets/LogViewer.svelte';
+import SpanDetail from '$lib/components/widgets/SpanDetail.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -63,7 +68,12 @@ export const widgetRegistry: Record<string, Component<any>> = {
 	'editable-table': EditableDataTable,
 	'paginated-table': PaginatedTable,
 	'dynamic-filter': DynamicFilter,
-	'entity-view': EntityView
+	'entity-view': EntityView,
+	'traces-timeline': TracesTimeline,
+	'metrics-chart': MetricsChart,
+	'service-map': ServiceMap,
+	'log-viewer': LogViewer,
+	'span-detail': SpanDetail
 };
 
 // ---------------------------------------------------------------------------

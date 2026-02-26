@@ -864,7 +864,7 @@
 																	{ep.method}
 																</span>
 																{#if ep.protocol_type && ep.protocol_type !== 'rest'}
-																	<span class="ml-1 rounded bg-surface-secondary px-1 py-0.5 text-[10px] font-medium uppercase text-text-secondary">
+																	<span class="ml-1 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-accent">
 																		{ep.protocol_type}
 																	</span>
 																{/if}

@@ -133,6 +133,7 @@
 		count: number;
 		level: 0 | 1 | 2 | 3 | 4;
 		dayOfWeek: number; // 0 = Sun, 6 = Sat
+		isFuture: boolean;
 	}
 
 	interface HeatmapWeek {
@@ -169,7 +170,7 @@
 
 	let heatmapData = $derived.by(() => {
 		const days = analytics?.messages_per_day;
-		if (!days?.length && selectedYear === new Date().getFullYear()) return { weeks: [] as HeatmapWeek[], max: 0, monthHeaders: [] as {label: string; col: number}[] };
+		if (!days?.length && selectedYear === new Date().getFullYear()) return { weeks: [] as HeatmapWeek[], max: 0, monthHeaders: [] as {label: string; col: number; isFutureMonth: boolean}[] };
 
 		const countMap = new Map<string, number>();
 		if (days) {
@@ -177,15 +178,18 @@
 		}
 
 		const now = new Date();
-		const isCurrentYear = selectedYear === now.getFullYear();
+
+		// "today" at midnight for future-day comparison
+		const today = new Date(now);
+		today.setHours(0, 0, 0, 0);
 
 		// Start: Jan 1 of selected year, padded back to Sunday
 		const jan1 = new Date(selectedYear, 0, 1);
 		const startDate = new Date(jan1);
 		startDate.setDate(startDate.getDate() - startDate.getDay()); // back to Sunday
 
-		// End: Dec 31 or today (for current year), padded forward to Saturday
-		const endDate = isCurrentYear ? new Date(now) : new Date(selectedYear, 11, 31);
+		// End: Dec 31 padded forward to Saturday (render full year grid)
+		const endDate = new Date(selectedYear, 11, 31);
 		if (endDate.getDay() !== 6) {
 			endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
 		}
@@ -193,16 +197,21 @@
 		const maxCount = days?.length ? Math.max(...days.map(d => d.count), 1) : 1;
 
 		const weeks: HeatmapWeek[] = [];
-		const monthHeaders: {label: string; col: number}[] = [];
+		const monthHeaders: {label: string; col: number; isFutureMonth: boolean}[] = [];
 		let currentWeek: HeatmapCell[] = [];
 		const cursor = new Date(startDate);
 		let weekIndex = 0;
 		let lastMonth = -1;
 		const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+		// Pre-compute the current month/year for future-month detection
+		const currentMonth = now.getMonth();
+		const currentFullYear = now.getFullYear();
+
 		while (cursor <= endDate) {
 			const dateStr = localDateStr(cursor);
 			const count = countMap.get(dateStr) ?? 0;
+			const isFuture = cursor > today;
 			const ratio = count / maxCount;
 			let level: 0 | 1 | 2 | 3 | 4;
 			if (count === 0) level = 0;
@@ -215,11 +224,16 @@
 			// (skip December padding days from the previous year)
 			const inYear = cursor.getFullYear() === selectedYear;
 			if (inYear && cursor.getMonth() !== lastMonth) {
-				monthHeaders.push({ label: monthNames[cursor.getMonth()], col: weekIndex });
+				// A month is "future" if it is entirely in the future
+				// i.e. the selected year is in the future, or it's the current year
+				// and this month is strictly after the current month
+				const isFutureMonth = selectedYear > currentFullYear
+					|| (selectedYear === currentFullYear && cursor.getMonth() > currentMonth);
+				monthHeaders.push({ label: monthNames[cursor.getMonth()], col: weekIndex, isFutureMonth });
 				lastMonth = cursor.getMonth();
 			}
 
-			currentWeek.push({ date: dateStr, count, level, dayOfWeek: cursor.getDay() });
+			currentWeek.push({ date: dateStr, count, level, dayOfWeek: cursor.getDay(), isFuture });
 
 			if (cursor.getDay() === 6) {
 				weeks.push({ cells: currentWeek });
@@ -469,6 +483,7 @@
 	}
 
 	function showTooltip(cell: HeatmapCell, e: MouseEvent) {
+		if (cell.isFuture) return;
 		const TOOLTIP_W = 180;
 		const x = e.clientX + 12 + TOOLTIP_W > window.innerWidth
 			? e.clientX - TOOLTIP_W - 4
@@ -722,7 +737,7 @@
 								{@const nextCol = i < heatmapData.monthHeaders.length - 1 ? heatmapData.monthHeaders[i + 1].col : heatmapData.weeks.length}
 								{@const span = nextCol - header.col}
 								<div style="width: {span * 13}px; {i === 0 && header.col > 0 ? `margin-left: ${header.col * 13}px;` : ''}"
-									 class="text-[10px] leading-none text-text-secondary truncate">
+									 class="text-[10px] leading-none text-text-secondary truncate {header.isFutureMonth ? 'opacity-20' : ''}">
 									{header.label}
 								</div>
 							{/each}
@@ -746,7 +761,7 @@
 									<div class="flex flex-col gap-[2px]">
 										{#each week.cells as cell}
 											<div
-												class="h-[11px] w-[11px] rounded-[2px] {heatmapLevelClasses[cell.level]}"
+												class="h-[11px] w-[11px] rounded-[2px] {heatmapLevelClasses[cell.level]} {cell.isFuture ? 'opacity-20' : ''}"
 												role="presentation"
 												onmouseenter={(e) => showTooltip(cell, e)}
 												onmouseleave={hideTooltip}
