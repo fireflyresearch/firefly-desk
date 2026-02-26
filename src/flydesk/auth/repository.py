@@ -16,15 +16,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.oidc import OIDCProviderRow
+from flydesk.security.kms import _DEV_FERNET_KEY
 
 logger = logging.getLogger(__name__)
-
-# Dev-only Fernet key (used when no encryption key is configured).
-# This is **not** secure and exists only so that dev mode doesn't crash.
-# Must be a static, deterministic key so encrypted values survive restarts.
-import base64 as _b64
-
-_DEV_FERNET_KEY = _b64.urlsafe_b64encode(b"flydesk-dev-encryption-key-32b!!")
 
 
 def _to_json(value: Any) -> str | None:

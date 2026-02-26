@@ -21,6 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_llm_repo
 from flydesk.llm.health import LLMHealthChecker
 from flydesk.llm.repository import LLMProviderRepository
 from flydesk.rbac.guards import AdminLLM
@@ -33,11 +34,6 @@ router = APIRouter(tags=["llm-status"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_llm_repo() -> LLMProviderRepository:
-    raise NotImplementedError("get_llm_repo must be overridden via app.dependency_overrides")
-
 
 Repo = Annotated[LLMProviderRepository, Depends(get_llm_repo)]
 

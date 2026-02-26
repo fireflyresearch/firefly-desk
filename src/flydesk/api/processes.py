@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_process_repo
 from flydesk.processes.models import (
     BusinessProcess,
     ProcessStatus,
@@ -36,14 +37,6 @@ ProcessWrite = require_permission("processes:write")
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_process_repo() -> ProcessRepository:
-    """Provide a ProcessRepository instance (wired via dependency_overrides)."""
-    raise NotImplementedError(
-        "get_process_repo must be overridden via app.dependency_overrides"
-    )
-
 
 ProcessRepo = Annotated[ProcessRepository, Depends(get_process_repo)]
 

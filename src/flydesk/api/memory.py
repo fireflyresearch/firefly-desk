@@ -8,14 +8,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from flydesk.api.deps import get_memory_repo
 from flydesk.memory.models import UpdateMemory
 from flydesk.memory.repository import MemoryRepository
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
-
-
-def get_memory_repo() -> MemoryRepository:
-    raise NotImplementedError("Dependency override required")
 
 
 def _user_id(request: Request) -> str:

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from jinja2 import BaseLoader, Environment, TemplateSyntaxError, Undefined, UndefinedError
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_settings_repo
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.repository import SettingsRepository
 
@@ -34,18 +35,6 @@ _PROMPT_CATEGORY = "prompt_override"
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_settings_repo() -> SettingsRepository:
-    """Provide a SettingsRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_settings_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 

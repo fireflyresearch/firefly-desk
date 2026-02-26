@@ -23,6 +23,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_settings_repo
 from flydesk.auth.sso_mapping import SSOAttributeMapping
 from flydesk.rbac.guards import AdminSSO
 from flydesk.settings.repository import SettingsRepository
@@ -37,18 +38,6 @@ _SSO_MAPPING_CATEGORY = "sso_mappings"
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_settings_repo() -> SettingsRepository:
-    """Provide a SettingsRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_settings_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 

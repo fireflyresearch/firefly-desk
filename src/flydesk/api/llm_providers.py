@@ -14,6 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from flydesk.api.deps import get_llm_repo
 from flydesk.llm.health import LLMHealthChecker
 from flydesk.llm.models import LLMProvider, LLMProviderResponse, ProviderHealthStatus
 from flydesk.llm.repository import LLMProviderRepository
@@ -25,18 +26,6 @@ router = APIRouter(prefix="/api/admin/llm-providers", tags=["llm-providers"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_llm_repo() -> LLMProviderRepository:
-    """Provide an LLMProviderRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_llm_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[LLMProviderRepository, Depends(get_llm_repo)]
 

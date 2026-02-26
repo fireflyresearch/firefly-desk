@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
+from flydesk.api.deps import get_catalog_repo
 from flydesk.catalog.openapi_parser import parse_openapi_spec
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogWrite
@@ -29,18 +30,6 @@ router = APIRouter(prefix="/api/catalog/import/openapi", tags=["openapi-import"]
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_catalog_repo() -> CatalogRepository:
-    """Provide a CatalogRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_catalog_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 

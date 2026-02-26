@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import Response as FastAPIResponse
 
+from flydesk.api.deps import get_content_extractor, get_file_repo, get_file_storage
 from flydesk.files.extractor import ContentExtractor
 from flydesk.files.models import FileUpload
 from flydesk.files.repository import FileUploadRepository
@@ -27,32 +28,6 @@ router = APIRouter(tags=["files"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_file_repo() -> FileUploadRepository:
-    """Provide a FileUploadRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_file_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_file_storage() -> FileStorageProvider:
-    """Provide a FileStorageProvider instance."""
-    raise NotImplementedError(
-        "get_file_storage must be overridden via app.dependency_overrides"
-    )
-
-
-def get_content_extractor() -> ContentExtractor:
-    """Provide a ContentExtractor instance."""
-    raise NotImplementedError(
-        "get_content_extractor must be overridden via app.dependency_overrides"
-    )
-
 
 FileRepo = Annotated[FileUploadRepository, Depends(get_file_repo)]
 Storage = Annotated[FileStorageProvider, Depends(get_file_storage)]

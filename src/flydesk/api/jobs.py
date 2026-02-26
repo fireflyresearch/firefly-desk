@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from flydesk.api.events import SSEEvent, SSEEventType
+from flydesk.api.deps import get_job_repo, get_job_runner
 from flydesk.jobs.models import Job, JobStatus
 from flydesk.jobs.repository import JobRepository
 from flydesk.jobs.runner import JobRunner
@@ -35,21 +36,6 @@ JobsCancel = require_permission("jobs:cancel")
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_job_repo() -> JobRepository:
-    """Provide a JobRepository instance (wired via dependency_overrides)."""
-    raise NotImplementedError(
-        "get_job_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_job_runner() -> JobRunner:
-    """Provide a JobRunner instance (wired via dependency_overrides)."""
-    raise NotImplementedError(
-        "get_job_runner must be overridden via app.dependency_overrides"
-    )
-
 
 JobRepo = Annotated[JobRepository, Depends(get_job_repo)]
 

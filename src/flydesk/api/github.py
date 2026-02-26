@@ -23,7 +23,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from flydesk.api.knowledge import get_indexing_producer
+from flydesk.api.deps import get_document_analyzer, get_indexing_producer
 from flydesk.config import DeskConfig, get_config
 from flydesk.knowledge.github import (
     GITHUB_OAUTH_AUTHORIZE,
@@ -113,11 +113,6 @@ class ImportAcceptedResponse(BaseModel):
 
 Config = Annotated[DeskConfig, Depends(get_config)]
 Producer = Annotated[IndexingQueueProducer, Depends(get_indexing_producer)]
-
-
-def get_document_analyzer() -> DocumentAnalyzer:
-    """FastAPI dependency stub -- overridden in server lifespan."""
-    raise NotImplementedError
 
 
 def _make_client(token: str | None = None) -> GitHubClient:

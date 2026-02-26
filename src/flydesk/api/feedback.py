@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from flydesk.api.deps import get_audit_logger
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
 
@@ -25,18 +26,6 @@ router = APIRouter(prefix="/api/chat", tags=["feedback"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_audit_logger() -> AuditLogger:
-    """Provide an AuditLogger instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_audit_logger must be overridden via app.dependency_overrides"
-    )
-
 
 AuditLog = Annotated[AuditLogger, Depends(get_audit_logger)]
 

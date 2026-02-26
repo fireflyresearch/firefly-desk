@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_credential_store, get_kms
 from flydesk.catalog.models import Credential
 from flydesk.rbac.guards import CredentialsRead, CredentialsWrite
 
@@ -78,29 +79,6 @@ class CredentialStore:
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_credential_store() -> CredentialStore:
-    """Provide a CredentialStore instance.
-
-    In production this is wired to the real encrypted storage.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_credential_store must be overridden via app.dependency_overrides"
-    )
-
-
-def get_kms() -> KMSProvider:
-    """Provide the KMS provider for credential encryption.
-
-    In production this is wired to the configured KMS backend.
-    In tests the dependency is overridden with a NoOpKMSProvider or mock.
-    """
-    from flydesk.security.kms import NoOpKMSProvider
-
-    return NoOpKMSProvider()
-
 
 Store = Annotated[CredentialStore, Depends(get_credential_store)]
 KMS = Annotated["KMSProvider", Depends(get_kms)]

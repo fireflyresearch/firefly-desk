@@ -16,6 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
+from flydesk.api.deps import get_custom_tool_repo, get_sandbox_executor
 from flydesk.rbac.guards import AdminSettings
 from flydesk.tools.custom_models import CustomTool, ToolSource
 from flydesk.tools.custom_repository import CustomToolRepository
@@ -27,29 +28,6 @@ router = APIRouter(tags=["custom-tools"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_custom_tool_repo() -> CustomToolRepository:
-    """Provide a CustomToolRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_custom_tool_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_sandbox_executor() -> SandboxExecutor:
-    """Provide a SandboxExecutor instance.
-
-    In production this is wired in server.py.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_sandbox_executor must be overridden via app.dependency_overrides"
-    )
-
 
 CustomToolRepo = Annotated[CustomToolRepository, Depends(get_custom_tool_repo)]
 Sandbox = Annotated[SandboxExecutor, Depends(get_sandbox_executor)]

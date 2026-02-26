@@ -28,6 +28,14 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     "indexing": set(),  # system-managed
 }
 
+from flydesk.api.deps import (
+    get_auto_trigger,
+    get_indexing_producer,
+    get_knowledge_doc_store,
+    get_knowledge_graph,
+    get_knowledge_importer,
+    get_knowledge_indexer,
+)
 from flydesk.knowledge.graph import KnowledgeGraph
 from flydesk.knowledge.importer import KnowledgeImporter
 from flydesk.knowledge.indexer import KnowledgeIndexer
@@ -201,71 +209,6 @@ def _relation_label(relation_type: str) -> str:
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_knowledge_indexer() -> KnowledgeIndexer:
-    """Provide a KnowledgeIndexer instance.
-
-    In production this is wired to the real indexer with embeddings.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_knowledge_indexer must be overridden via app.dependency_overrides"
-    )
-
-
-def get_knowledge_doc_store() -> KnowledgeDocumentStore:
-    """Provide a KnowledgeDocumentStore instance.
-
-    In production this is wired to the real database.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_knowledge_doc_store must be overridden via app.dependency_overrides"
-    )
-
-
-def get_knowledge_importer() -> KnowledgeImporter:
-    """Provide a KnowledgeImporter instance.
-
-    In production this is wired via the lifespan with the real indexer and HTTP client.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_knowledge_importer must be overridden via app.dependency_overrides"
-    )
-
-
-def get_indexing_producer() -> IndexingQueueProducer:
-    """Provide the background indexing queue producer.
-
-    In production this is wired via the lifespan.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_indexing_producer must be overridden via app.dependency_overrides"
-    )
-
-
-def get_knowledge_graph() -> KnowledgeGraph:
-    """Provide a KnowledgeGraph instance.
-
-    In production this is wired via the lifespan with the real session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_knowledge_graph must be overridden via app.dependency_overrides"
-    )
-
-
-def get_auto_trigger() -> AutoTriggerService | None:
-    """Provide the AutoTriggerService instance (or None if not wired).
-
-    In production this is wired via the lifespan.
-    In tests the dependency is overridden with a mock.
-    """
-    return None
-
 
 Indexer = Annotated[KnowledgeIndexer, Depends(get_knowledge_indexer)]
 DocStore = Annotated[KnowledgeDocumentStore, Depends(get_knowledge_doc_store)]

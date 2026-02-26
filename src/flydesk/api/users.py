@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from flydesk.api.deps import get_local_user_repo, get_session_factory, get_settings_repo
 from flydesk.auth.local_user_repository import LocalUserRepository
 from flydesk.auth.password import hash_password
 from flydesk.models.audit import AuditEventRow
@@ -39,28 +40,6 @@ router = APIRouter(tags=["users"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Provide the database session factory."""
-    raise NotImplementedError(
-        "get_session_factory must be overridden via app.dependency_overrides"
-    )
-
-
-def get_settings_repo() -> SettingsRepository:
-    """Provide a SettingsRepository instance."""
-    raise NotImplementedError(
-        "get_settings_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_local_user_repo() -> LocalUserRepository:
-    """Provide a LocalUserRepository instance."""
-    raise NotImplementedError(
-        "get_local_user_repo must be overridden via app.dependency_overrides"
-    )
-
 
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]

@@ -20,6 +20,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from flydesk.api.deps import (
+    get_audit_logger,
+    get_catalog_repo,
+    get_llm_repo,
+    get_session_factory,
+)
 from flydesk.audit.logger import AuditLogger
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.llm.health import LLMHealthChecker
@@ -36,35 +42,6 @@ router = APIRouter(prefix="/api/admin/dashboard", tags=["dashboard"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_catalog_repo() -> CatalogRepository:
-    """Provide a CatalogRepository instance."""
-    raise NotImplementedError(
-        "get_catalog_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_audit_logger() -> AuditLogger:
-    """Provide an AuditLogger instance."""
-    raise NotImplementedError(
-        "get_audit_logger must be overridden via app.dependency_overrides"
-    )
-
-
-def get_llm_repo() -> LLMProviderRepository:
-    """Provide an LLMProviderRepository instance."""
-    raise NotImplementedError(
-        "get_llm_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Provide the database session factory."""
-    raise NotImplementedError(
-        "get_session_factory must be overridden via app.dependency_overrides"
-    )
-
 
 CatalogRepo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 Audit = Annotated[AuditLogger, Depends(get_audit_logger)]

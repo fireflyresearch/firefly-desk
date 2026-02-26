@@ -17,6 +17,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
+from flydesk.api.deps import get_export_repo, get_export_service, get_export_storage
 from flydesk.exports.models import ExportFormat, ExportRecord, ExportTemplate
 from flydesk.exports.repository import ExportRepository
 from flydesk.exports.service import ExportService
@@ -29,32 +30,6 @@ router = APIRouter(tags=["exports"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_export_repo() -> ExportRepository:
-    """Provide an ExportRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_export_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_export_service() -> ExportService:
-    """Provide an ExportService instance."""
-    raise NotImplementedError(
-        "get_export_service must be overridden via app.dependency_overrides"
-    )
-
-
-def get_export_storage() -> FileStorageProvider:
-    """Provide a FileStorageProvider instance for export downloads."""
-    raise NotImplementedError(
-        "get_export_storage must be overridden via app.dependency_overrides"
-    )
-
 
 ExportRepo = Annotated[ExportRepository, Depends(get_export_repo)]
 ExportSvc = Annotated[ExportService, Depends(get_export_service)]

@@ -15,6 +15,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_auto_trigger, get_catalog_repo
 from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
@@ -27,27 +28,6 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_catalog_repo() -> CatalogRepository:
-    """Provide a CatalogRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_catalog_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_auto_trigger() -> AutoTriggerService | None:
-    """Provide the AutoTriggerService instance (or None if not wired).
-
-    In production this is wired via the lifespan.
-    In tests the dependency is overridden with a mock.
-    """
-    return None
-
 
 Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 Trigger = Annotated[AutoTriggerService | None, Depends(get_auto_trigger)]

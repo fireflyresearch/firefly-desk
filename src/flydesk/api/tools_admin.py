@@ -17,6 +17,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from flydesk.api.deps import get_catalog_repo, get_settings_repo
 from flydesk.catalog.models import ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import AdminSettings
@@ -28,29 +29,6 @@ router = APIRouter(prefix="/api/admin/tools", tags=["tools-admin"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_catalog_repo() -> CatalogRepository:
-    """Provide a CatalogRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_catalog_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_settings_repo() -> SettingsRepository:
-    """Provide a SettingsRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_settings_repo must be overridden via app.dependency_overrides"
-    )
-
 
 CatalogRepo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]

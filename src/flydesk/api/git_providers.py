@@ -17,6 +17,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_git_provider_repo
 from flydesk.knowledge.git_provider_repository import GitProviderRepository
 from flydesk.models.git_provider import GitProviderRow
 from flydesk.rbac.guards import AdminGitProviders
@@ -75,18 +76,6 @@ class GitProviderTestResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_git_provider_repo() -> GitProviderRepository:
-    """Provide a GitProviderRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_git_provider_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[GitProviderRepository, Depends(get_git_provider_repo)]
 

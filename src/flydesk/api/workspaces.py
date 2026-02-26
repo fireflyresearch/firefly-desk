@@ -14,6 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from flydesk.api.deps import get_workspace_repo
 from flydesk.rbac.guards import require_permission
 from flydesk.workspaces.models import CreateWorkspace, UpdateWorkspace, Workspace
 from flydesk.workspaces.repository import WorkspaceRepository
@@ -26,18 +27,6 @@ router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 # ---------------------------------------------------------------------------
 
 AdminOnly = require_permission("*")
-
-
-def get_workspace_repo() -> WorkspaceRepository:
-    """Provide a WorkspaceRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_workspace_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[WorkspaceRepository, Depends(get_workspace_repo)]
 

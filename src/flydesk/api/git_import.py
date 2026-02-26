@@ -23,8 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from flydesk.api.git_providers import get_git_provider_repo
-from flydesk.api.knowledge import get_indexing_producer
+from flydesk.api.deps import get_git_provider_repo, get_indexing_producer
 from flydesk.knowledge.git_provider import GitProvider, GitProviderFactory
 from flydesk.knowledge.git_provider_repository import GitProviderRepository
 from flydesk.knowledge.queue import IndexingQueueProducer, IndexingTask

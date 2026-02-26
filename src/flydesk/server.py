@@ -20,79 +20,72 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import flydesk
-from flydesk.api.audit import get_audit_logger
 from flydesk.api.audit import router as audit_router
-from flydesk.api.auth import get_oidc_client as auth_get_oidc_client
-from flydesk.api.auth import get_oidc_repo as auth_get_oidc_repo
 from flydesk.api.auth import router as auth_router
-from flydesk.api.catalog import get_auto_trigger as catalog_get_auto_trigger
-from flydesk.api.catalog import get_catalog_repo
 from flydesk.api.catalog import router as catalog_router
-from flydesk.api.custom_tools import get_custom_tool_repo, get_sandbox_executor
-from flydesk.api.custom_tools import router as custom_tools_router
-from flydesk.api.git_import import router as git_import_router
-from flydesk.api.git_providers import get_git_provider_repo
-from flydesk.api.git_providers import router as git_providers_router
-from flydesk.api.github import router as github_router
-from flydesk.api.help_docs import router as help_docs_router
-from flydesk.api.openapi_import import get_catalog_repo as openapi_get_catalog
-from flydesk.api.openapi_import import router as openapi_import_router
 from flydesk.api.chat import router as chat_router
-from flydesk.api.conversations import get_conversation_repo
 from flydesk.api.conversations import router as conversations_router
-from flydesk.api.credentials import get_credential_store
 from flydesk.api.credentials import router as credentials_router
-from flydesk.api.dashboard import get_audit_logger as dashboard_get_audit
-from flydesk.api.dashboard import get_catalog_repo as dashboard_get_catalog
-from flydesk.api.dashboard import get_llm_repo as dashboard_get_llm
-from flydesk.api.dashboard import get_session_factory as dashboard_get_session
+from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.dashboard import router as dashboard_router
-from flydesk.api.exports import get_export_repo, get_export_service, get_export_storage
-from flydesk.api.exports import router as exports_router
-from flydesk.api.feedback import get_audit_logger as feedback_get_audit
-from flydesk.api.feedback import router as feedback_router
-from flydesk.api.files import get_content_extractor, get_file_repo, get_file_storage
-from flydesk.api.files import router as files_router
-from flydesk.api.health import router as health_router
-from flydesk.api.jobs import get_job_repo, get_job_runner
-from flydesk.api.jobs import router as jobs_router
-from flydesk.api.knowledge import (
-    get_auto_trigger as knowledge_get_auto_trigger,
+from flydesk.api.deps import (
+    get_audit_logger,
+    get_auto_trigger,
+    get_catalog_repo,
+    get_content_extractor,
+    get_conversation_repo,
+    get_credential_store,
+    get_custom_tool_repo,
+    get_export_repo,
+    get_export_service,
+    get_export_storage,
+    get_file_repo,
+    get_file_storage,
+    get_git_provider_repo,
     get_indexing_producer,
+    get_job_repo,
+    get_job_runner,
+    get_kms,
     get_knowledge_doc_store,
     get_knowledge_graph,
     get_knowledge_importer,
     get_knowledge_indexer,
+    get_llm_repo,
+    get_local_user_repo,
+    get_memory_repo,
+    get_oidc_client,
+    get_oidc_repo,
+    get_process_repo,
+    get_role_repo,
+    get_sandbox_executor,
+    get_session_factory,
+    get_settings_repo,
+    get_workspace_repo,
 )
+from flydesk.api.exports import router as exports_router
+from flydesk.api.feedback import router as feedback_router
+from flydesk.api.files import router as files_router
+from flydesk.api.git_import import router as git_import_router
+from flydesk.api.git_providers import router as git_providers_router
+from flydesk.api.github import router as github_router
+from flydesk.api.health import router as health_router
+from flydesk.api.jobs import router as jobs_router
 from flydesk.api.knowledge import router as knowledge_router
-from flydesk.api.memory import get_memory_repo
-from flydesk.api.memory import router as memory_router
-from flydesk.api.workspaces import get_workspace_repo
-from flydesk.api.workspaces import router as workspace_router
-from flydesk.api.llm_providers import get_llm_repo
 from flydesk.api.llm_providers import router as llm_providers_router
-from flydesk.api.llm_status import get_llm_repo as llm_status_get_llm_repo
 from flydesk.api.llm_status import router as llm_status_router
-from flydesk.api.processes import get_process_repo
-from flydesk.api.processes import router as processes_router
-from flydesk.api.oidc_providers import get_oidc_repo as admin_get_oidc_repo
+from flydesk.api.memory import router as memory_router
 from flydesk.api.oidc_providers import router as oidc_providers_router
-from flydesk.api.prompts import get_settings_repo as prompts_get_settings
+from flydesk.api.openapi_import import router as openapi_import_router
+from flydesk.api.processes import router as processes_router
 from flydesk.api.prompts import router as prompts_router
-from flydesk.api.roles import get_role_repo
 from flydesk.api.roles import router as roles_router
-from flydesk.api.settings import get_settings_repo
 from flydesk.api.settings import router as settings_router
 from flydesk.api.setup import router as setup_router
-from flydesk.api.sso_mappings import get_settings_repo as sso_mappings_get_settings
 from flydesk.api.sso_mappings import router as sso_mappings_router
-from flydesk.api.tools_admin import get_catalog_repo as tools_get_catalog
-from flydesk.api.tools_admin import get_settings_repo as tools_get_settings
 from flydesk.api.tools_admin import router as tools_admin_router
-from flydesk.api.users import get_local_user_repo as users_get_local_user_repo
-from flydesk.api.users import get_session_factory as users_get_session
-from flydesk.api.users import get_settings_repo as users_get_settings
 from flydesk.api.users import router as users_router
+from flydesk.api.workspaces import router as workspace_router
+from flydesk.api.help_docs import router as help_docs_router
 from flydesk.audit.logger import AuditLogger
 from flydesk.auth.middleware import AuthMiddleware
 from flydesk.catalog.repository import CatalogRepository
@@ -188,9 +181,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     settings_repo = SettingsRepository(session_factory)
     app.dependency_overrides[get_settings_repo] = lambda: settings_repo
-    app.dependency_overrides[prompts_get_settings] = lambda: settings_repo
-    app.dependency_overrides[tools_get_settings] = lambda: settings_repo
-    app.dependency_overrides[sso_mappings_get_settings] = lambda: settings_repo
 
     # User memory repository
     from flydesk.memory.repository import MemoryRepository
@@ -209,10 +199,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
 
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
-    app.dependency_overrides[tools_get_catalog] = lambda: catalog_repo
-    app.dependency_overrides[openapi_get_catalog] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
-    app.dependency_overrides[feedback_get_audit] = lambda: audit_logger
     app.dependency_overrides[get_conversation_repo] = lambda: conversation_repo
 
     # LLM provider repository
@@ -220,7 +207,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     llm_repo = LLMProviderRepository(session_factory, config.credential_encryption_key)
     app.dependency_overrides[get_llm_repo] = lambda: llm_repo
-    app.dependency_overrides[llm_status_get_llm_repo] = lambda: llm_repo
 
     # File upload dependencies
     from flydesk.files.extractor import ContentExtractor
@@ -255,7 +241,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "for production."
         )
 
-    from flydesk.api.credentials import CredentialStore, get_kms
+    from flydesk.api.credentials import CredentialStore
 
     app.dependency_overrides[get_kms] = lambda: kms
 
@@ -523,7 +509,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.kg_extractor = kg_extractor
 
     # Document analyser for GitHub import enrichment
-    from flydesk.api.github import get_document_analyzer
     from flydesk.knowledge.analyzer import DocumentAnalyzer
 
     document_analyzer = DocumentAnalyzer(agent_factory)
@@ -535,8 +520,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     auto_trigger = AutoTriggerService(config, job_runner, auto_kg_extract=auto_kg_extract)
     app.state.auto_trigger = auto_trigger
     app.state.auto_kg_extract = auto_kg_extract
-    app.dependency_overrides[knowledge_get_auto_trigger] = lambda: auto_trigger
-    app.dependency_overrides[catalog_get_auto_trigger] = lambda: auto_trigger
+    app.dependency_overrides[get_auto_trigger] = lambda: auto_trigger
     builtin_executor.set_auto_trigger(auto_trigger)
 
     # Agent customization service
@@ -569,19 +553,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm_repo = llm_repo
     app.state.settings_repo = settings_repo
 
-    # Dashboard API dependency overrides
-    app.dependency_overrides[dashboard_get_catalog] = lambda: catalog_repo
-    app.dependency_overrides[dashboard_get_audit] = lambda: audit_logger
-    app.dependency_overrides[dashboard_get_llm] = lambda: llm_repo
-    app.dependency_overrides[dashboard_get_session] = lambda: session_factory
+    # Session factory dependency override (used by dashboard, users, etc.)
+    app.dependency_overrides[get_session_factory] = lambda: session_factory
 
     # Auth / OIDC dependency overrides
     from flydesk.auth.oidc import OIDCClient as _OIDCClientCls
     from flydesk.auth.repository import OIDCProviderRepository
 
     oidc_repo = OIDCProviderRepository(session_factory, config.credential_encryption_key)
-    app.dependency_overrides[auth_get_oidc_repo] = lambda: oidc_repo
-    app.dependency_overrides[admin_get_oidc_repo] = lambda: oidc_repo
+    app.dependency_overrides[get_oidc_repo] = lambda: oidc_repo
     app.state.oidc_repo = oidc_repo
 
     # Git provider repository
@@ -597,20 +577,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             client_id=config.oidc_client_id,
             client_secret=config.oidc_client_secret,
         )
-        app.dependency_overrides[auth_get_oidc_client] = lambda: _default_oidc_client
+        app.dependency_overrides[get_oidc_client] = lambda: _default_oidc_client
 
     # Local user repository
     from flydesk.auth.local_user_repository import LocalUserRepository
-    from flydesk.api.auth import get_local_user_repo
 
     local_user_repo = LocalUserRepository(session_factory)
     app.state.local_user_repo = local_user_repo
     app.dependency_overrides[get_local_user_repo] = lambda: local_user_repo
-
-    # Users API dependency overrides
-    app.dependency_overrides[users_get_session] = lambda: session_factory
-    app.dependency_overrides[users_get_settings] = lambda: settings_repo
-    app.dependency_overrides[users_get_local_user_repo] = lambda: local_user_repo
 
     # Store config, session factory, and conversation repo in app state
     app.state.config = config

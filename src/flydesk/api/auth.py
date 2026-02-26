@@ -14,6 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_local_user_repo, get_oidc_client, get_oidc_repo
 from flydesk.auth.oidc import OIDCClient, generate_pkce_pair
 from flydesk.auth.providers import get_provider as get_provider_profile
 from flydesk.auth.repository import OIDCProviderRepository
@@ -79,35 +80,6 @@ class LocalLoginResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_local_user_repo():
-    """Provide a LocalUserRepository instance.
-
-    In production this is wired in the lifespan.
-    """
-    raise NotImplementedError(
-        "get_local_user_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_oidc_repo() -> OIDCProviderRepository:
-    """Provide an OIDCProviderRepository instance.
-
-    In production this is wired in the lifespan.
-    """
-    raise NotImplementedError(
-        "get_oidc_repo must be overridden via app.dependency_overrides"
-    )
-
-
-def get_oidc_client() -> OIDCClient | None:
-    """Provide a default OIDCClient configured from env.
-
-    Returns ``None`` when no issuer URL is configured.
-    """
-    return None
-
 
 OIDCRepo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 

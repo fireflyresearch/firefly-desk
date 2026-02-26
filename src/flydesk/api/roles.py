@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from flydesk.api.deps import get_role_repo
 from flydesk.rbac.guards import AdminRoles
 from flydesk.rbac.models import AccessScopes, Role
 from flydesk.rbac.permissions import Permission
@@ -27,18 +28,6 @@ router = APIRouter(tags=["roles"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_role_repo() -> RoleRepository:
-    """Provide a RoleRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden via app.dependency_overrides.
-    """
-    raise NotImplementedError(
-        "get_role_repo must be overridden via app.dependency_overrides"
-    )
-
 
 RoleRepo = Annotated[RoleRepository, Depends(get_role_repo)]
 

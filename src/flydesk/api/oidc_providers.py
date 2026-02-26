@@ -17,6 +17,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_oidc_repo
 from flydesk.auth.repository import OIDCProviderRepository
 from flydesk.models.oidc import OIDCProviderRow
 from flydesk.rbac.guards import AdminSSO
@@ -79,18 +80,6 @@ class OIDCTestResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_oidc_repo() -> OIDCProviderRepository:
-    """Provide an OIDCProviderRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_oidc_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 

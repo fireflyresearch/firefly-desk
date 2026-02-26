@@ -17,6 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from flydesk.api.deps import get_conversation_repo
 from flydesk.conversation.models import Conversation, ConversationWithMessages, Message
 from flydesk.conversation.repository import ConversationRepository
 
@@ -26,18 +27,6 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-
-
-def get_conversation_repo() -> ConversationRepository:
-    """Provide a ConversationRepository instance.
-
-    In production this is wired to the real database session factory.
-    In tests the dependency is overridden with a mock.
-    """
-    raise NotImplementedError(
-        "get_conversation_repo must be overridden via app.dependency_overrides"
-    )
-
 
 Repo = Annotated[ConversationRepository, Depends(get_conversation_repo)]
 
