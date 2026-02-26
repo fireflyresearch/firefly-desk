@@ -48,6 +48,21 @@
 			'Reviewing audit trails...',
 			'Checking recent audit events...',
 			'Inspecting the audit log...'
+		],
+		save_memory: [
+			'Saving to memory...',
+			'Remembering this for later...',
+			'Storing information...'
+		],
+		recall_memories: [
+			'Recalling memories...',
+			'Searching past conversations...',
+			'Looking up what I remember...'
+		],
+		web_search: [
+			'Searching the web...',
+			'Looking up information online...',
+			'Querying search results...'
 		]
 	};
 

@@ -26,6 +26,10 @@
 	let error = $state('');
 	let searchQuery = $state('');
 	let categoryFilter = $state('all');
+	let showAddForm = $state(false);
+	let newContent = $state('');
+	let newCategory = $state('general');
+	let creating = $state(false);
 
 	let filteredMemories = $derived(
 		memories.filter((m) => {
@@ -66,6 +70,26 @@
 		}
 	}
 
+	async function createMemory() {
+		if (!newContent.trim()) return;
+		creating = true;
+		try {
+			const memory = await apiJson<UserMemory>('/memory', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content: newContent.trim(), category: newCategory })
+			});
+			memories = [memory, ...memories];
+			newContent = '';
+			newCategory = 'general';
+			showAddForm = false;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to create memory';
+		} finally {
+			creating = false;
+		}
+	}
+
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '--';
 		const d = new Date(dateStr);
@@ -85,17 +109,60 @@
 
 <div class="mx-auto max-w-3xl p-6">
 	<!-- Header -->
-	<div class="mb-6 flex items-center gap-3">
-		<div class="rounded-lg bg-accent/10 p-2">
-			<Brain size={20} class="text-accent" />
+	<div class="mb-6 flex items-center justify-between">
+		<div class="flex items-center gap-3">
+			<div class="rounded-lg bg-accent/10 p-2">
+				<Brain size={20} class="text-accent" />
+			</div>
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Memories</h1>
+				<p class="text-sm text-text-secondary">
+					Things the agent has remembered about you across conversations
+				</p>
+			</div>
 		</div>
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">Memories</h1>
-			<p class="text-sm text-text-secondary">
-				Things the agent has remembered about you across conversations
-			</p>
-		</div>
+		<button
+			type="button"
+			onclick={() => (showAddForm = !showAddForm)}
+			class="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-surface-hover"
+		>
+			{showAddForm ? 'Cancel' : '+ Add Memory'}
+		</button>
 	</div>
+
+	{#if showAddForm}
+		<div class="mb-4 rounded-lg border border-accent/30 bg-accent/5 p-4">
+			<textarea
+				bind:value={newContent}
+				placeholder="What should the agent remember? e.g., 'I prefer concise responses' or 'Our team uses React with TypeScript'"
+				rows="3"
+				class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-secondary/50 focus:border-accent"
+			></textarea>
+			<div class="mt-3 flex items-center justify-between">
+				<select
+					bind:value={newCategory}
+					class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+				>
+					<option value="general">General</option>
+					<option value="preference">Preference</option>
+					<option value="fact">Fact</option>
+					<option value="workflow">Workflow</option>
+				</select>
+				<button
+					type="button"
+					onclick={createMemory}
+					disabled={creating || !newContent.trim()}
+					class="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+				>
+					{#if creating}
+						<Loader2 size={14} class="inline animate-spin" /> Saving...
+					{:else}
+						Save Memory
+					{/if}
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	{#if error}
 		<div
