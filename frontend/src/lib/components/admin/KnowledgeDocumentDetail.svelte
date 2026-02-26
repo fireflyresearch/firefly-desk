@@ -58,7 +58,7 @@
 		onUpdated?: () => void;
 		onToggleFullscreen?: () => void;
 		isFullscreen?: boolean;
-		workspaces?: {id: string; name: string}[];
+		workspaces?: {id: string; name: string; is_system?: boolean}[];
 	}
 
 	let { documentId, onClose, onDeleted, onUpdated, onToggleFullscreen, isFullscreen = false, workspaces }: Props = $props();
@@ -609,9 +609,9 @@
 					{/if}
 
 					<!-- Workspaces -->
-					{#if (doc.workspace_ids ?? []).length > 0}
-						<div class="flex flex-col gap-1.5">
-							<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+					<div class="flex flex-col gap-1.5">
+						<span class="text-xs font-medium text-text-secondary">Workspaces</span>
+						{#if (doc.workspace_ids ?? []).length > 0}
 							<div class="flex flex-wrap gap-1.5">
 								{#each (doc.workspace_ids ?? []) as wid}
 									<span class="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
@@ -619,8 +619,10 @@
 									</span>
 								{/each}
 							</div>
-						</div>
-					{/if}
+						{:else}
+							<span class="text-xs italic text-text-secondary/60">No workspaces assigned</span>
+						{/if}
+					</div>
 
 					<!-- Content preview -->
 					{#if doc.content}

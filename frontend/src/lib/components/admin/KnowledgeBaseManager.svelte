@@ -59,7 +59,7 @@
 	let error = $state('');
 	let searchQuery = $state('');
 	let statusFilter = $state('all');
-	let workspaces = $state<{id: string; name: string}[]>([]);
+	let workspaces = $state<{id: string; name: string; is_system: boolean}[]>([]);
 	let workspaceFilter = $state('all');
 
 	// Selection
@@ -126,8 +126,8 @@
 
 	async function loadWorkspaces() {
 		try {
-			const result = await apiJson<{id: string; name: string; description: string; icon: string; color: string; roles: string[]; users: string[]}[]>('/workspaces');
-			workspaces = result.map((w) => ({ id: w.id, name: w.name }));
+			const result = await apiJson<{id: string; name: string; description: string; icon: string; color: string; is_system: boolean; roles: string[]; users: string[]}[]>('/workspaces');
+			workspaces = result.map((w) => ({ id: w.id, name: w.name, is_system: w.is_system }));
 		} catch {
 			// Workspaces are optional — silently ignore errors
 		}
@@ -862,8 +862,9 @@
 								{#if (doc.workspace_ids ?? []).length > 0}
 									<div class="flex flex-wrap gap-1">
 										{#each (doc.workspace_ids ?? []).slice(0, 2) as wid}
+											{@const ws = workspaces.find((w) => w.id === wid)}
 											<span class="rounded bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary">
-												{workspaces.find((w) => w.id === wid)?.name ?? wid}
+												{#if ws?.is_system}<svg class="mr-0.5 inline-block h-3 w-3 align-text-bottom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{/if}{ws?.name ?? wid}
 											</span>
 										{/each}
 										{#if (doc.workspace_ids ?? []).length > 2}
