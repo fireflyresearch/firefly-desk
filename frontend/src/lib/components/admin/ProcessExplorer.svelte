@@ -95,6 +95,10 @@
 	let searchQuery = $state('');
 	let statusFilter = $state<ProcessStatus | 'all'>('all');
 
+	// Pagination
+	let currentPage = $state(1);
+	let pageSize = $state(20);
+
 	// Selected process
 	let selectedProcess = $state<BusinessProcess | null>(null);
 	let loadingDetail = $state(false);
@@ -162,6 +166,11 @@
 
 		return result;
 	});
+
+	let totalPages = $derived(Math.ceil(filteredProcesses.length / pageSize));
+	let paginatedProcesses = $derived(
+		filteredProcesses.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+	);
 
 	let isDiscovering = $derived(
 		discoveryJobStatus === 'pending' || discoveryJobStatus === 'running'
@@ -241,6 +250,12 @@
 	$effect(() => {
 		loadProcesses();
 		loadAnalysisSettings();
+	});
+
+	$effect(() => {
+		void searchQuery;
+		void statusFilter;
+		currentPage = 1;
 	});
 
 	// -----------------------------------------------------------------------
@@ -629,7 +644,7 @@
 				</div>
 			{:else}
 				<ul class="flex flex-col gap-0.5 p-2">
-					{#each filteredProcesses as process}
+					{#each paginatedProcesses as process}
 						{@const isSelected = selectedProcess?.id === process.id}
 						<li>
 							<button
@@ -680,6 +695,30 @@
 				</ul>
 			{/if}
 		</div>
+
+		<!-- Pagination -->
+		{#if filteredProcesses.length > pageSize}
+			<div class="flex shrink-0 items-center justify-between border-t border-border/50 px-3 py-1.5">
+				<span class="text-[10px] text-text-secondary">
+					{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredProcesses.length)} of {filteredProcesses.length}
+				</span>
+				<div class="flex items-center gap-1">
+					<button
+						type="button"
+						disabled={currentPage <= 1}
+						onclick={() => currentPage--}
+						class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+					>Prev</button>
+					<span class="text-[10px] text-text-secondary">{currentPage}/{totalPages}</span>
+					<button
+						type="button"
+						disabled={currentPage >= totalPages}
+						onclick={() => currentPage++}
+						class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+					>Next</button>
+				</div>
+			</div>
+		{/if}
 
 		<!-- Auto-analyze toggle and re-discover at bottom -->
 		<div class="shrink-0 border-t border-border/50 px-3 py-3">

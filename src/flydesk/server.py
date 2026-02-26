@@ -106,18 +106,24 @@ logger = logging.getLogger(__name__)
 
 
 async def _apply_column_migrations(conn):
-    """Add columns that create_all() can't add to existing tables."""
+    """Add columns that create_all() can't add to existing tables.
+
+    Uses SAVEPOINTs so that a failed ALTER TABLE (column already exists)
+    does not abort the surrounding transaction on PostgreSQL.
+    """
     migrations = [
         ("external_systems", "workspace_id", "VARCHAR(255)"),
         ("kb_documents", "workspace_id", "VARCHAR(255)"),
     ]
     for table, column, col_type in migrations:
         try:
+            nested = await conn.begin_nested()
             await conn.execute(text(
                 f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
             ))
+            await nested.commit()
         except Exception:
-            pass  # Column already exists
+            await nested.rollback()  # Column already exists
 
 
 @asynccontextmanager

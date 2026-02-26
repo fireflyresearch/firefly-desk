@@ -579,12 +579,13 @@
 <!-- Reusable document table snippet                                        -->
 <!-- ===================================================================== -->
 {#snippet documentTable()}
+	<div class="flex h-full flex-col overflow-hidden">
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<Loader2 size={24} class="animate-spin text-text-secondary" />
 		</div>
 	{:else}
-		<div class="overflow-x-auto">
+		<div class="min-h-0 flex-1 overflow-auto">
 			<table class="w-full text-left text-sm">
 				<thead>
 					<tr class="border-b border-border bg-surface-secondary">
@@ -748,4 +749,5 @@
 			</div>
 		{/if}
 	{/if}
+	</div>
 {/snippet}

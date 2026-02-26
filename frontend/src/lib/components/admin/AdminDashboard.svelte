@@ -211,8 +211,10 @@
 			else if (ratio <= 0.75) level = 3;
 			else level = 4;
 
-			// Track month headers (when first day of a new month appears in a week)
-			if (cursor.getMonth() !== lastMonth && cursor.getDay() === 0) {
+			// Track month headers — only for dates within the selected year
+			// (skip December padding days from the previous year)
+			const inYear = cursor.getFullYear() === selectedYear;
+			if (inYear && cursor.getMonth() !== lastMonth) {
 				monthHeaders.push({ label: monthNames[cursor.getMonth()], col: weekIndex });
 				lastMonth = cursor.getMonth();
 			}
@@ -713,38 +715,38 @@
 						</div>
 					</div>
 
-					<div class="relative">
+					<div class="relative overflow-x-auto">
 						<!-- Month headers -->
-						<div class="mb-1 flex gap-[2px] pl-8">
+						<div class="mb-1 flex pl-7" style="gap: 0;">
 							{#each heatmapData.monthHeaders as header, i}
 								{@const nextCol = i < heatmapData.monthHeaders.length - 1 ? heatmapData.monthHeaders[i + 1].col : heatmapData.weeks.length}
 								{@const span = nextCol - header.col}
-								<div style="width: {span * 14}px; margin-left: {i === 0 ? header.col * 14 : 0}px;"
-									 class="text-[10px] text-text-secondary">
+								<div style="width: {span * 13}px; {i === 0 && header.col > 0 ? `margin-left: ${header.col * 13}px;` : ''}"
+									 class="text-[10px] leading-none text-text-secondary truncate">
 									{header.label}
 								</div>
 							{/each}
 						</div>
 
-						<div class="flex gap-2">
+						<div class="flex gap-1.5">
 							<!-- Day-of-week labels — height = 7 cells × h-3 (12px) + 6 gaps × 2px -->
-							<div class="flex flex-col justify-between" style="height: calc(7 * 12px + 6 * 2px);">
-								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
-								<span class="text-[10px] leading-3 text-text-secondary">Mon</span>
-								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
-								<span class="text-[10px] leading-3 text-text-secondary">Wed</span>
-								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
-								<span class="text-[10px] leading-3 text-text-secondary">Fri</span>
-								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
+							<div class="flex shrink-0 flex-col justify-between" style="height: calc(7 * 11px + 6 * 2px);">
+								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">Mon</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">Wed</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">Fri</span>
+								<span class="text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
 							</div>
 
 							<!-- Heatmap grid -->
-							<div class="flex gap-[2px] overflow-x-auto">
+							<div class="flex gap-[2px]">
 								{#each heatmapData.weeks as week, wi}
 									<div class="flex flex-col gap-[2px]">
 										{#each week.cells as cell}
 											<div
-												class="h-3 w-3 rounded-sm {heatmapLevelClasses[cell.level]}"
+												class="h-[11px] w-[11px] rounded-[2px] {heatmapLevelClasses[cell.level]}"
 												role="presentation"
 												onmouseenter={(e) => showTooltip(cell, e)}
 												onmouseleave={hideTooltip}
@@ -759,7 +761,7 @@
 						{#if hoveredCell}
 							<div
 								class="pointer-events-none fixed z-50 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs shadow-lg"
-								style="left: {hoveredCell.x + 12}px; top: {hoveredCell.y - 10}px;"
+								style="left: {hoveredCell.x}px; top: {hoveredCell.y - 40}px;"
 							>
 								<div class="font-medium text-text-primary">{formatHeatmapDate(hoveredCell.date)}</div>
 								<div class="text-text-secondary">{hoveredCell.count} message{hoveredCell.count !== 1 ? 's' : ''}</div>
@@ -771,7 +773,7 @@
 					<div class="mt-3 flex items-center justify-end gap-1.5">
 						<span class="text-[10px] text-text-secondary">Less</span>
 						{#each heatmapLevelClasses as cls}
-							<div class="h-3 w-3 rounded-sm {cls}"></div>
+							<div class="h-[11px] w-[11px] rounded-[2px] {cls}"></div>
 						{/each}
 						<span class="text-[10px] text-text-secondary">More</span>
 					</div>
