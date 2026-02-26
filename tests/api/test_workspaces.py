@@ -202,6 +202,7 @@ class TestGetWorkspace:
 
 class TestUpdateWorkspace:
     async def test_update_workspace_success(self, admin_client, mock_repo):
+        mock_repo.get.return_value = _sample_workspace()
         updated = _sample_workspace()
         updated.name = "Updated Name"
         mock_repo.update.return_value = updated
@@ -213,7 +214,7 @@ class TestUpdateWorkspace:
         mock_repo.update.assert_awaited_once()
 
     async def test_update_workspace_not_found(self, admin_client, mock_repo):
-        mock_repo.update.return_value = None
+        mock_repo.get.return_value = None
         response = await admin_client.put(
             "/api/workspaces/no-such",
             json={"name": "Updated Name"},
@@ -222,6 +223,7 @@ class TestUpdateWorkspace:
 
     async def test_update_workspace_partial(self, admin_client, mock_repo):
         """Only update specific fields."""
+        mock_repo.get.return_value = _sample_workspace()
         updated = _sample_workspace()
         updated.color = "#ef4444"
         mock_repo.update.return_value = updated
@@ -313,3 +315,55 @@ class TestFieldRoundtrip:
         assert "engineer" in data["roles"]
         assert "user-1" in data["users"]
         assert "user-2" in data["users"]
+
+
+# ---------------------------------------------------------------------------
+# System workspace protection
+# ---------------------------------------------------------------------------
+
+
+def _system_workspace(workspace_id: str = "ws-flydesk-internals") -> Workspace:
+    return Workspace(
+        id=workspace_id,
+        name="Flydesk Internals",
+        description="System documentation and internal knowledge",
+        is_system=True,
+    )
+
+
+class TestSystemWorkspaceProtection:
+    async def test_cannot_update_system_workspace(self, admin_client, mock_repo):
+        mock_repo.get.return_value = _system_workspace()
+        response = await admin_client.put(
+            "/api/workspaces/ws-flydesk-internals",
+            json={"name": "Renamed"},
+        )
+        assert response.status_code == 403
+        assert "system" in response.json()["detail"].lower()
+
+    async def test_cannot_delete_system_workspace(self, admin_client, mock_repo):
+        mock_repo.get.return_value = _system_workspace()
+        response = await admin_client.delete("/api/workspaces/ws-flydesk-internals")
+        assert response.status_code == 403
+        assert "system" in response.json()["detail"].lower()
+
+    async def test_can_update_regular_workspace(self, admin_client, mock_repo):
+        mock_repo.get.return_value = Workspace(
+            id="ws-user", name="My Workspace", is_system=False
+        )
+        mock_repo.update.return_value = Workspace(
+            id="ws-user", name="Renamed", is_system=False
+        )
+        response = await admin_client.put(
+            "/api/workspaces/ws-user",
+            json={"name": "Renamed"},
+        )
+        assert response.status_code == 200
+
+    async def test_can_delete_regular_workspace(self, admin_client, mock_repo):
+        mock_repo.get.return_value = Workspace(
+            id="ws-user", name="My Workspace", is_system=False
+        )
+        mock_repo.delete.return_value = None
+        response = await admin_client.delete("/api/workspaces/ws-user")
+        assert response.status_code == 204

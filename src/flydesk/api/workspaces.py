@@ -60,6 +60,11 @@ async def get_workspace(workspace_id: str, repo: Repo) -> Workspace:
 @router.put("/{workspace_id}", dependencies=[AdminOnly])
 async def update_workspace(workspace_id: str, body: UpdateWorkspace, repo: Repo) -> Workspace:
     """Update an existing workspace."""
+    existing = await repo.get(workspace_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+    if existing.is_system:
+        raise HTTPException(status_code=403, detail="Cannot modify a system workspace")
     workspace = await repo.update(workspace_id, body)
     if workspace is None:
         raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
@@ -72,5 +77,7 @@ async def delete_workspace(workspace_id: str, repo: Repo) -> Response:
     existing = await repo.get(workspace_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Workspace {workspace_id} not found")
+    if existing.is_system:
+        raise HTTPException(status_code=403, detail="Cannot delete a system workspace")
     await repo.delete(workspace_id)
     return Response(status_code=204)

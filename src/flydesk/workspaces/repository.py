@@ -89,6 +89,7 @@ class WorkspaceRepository:
                 description=row.description,
                 icon=row.icon,
                 color=row.color,
+                is_system=row.is_system,
                 roles=roles,
                 users=users,
             )
@@ -121,6 +122,7 @@ class WorkspaceRepository:
                     description=row.description,
                     icon=row.icon,
                     color=row.color,
+                    is_system=row.is_system,
                     roles=roles,
                     users=users,
                 ))
@@ -191,6 +193,7 @@ class WorkspaceRepository:
                 description=row.description,
                 icon=row.icon,
                 color=row.color,
+                is_system=row.is_system,
                 roles=roles,
                 users=users,
             )
@@ -256,6 +259,7 @@ class WorkspaceRepository:
                     description=row.description,
                     icon=row.icon,
                     color=row.color,
+                    is_system=row.is_system,
                     roles=ws_roles,
                     users=ws_users,
                 ))

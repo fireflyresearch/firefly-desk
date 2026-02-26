@@ -658,6 +658,42 @@ def _init_auth(
 
 
 # ---------------------------------------------------------------------------
+# Default workspace bootstrap
+# ---------------------------------------------------------------------------
+
+DEFAULT_WORKSPACE_ID = "ws-flydesk-internals"
+
+
+async def _ensure_default_workspace(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> str:
+    """Ensure the 'Flydesk Internals' default workspace exists (idempotent).
+
+    Uses a stable ID so the workspace is the same across restarts.
+    Returns the workspace ID.
+    """
+    from flydesk.models.workspace import WorkspaceRow
+
+    async with session_factory() as session:
+        existing = await session.get(WorkspaceRow, DEFAULT_WORKSPACE_ID)
+        if existing is not None:
+            logger.debug("Default workspace already exists.")
+            return DEFAULT_WORKSPACE_ID
+
+        row = WorkspaceRow(
+            id=DEFAULT_WORKSPACE_ID,
+            name="Flydesk Internals",
+            description="System documentation and internal knowledge",
+            is_system=True,
+        )
+        session.add(row)
+        await session.commit()
+        logger.info("Created default workspace 'Flydesk Internals'.")
+
+    return DEFAULT_WORKSPACE_ID
+
+
+# ---------------------------------------------------------------------------
 # Platform documentation auto-indexing
 # ---------------------------------------------------------------------------
 
@@ -666,14 +702,16 @@ async def _seed_platform_docs(
     config: DeskConfig,
     indexer: Any,
     catalog_repo: CatalogRepository,
+    default_workspace_ids: list[str] | None = None,
 ) -> None:
     """Auto-index platform documentation from the docs/ directory."""
+    ws_ids = default_workspace_ids or []
     try:
         if config.docs_auto_index:
             from flydesk.knowledge.docs_loader import DocsLoader
 
             docs_path = config.docs_path
-            docs = DocsLoader.load_from_directory(docs_path)
+            docs = DocsLoader.load_from_directory(docs_path, default_workspace_ids=ws_ids)
             if docs:
                 existing_docs: dict[str, str] = {}
                 try:
@@ -690,6 +728,12 @@ async def _seed_platform_docs(
                 new_docs, updated_docs, removed_ids = DocsLoader.detect_changes(
                     docs_path, existing_docs
                 )
+
+                # Assign default workspace to new and updated docs
+                for doc in new_docs:
+                    doc.workspace_ids = list(ws_ids)
+                for doc in updated_docs:
+                    doc.workspace_ids = list(ws_ids)
 
                 for doc in new_docs:
                     try:
@@ -812,8 +856,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.conversation_repo = repos["conversation_repo"]
     app.state.started_at = datetime.now(timezone.utc)
 
-    # 11. Auto-index platform docs
-    await _seed_platform_docs(config, knowledge["indexer"], repos["catalog_repo"])
+    # 11. Ensure default workspace exists
+    default_ws_id = await _ensure_default_workspace(session_factory)
+
+    # 12. Auto-index platform docs (assigned to default workspace)
+    await _seed_platform_docs(
+        config, knowledge["indexer"], repos["catalog_repo"],
+        default_workspace_ids=[default_ws_id],
+    )
 
     logger.info(
         "Firefly Desk started (dev_mode=%s, db=%s, memory=%s)",
