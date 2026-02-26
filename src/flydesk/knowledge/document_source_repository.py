@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from cryptography.fernet import Fernet
 from sqlalchemy import delete, select
@@ -84,7 +85,7 @@ class DocumentSourceRepository:
                     if isinstance(encryption_key, str)
                     else encryption_key
                 )
-            except (ValueError, Exception):
+            except ValueError:
                 logger.warning(
                     "Invalid encryption key supplied; falling back to transient dev key."
                 )
@@ -162,7 +163,11 @@ class DocumentSourceRepository:
 
     async def get_row(self, source_id: str) -> DocumentSourceRow | None:
         async with self._session_factory() as session:
-            return await session.get(DocumentSourceRow, source_id)
+            row = await session.get(DocumentSourceRow, source_id)
+            if row is not None:
+                await session.refresh(row)
+                session.expunge(row)
+            return row
 
     async def list_all(self) -> list[DocumentSource]:
         async with self._session_factory() as session:
@@ -177,7 +182,10 @@ class DocumentSourceRepository:
                     DocumentSourceRow.is_active.is_(True),
                 )
             )
-            return list(result.scalars().all())
+            rows = list(result.scalars().all())
+            for row in rows:
+                session.expunge(row)
+            return rows
 
     async def update(
         self,
@@ -198,7 +206,7 @@ class DocumentSourceRepository:
             await session.refresh(row)
             return self._to_public(row)
 
-    async def update_last_sync(self, source_id: str, last_sync_at) -> None:
+    async def update_last_sync(self, source_id: str, last_sync_at: datetime | None) -> None:
         async with self._session_factory() as session:
             row = await session.get(DocumentSourceRow, source_id)
             if row:
