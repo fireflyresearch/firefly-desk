@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flydesk.models.base import Base
@@ -31,6 +31,7 @@ class WorkspaceRow(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     icon: Mapped[str] = mapped_column(String(50), nullable=False, default="folder")
     color: Mapped[str] = mapped_column(String(20), nullable=False, default="#6366f1")
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

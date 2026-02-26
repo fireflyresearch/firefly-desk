@@ -19,6 +19,7 @@ class Workspace(BaseModel):
     description: str = ""
     icon: str = "folder"
     color: str = "#6366f1"
+    is_system: bool = False
     roles: list[str] = Field(default_factory=list)
     users: list[str] = Field(default_factory=list)
 
