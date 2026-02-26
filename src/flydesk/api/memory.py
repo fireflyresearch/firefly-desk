@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from flydesk.api.deps import get_memory_repo
-from flydesk.memory.models import UpdateMemory
+from flydesk.memory.models import CreateMemory, UpdateMemory
 from flydesk.memory.repository import MemoryRepository
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
@@ -31,6 +31,19 @@ async def list_memories(
     user_id = _user_id(request)
     memories = await repo.list_for_user(user_id, category=category)
     return [m.model_dump() for m in memories]
+
+
+@router.post("", status_code=201)
+async def create_memory(
+    body: CreateMemory,
+    request: Request,
+    repo: MemoryRepository = Depends(get_memory_repo),
+):
+    """Create a new memory manually (source forced to 'user')."""
+    user_id = _user_id(request)
+    body.source = "user"
+    memory = await repo.create(user_id, body)
+    return memory.model_dump()
 
 
 @router.delete("/{memory_id}")
