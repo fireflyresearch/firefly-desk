@@ -10,16 +10,12 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { onMount } from 'svelte';
-	import { initTheme, resolvedTheme } from '$lib/stores/theme';
+	import { initTheme } from '$lib/stores/theme';
 
 	let { children } = $props();
 
 	onMount(() => {
 		initTheme();
-	});
-
-	$effect(() => {
-		document.documentElement.dataset.theme = $resolvedTheme;
 	});
 </script>
 
