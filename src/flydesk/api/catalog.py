@@ -71,10 +71,56 @@ async def create_system(
 
 @router.get("/systems", dependencies=[CatalogRead])
 async def list_systems(
-    repo: Repo, workspace_id: str | None = Query(default=None)
-) -> list[ExternalSystem]:
-    """Return every registered external system, optionally filtered by workspace."""
-    return await repo.list_systems(workspace_id=workspace_id)
+    repo: Repo,
+    workspace_id: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="Filter by status"),
+    search: str | None = Query(default=None, description="Search by name"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """Return external systems with optional filters and pagination."""
+    status_enum = None
+    if status is not None:
+        try:
+            status_enum = SystemStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status '{status}'")
+
+    systems, total = await repo.list_systems(
+        workspace_id=workspace_id,
+        status=status_enum,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return {"items": [s.model_dump() for s in systems], "total": total}
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+class BulkStatusRequest(BaseModel):
+    ids: list[str]
+    status: str
+
+
+@router.post("/systems/bulk-delete", dependencies=[CatalogDelete])
+async def bulk_delete_systems(body: BulkDeleteRequest, repo: Repo) -> dict:
+    """Delete multiple systems by ID."""
+    deleted = await repo.bulk_delete_systems(body.ids)
+    return {"deleted": deleted}
+
+
+@router.post("/systems/bulk-status", dependencies=[CatalogWrite])
+async def bulk_update_status(body: BulkStatusRequest, repo: Repo) -> dict:
+    """Update status for multiple systems."""
+    try:
+        target = SystemStatus(body.status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{body.status}'")
+    updated = await repo.bulk_update_status(body.ids, target)
+    return {"updated": updated}
 
 
 @router.get("/systems/{system_id}", dependencies=[CatalogRead])

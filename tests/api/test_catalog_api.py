@@ -77,7 +77,7 @@ def mock_repo():
     repo = AsyncMock()
     repo.create_system = AsyncMock(return_value=None)
     repo.get_system = AsyncMock(return_value=None)
-    repo.list_systems = AsyncMock(return_value=[])
+    repo.list_systems = AsyncMock(return_value=([], 0))
     repo.update_system = AsyncMock(return_value=None)
     repo.delete_system = AsyncMock(return_value=None)
     repo.create_endpoint = AsyncMock(return_value=None)
@@ -178,18 +178,21 @@ class TestCreateSystem:
 
 class TestListSystems:
     async def test_list_systems_empty(self, admin_client, mock_repo):
-        mock_repo.list_systems.return_value = []
-        response = await admin_client.get("/api/catalog/systems")
-        assert response.status_code == 200
-        assert response.json() == []
-
-    async def test_list_systems_returns_items(self, admin_client, mock_repo):
-        mock_repo.list_systems.return_value = [_sample_system()]
+        mock_repo.list_systems.return_value = ([], 0)
         response = await admin_client.get("/api/catalog/systems")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "sys-1"
+        assert data["items"] == []
+        assert data["total"] == 0
+
+    async def test_list_systems_returns_items(self, admin_client, mock_repo):
+        mock_repo.list_systems.return_value = ([_sample_system()], 1)
+        response = await admin_client.get("/api/catalog/systems")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["items"]) == 1
+        assert data["items"][0]["id"] == "sys-1"
+        assert data["total"] == 1
 
 
 class TestGetSystem:

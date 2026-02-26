@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.catalog.enums import SystemStatus
@@ -77,14 +77,38 @@ class CatalogRepository:
                 return None
             return self._row_to_system(row)
 
-    async def list_systems(self, *, workspace_id: str | None = None) -> list[ExternalSystem]:
-        """Return every registered external system, optionally filtered by workspace."""
+    async def list_systems(
+        self,
+        *,
+        workspace_id: str | None = None,
+        status: SystemStatus | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ExternalSystem], int]:
+        """Return systems with optional filters. Returns (items, total_count)."""
         async with self._session_factory() as session:
             stmt = select(ExternalSystemRow)
+            count_stmt = select(func.count()).select_from(ExternalSystemRow)
+
             if workspace_id is not None:
                 stmt = stmt.where(ExternalSystemRow.workspace_id == workspace_id)
+                count_stmt = count_stmt.where(ExternalSystemRow.workspace_id == workspace_id)
+            if status is not None:
+                stmt = stmt.where(ExternalSystemRow.status == status.value)
+                count_stmt = count_stmt.where(ExternalSystemRow.status == status.value)
+            if search is not None:
+                pattern = f"%{search}%"
+                stmt = stmt.where(ExternalSystemRow.name.ilike(pattern))
+                count_stmt = count_stmt.where(ExternalSystemRow.name.ilike(pattern))
+
+            total_result = await session.execute(count_stmt)
+            total = total_result.scalar() or 0
+
+            stmt = stmt.order_by(ExternalSystemRow.name).limit(limit).offset(offset)
             result = await session.execute(stmt)
-            return [self._row_to_system(r) for r in result.scalars().all()]
+            systems = [self._row_to_system(r) for r in result.scalars().all()]
+            return systems, total
 
     async def update_system(self, system: ExternalSystem) -> None:
         """Update an existing external system (raises ``ValueError`` if missing)."""
@@ -112,6 +136,30 @@ class CatalogRepository:
                 delete(ExternalSystemRow).where(ExternalSystemRow.id == system_id)
             )
             await session.commit()
+
+    async def bulk_delete_systems(self, ids: list[str]) -> int:
+        """Delete multiple systems. Returns count of deleted rows."""
+        if not ids:
+            return 0
+        async with self._session_factory() as session:
+            result = await session.execute(
+                delete(ExternalSystemRow).where(ExternalSystemRow.id.in_(ids))
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+    async def bulk_update_status(self, ids: list[str], status: SystemStatus) -> int:
+        """Update status for multiple systems. Returns count of updated rows."""
+        if not ids:
+            return 0
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(ExternalSystemRow)
+                .where(ExternalSystemRow.id.in_(ids))
+                .values(status=status.value)
+            )
+            await session.commit()
+            return result.rowcount or 0
 
     # -- Service Endpoints --
 

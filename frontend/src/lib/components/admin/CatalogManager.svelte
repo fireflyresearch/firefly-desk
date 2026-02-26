@@ -19,7 +19,8 @@
 		Sparkles,
 		X,
 		CheckCircle2,
-		AlertCircle
+		AlertCircle,
+		Search
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -78,6 +79,17 @@
 	let loading = $state(true);
 	let error = $state('');
 
+	// Pagination & filtering state
+	let totalSystems = $state(0);
+	let currentPage = $state(1);
+	let pageSize = $state(20);
+	let searchTerm = $state('');
+	let statusFilter = $state('');
+
+	// Checkbox selection
+	let selectedIds = $state<Set<string>>(new Set());
+	let selectAll = $derived(systems.length > 0 && systems.every(s => selectedIds.has(s.id)));
+
 	// Expanded rows (system IDs whose endpoints are visible)
 	let expandedIds = $state<Set<string>>(new Set());
 	let endpointCache = $state<Record<string, Endpoint[]>>({});
@@ -122,7 +134,18 @@
 		loading = true;
 		error = '';
 		try {
-			systems = await apiJson<System[]>('/catalog/systems');
+			const params = new URLSearchParams();
+			params.set('limit', String(pageSize));
+			params.set('offset', String((currentPage - 1) * pageSize));
+			if (searchTerm.trim()) params.set('search', searchTerm.trim());
+			if (statusFilter) params.set('status', statusFilter);
+
+			const result = await apiJson<{ items: System[]; total: number }>(
+				`/catalog/systems?${params.toString()}`
+			);
+			systems = result.items;
+			totalSystems = result.total;
+			selectedIds = new Set(); // clear selection on load
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load systems';
 		} finally {
@@ -158,6 +181,79 @@
 			loadEndpoints(systemId);
 		}
 		expandedIds = next;
+	}
+
+	// -----------------------------------------------------------------------
+	// Search, filter & pagination
+	// -----------------------------------------------------------------------
+
+	let searchDebounce: ReturnType<typeof setTimeout>;
+	function onSearchInput() {
+		clearTimeout(searchDebounce);
+		searchDebounce = setTimeout(() => {
+			currentPage = 1;
+			loadSystems();
+		}, 300);
+	}
+
+	function onStatusFilterChange() {
+		currentPage = 1;
+		loadSystems();
+	}
+
+	let totalPages = $derived(Math.ceil(totalSystems / pageSize) || 1);
+
+	function goToPage(page: number) {
+		if (page < 1 || page > totalPages) return;
+		currentPage = page;
+		loadSystems();
+	}
+
+	// -----------------------------------------------------------------------
+	// Bulk actions & selection
+	// -----------------------------------------------------------------------
+
+	async function bulkDelete() {
+		if (selectedIds.size === 0) return;
+		error = '';
+		try {
+			await apiJson('/catalog/systems/bulk-delete', {
+				method: 'POST',
+				body: JSON.stringify({ ids: [...selectedIds] }),
+			});
+			await loadSystems();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Bulk delete failed';
+		}
+	}
+
+	async function bulkSetStatus(status: string) {
+		if (selectedIds.size === 0) return;
+		error = '';
+		try {
+			await apiJson('/catalog/systems/bulk-status', {
+				method: 'POST',
+				body: JSON.stringify({ ids: [...selectedIds], status }),
+			});
+			await loadSystems();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Bulk status update failed';
+		}
+	}
+
+	function toggleSelectAll() {
+		if (selectAll) {
+			selectedIds = new Set();
+		} else {
+			selectedIds = new Set(systems.map(s => s.id));
+		}
+	}
+
+	function toggleSelect(id: string) {
+		const next = new Set(selectedIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selectedIds = next;
 	}
 
 	function openAddForm() {
@@ -484,6 +580,67 @@
 		/>
 	{/if}
 
+	<!-- Search & filter bar -->
+	<div class="flex shrink-0 items-center gap-2">
+		<div class="relative flex-1">
+			<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+			<input
+				type="text"
+				bind:value={searchTerm}
+				oninput={onSearchInput}
+				placeholder="Search systems..."
+				class="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-xs text-text-primary outline-none focus:border-accent"
+			/>
+		</div>
+		<select
+			bind:value={statusFilter}
+			onchange={onStatusFilterChange}
+			class="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+		>
+			<option value="">All Statuses</option>
+			<option value="active">Active</option>
+			<option value="draft">Draft</option>
+			<option value="disabled">Disabled</option>
+			<option value="deprecated">Deprecated</option>
+			<option value="degraded">Degraded</option>
+		</select>
+	</div>
+
+	<!-- Bulk action bar -->
+	{#if selectedIds.size > 0}
+		<div class="flex shrink-0 items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-4 py-2">
+			<span class="text-xs font-medium text-accent">{selectedIds.size} selected</span>
+			<button
+				type="button"
+				onclick={bulkDelete}
+				class="rounded px-2 py-1 text-xs font-medium text-danger hover:bg-danger/10"
+			>
+				Delete Selected
+			</button>
+			<button
+				type="button"
+				onclick={() => bulkSetStatus('active')}
+				class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+			>
+				Activate
+			</button>
+			<button
+				type="button"
+				onclick={() => bulkSetStatus('disabled')}
+				class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+			>
+				Disable
+			</button>
+			<button
+				type="button"
+				onclick={() => { selectedIds = new Set(); }}
+				class="ml-auto rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+			>
+				Clear Selection
+			</button>
+		</div>
+	{/if}
+
 	<!-- Table -->
 	{#if loading}
 		<div class="flex flex-1 items-center justify-center">
@@ -495,6 +652,14 @@
 				<table class="w-full text-left text-sm">
 					<thead>
 						<tr class="border-b border-border bg-surface-secondary">
+							<th class="w-8 px-4 py-2">
+								<input
+									type="checkbox"
+									checked={selectAll}
+									onchange={toggleSelectAll}
+									class="accent-accent"
+								/>
+							</th>
 							<th class="w-8 px-4 py-2"></th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Name</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Base URL</th>
@@ -511,6 +676,15 @@
 									? 'bg-surface-secondary/50'
 									: ''}"
 							>
+								<td class="w-8 px-4 py-2">
+									<input
+										type="checkbox"
+										checked={selectedIds.has(system.id)}
+										onchange={() => toggleSelect(system.id)}
+										class="accent-accent"
+										onclick={(e) => e.stopPropagation()}
+									/>
+								</td>
 								<td class="px-4 py-2">
 									<button
 										type="button"
@@ -643,7 +817,7 @@
 							<!-- Expanded endpoints -->
 							{#if expanded}
 								<tr class="bg-surface-secondary/30">
-									<td colspan="6" class="px-8 py-3">
+									<td colspan="7" class="px-8 py-3">
 										{#if endpointCache[system.id] && endpointCache[system.id].length > 0}
 											<table class="w-full text-left text-xs">
 												<thead>
@@ -736,7 +910,7 @@
 							{/if}
 						{:else}
 							<tr>
-								<td colspan="6" class="px-4 py-8 text-center text-sm text-text-secondary">
+								<td colspan="7" class="px-4 py-8 text-center text-sm text-text-secondary">
 									No systems in the catalog. Add one to get started.
 								</td>
 							</tr>
@@ -745,6 +919,45 @@
 				</table>
 			</div>
 		</div>
+
+		<!-- Pagination -->
+		{#if !loading && totalSystems > 0}
+			<div class="flex shrink-0 items-center justify-between mt-3">
+				<span class="text-xs text-text-secondary">
+					Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalSystems)} of {totalSystems}
+				</span>
+				<div class="flex items-center gap-1">
+					<button
+						type="button"
+						onclick={() => goToPage(currentPage - 1)}
+						disabled={currentPage <= 1}
+						class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+					>
+						Prev
+					</button>
+					{#each Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+						const start = Math.max(1, currentPage - 2);
+						return Math.min(start + i, totalPages);
+					}).filter((v, i, a) => a.indexOf(v) === i) as page}
+						<button
+							type="button"
+							onclick={() => goToPage(page)}
+							class="rounded-md px-2 py-1 text-xs font-medium {page === currentPage ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
+						>
+							{page}
+						</button>
+					{/each}
+					<button
+						type="button"
+						onclick={() => goToPage(currentPage + 1)}
+						disabled={currentPage >= totalPages}
+						class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+					>
+						Next
+					</button>
+				</div>
+			</div>
+		{/if}
 	{/if}
 
 	<!-- Detection log panel -->
