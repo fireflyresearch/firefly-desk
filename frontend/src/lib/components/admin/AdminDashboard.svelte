@@ -30,7 +30,9 @@
 		Clock,
 		Coins,
 		BarChart3,
-		TrendingUp
+		TrendingUp,
+		ChevronLeft,
+		ChevronRight
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { currentUser } from '$lib/stores/user.js';
@@ -110,6 +112,129 @@
 	let showClearConfirm = $state(false);
 	let showResetConfirm = $state(false);
 
+	// Year selector for heatmap
+	let selectedYear = $state(new Date().getFullYear());
+	let minYear = $derived.by(() => {
+		const days = analytics?.messages_per_day;
+		if (!days?.length) return selectedYear - 1;
+		const years = days.map(d => parseInt(d.date.substring(0, 4)));
+		return Math.min(...years, selectedYear - 1);
+	});
+
+	// Custom tooltip for heatmap
+	let hoveredCell = $state<{date: string; count: number; x: number; y: number} | null>(null);
+
+	// -----------------------------------------------------------------------
+	// Activity heatmap (GitHub-style)
+	// -----------------------------------------------------------------------
+
+	interface HeatmapCell {
+		date: string;
+		count: number;
+		level: 0 | 1 | 2 | 3 | 4;
+		dayOfWeek: number; // 0 = Sun, 6 = Sat
+	}
+
+	interface HeatmapWeek {
+		cells: HeatmapCell[];
+	}
+
+	// Intentionally parsed without 'Z' suffix so the browser interprets as
+	// local time — API returns calendar dates (YYYY-MM-DD), not UTC instants.
+	function localDateStr(d: Date): string {
+		const y = d.getFullYear();
+		const m = String(d.getMonth() + 1).padStart(2, '0');
+		const day = String(d.getDate()).padStart(2, '0');
+		return `${y}-${m}-${day}`;
+	}
+
+	function formatHeatmapDate(dateStr: string): string {
+		// No 'Z' — local-time interpretation (see localDateStr comment)
+		const d = new Date(dateStr + 'T00:00:00');
+		return d.toLocaleDateString('en-US', {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
+	}
+
+	const heatmapLevelClasses = [
+		'bg-surface-secondary',     // level 0 — empty
+		'bg-success/20',            // level 1
+		'bg-success/40',            // level 2
+		'bg-success/70',            // level 3
+		'bg-success'                // level 4 — most active
+	];
+
+	let heatmapData = $derived.by(() => {
+		const days = analytics?.messages_per_day;
+		if (!days?.length && selectedYear === new Date().getFullYear()) return { weeks: [] as HeatmapWeek[], max: 0, monthHeaders: [] as {label: string; col: number}[] };
+
+		const countMap = new Map<string, number>();
+		if (days) {
+			for (const d of days) countMap.set(d.date, d.count);
+		}
+
+		const now = new Date();
+		const isCurrentYear = selectedYear === now.getFullYear();
+
+		// Start: Jan 1 of selected year, padded back to Sunday
+		const jan1 = new Date(selectedYear, 0, 1);
+		const startDate = new Date(jan1);
+		startDate.setDate(startDate.getDate() - startDate.getDay()); // back to Sunday
+
+		// End: Dec 31 or today (for current year), padded forward to Saturday
+		const endDate = isCurrentYear ? new Date(now) : new Date(selectedYear, 11, 31);
+		if (endDate.getDay() !== 6) {
+			endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
+		}
+
+		const maxCount = days?.length ? Math.max(...days.map(d => d.count), 1) : 1;
+
+		const weeks: HeatmapWeek[] = [];
+		const monthHeaders: {label: string; col: number}[] = [];
+		let currentWeek: HeatmapCell[] = [];
+		const cursor = new Date(startDate);
+		let weekIndex = 0;
+		let lastMonth = -1;
+		const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+		while (cursor <= endDate) {
+			const dateStr = localDateStr(cursor);
+			const count = countMap.get(dateStr) ?? 0;
+			const ratio = count / maxCount;
+			let level: 0 | 1 | 2 | 3 | 4;
+			if (count === 0) level = 0;
+			else if (ratio <= 0.25) level = 1;
+			else if (ratio <= 0.5) level = 2;
+			else if (ratio <= 0.75) level = 3;
+			else level = 4;
+
+			// Track month headers (when first day of a new month appears in a week)
+			if (cursor.getMonth() !== lastMonth && cursor.getDay() === 0) {
+				monthHeaders.push({ label: monthNames[cursor.getMonth()], col: weekIndex });
+				lastMonth = cursor.getMonth();
+			}
+
+			currentWeek.push({ date: dateStr, count, level, dayOfWeek: cursor.getDay() });
+
+			if (cursor.getDay() === 6) {
+				weeks.push({ cells: currentWeek });
+				currentWeek = [];
+				weekIndex++;
+			}
+
+			cursor.setDate(cursor.getDate() + 1);
+		}
+
+		if (currentWeek.length > 0) {
+			weeks.push({ cells: currentWeek });
+		}
+
+		return { weeks, max: maxCount, monthHeaders };
+	});
+
 	// -----------------------------------------------------------------------
 	// Data loading
 	// -----------------------------------------------------------------------
@@ -121,11 +246,16 @@
 		loading = true;
 		error = '';
 		try {
+			const now = new Date();
+			const isCurrentYear = selectedYear === now.getFullYear();
+			const jan1 = new Date(selectedYear, 0, 1);
+			const endDate = isCurrentYear ? now : new Date(selectedYear, 11, 31);
+			const daysToFetch = Math.ceil((endDate.getTime() - jan1.getTime()) / 86400000) + 1;
 			const [statsData, healthData, eventsData, analyticsData, tokenData] = await Promise.all([
 				apiJson<SystemStats>('/admin/dashboard/stats'),
 				apiJson<DetailedHealth>('/admin/dashboard/health'),
 				apiJson<AuditEventSummary[]>('/admin/dashboard/recent-events'),
-				apiJson<ConversationAnalytics>('/admin/dashboard/analytics').catch(() => null),
+				apiJson<ConversationAnalytics>(`/admin/dashboard/analytics?days=${daysToFetch}`).catch(() => null),
 				apiJson<TokenUsageStats>('/admin/dashboard/token-usage').catch(() => null)
 			]);
 			if (seq !== loadSeq) return;
@@ -299,15 +429,53 @@
 		}
 	}
 
-	function formatChartDate(dateStr: string): string {
-		const d = new Date(dateStr);
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-	}
-
 	function formatTokenCount(n: number): string {
 		if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
 		if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
 		return String(n);
+	}
+
+	// -----------------------------------------------------------------------
+	// Year navigation & tooltip helpers
+	// -----------------------------------------------------------------------
+
+	function changeYear(delta: number) {
+		const newYear = selectedYear + delta;
+		const currentYear = new Date().getFullYear();
+		if (newYear > currentYear || newYear < minYear) return;
+		selectedYear = newYear;
+		reloadAnalytics();
+	}
+
+	async function reloadAnalytics() {
+		const now = new Date();
+		const isCurrentYear = selectedYear === now.getFullYear();
+		const jan1 = new Date(selectedYear, 0, 1);
+		// API counts backwards from today, so request enough days to reach Jan 1 of selectedYear
+		const daysFromToday = Math.ceil((now.getTime() - jan1.getTime()) / 86400000) + 1;
+		try {
+			const data = await apiJson<ConversationAnalytics>(`/admin/dashboard/analytics?days=${daysFromToday}`);
+			if (data && !isCurrentYear) {
+				// Filter to only the selected calendar year
+				const yearPrefix = String(selectedYear);
+				data.messages_per_day = data.messages_per_day.filter(d => d.date.startsWith(yearPrefix));
+			}
+			analytics = data;
+		} catch {
+			// Analytics are optional
+		}
+	}
+
+	function showTooltip(cell: HeatmapCell, e: MouseEvent) {
+		const TOOLTIP_W = 180;
+		const x = e.clientX + 12 + TOOLTIP_W > window.innerWidth
+			? e.clientX - TOOLTIP_W - 4
+			: e.clientX + 12;
+		hoveredCell = { date: cell.date, count: cell.count, x, y: e.clientY - 10 };
+	}
+
+	function hideTooltip() {
+		hoveredCell = null;
 	}
 </script>
 
@@ -524,21 +692,90 @@
 
 		<!-- Charts section -->
 		{#if analytics || tokenUsage}
-			<!-- Conversation Activity — full width line chart -->
-			{#if analytics?.messages_per_day?.length}
-				<ChartWidget
-					chartType="line"
-					title="Conversation Activity (Last 30 Days)"
-					labels={analytics.messages_per_day.map(d => formatChartDate(d.date))}
-					datasets={[{
-						label: 'Messages',
-						data: analytics.messages_per_day.map(d => d.count),
-						borderColor: '#3b82f6',
-						backgroundColor: '#3b82f680',
-						borderWidth: 2
-					}]}
-					options={{ scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }}
-				/>
+			<!-- Conversation Activity — GitHub-style heatmap -->
+			{#if heatmapData.weeks.length > 0}
+				<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
+					<!-- Header with year selector -->
+					<div class="mb-4 flex items-center justify-between">
+						<h2 class="text-sm font-semibold text-text-primary">Conversation Activity</h2>
+						<div class="flex items-center gap-1">
+							<button type="button" onclick={() => changeYear(-1)}
+								class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-30"
+								disabled={selectedYear <= minYear}>
+								<ChevronLeft size={14} />
+							</button>
+							<span class="min-w-[3rem] text-center text-xs font-medium text-text-primary">{selectedYear}</span>
+							<button type="button" onclick={() => changeYear(1)}
+								class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-30"
+								disabled={selectedYear >= new Date().getFullYear()}>
+								<ChevronRight size={14} />
+							</button>
+						</div>
+					</div>
+
+					<div class="relative">
+						<!-- Month headers -->
+						<div class="mb-1 flex gap-[2px] pl-8">
+							{#each heatmapData.monthHeaders as header, i}
+								{@const nextCol = i < heatmapData.monthHeaders.length - 1 ? heatmapData.monthHeaders[i + 1].col : heatmapData.weeks.length}
+								{@const span = nextCol - header.col}
+								<div style="width: {span * 14}px; margin-left: {i === 0 ? header.col * 14 : 0}px;"
+									 class="text-[10px] text-text-secondary">
+									{header.label}
+								</div>
+							{/each}
+						</div>
+
+						<div class="flex gap-2">
+							<!-- Day-of-week labels — height = 7 cells × h-3 (12px) + 6 gaps × 2px -->
+							<div class="flex flex-col justify-between" style="height: calc(7 * 12px + 6 * 2px);">
+								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-3 text-text-secondary">Mon</span>
+								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-3 text-text-secondary">Wed</span>
+								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
+								<span class="text-[10px] leading-3 text-text-secondary">Fri</span>
+								<span class="text-[10px] leading-3 text-text-secondary">&nbsp;</span>
+							</div>
+
+							<!-- Heatmap grid -->
+							<div class="flex gap-[2px] overflow-x-auto">
+								{#each heatmapData.weeks as week, wi}
+									<div class="flex flex-col gap-[2px]">
+										{#each week.cells as cell}
+											<div
+												class="h-3 w-3 rounded-sm {heatmapLevelClasses[cell.level]}"
+												role="presentation"
+												onmouseenter={(e) => showTooltip(cell, e)}
+												onmouseleave={hideTooltip}
+											></div>
+										{/each}
+									</div>
+								{/each}
+							</div>
+						</div>
+
+						<!-- Custom tooltip -->
+						{#if hoveredCell}
+							<div
+								class="pointer-events-none fixed z-50 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs shadow-lg"
+								style="left: {hoveredCell.x + 12}px; top: {hoveredCell.y - 10}px;"
+							>
+								<div class="font-medium text-text-primary">{formatHeatmapDate(hoveredCell.date)}</div>
+								<div class="text-text-secondary">{hoveredCell.count} message{hoveredCell.count !== 1 ? 's' : ''}</div>
+							</div>
+						{/if}
+					</div>
+
+					<!-- Legend -->
+					<div class="mt-3 flex items-center justify-end gap-1.5">
+						<span class="text-[10px] text-text-secondary">Less</span>
+						{#each heatmapLevelClasses as cls}
+							<div class="h-3 w-3 rounded-sm {cls}"></div>
+						{/each}
+						<span class="text-[10px] text-text-secondary">More</span>
+					</div>
+				</div>
 			{/if}
 
 			<!-- Tool Usage + Token Usage side by side -->

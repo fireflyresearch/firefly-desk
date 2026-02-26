@@ -110,7 +110,8 @@
 
 	async function loadSystems() {
 		try {
-			availableSystems = await apiJson<CatalogSystem[]>('/catalog/systems');
+			const result = await apiJson<{ items: CatalogSystem[]; total: number }>('/catalog/systems');
+			availableSystems = result.items;
 		} catch {
 			/* silent — systems are optional enhancement */
 		}

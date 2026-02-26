@@ -81,7 +81,8 @@
 
 	async function loadSystems() {
 		try {
-			systems = await apiJson<CatalogSystem[]>('/catalog/systems');
+			const result = await apiJson<{ items: CatalogSystem[]; total: number }>('/catalog/systems');
+			systems = result.items;
 		} catch {
 			// Non-fatal: form will fall back to text input
 		}

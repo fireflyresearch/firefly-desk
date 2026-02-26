@@ -24,6 +24,7 @@ class UserSettings(BaseModel):
     notifications_enabled: bool = True
     default_model_id: str | None = None
     display_preferences: dict[str, Any] = Field(default_factory=dict)
+    picture_url: str | None = None
 
 
 class AppSettings(BaseModel):

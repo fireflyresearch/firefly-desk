@@ -3,9 +3,10 @@
 
   3D WebGL force-directed graph (via 3d-force-graph / Three.js) designed for
   large graphs (hundreds of nodes). Features: collapsible filter sidebar with
-  type counts, orbit/zoom/pan, node search, grouped list view, entity
-  detail/edit slide-out panel, stats overlay, and CRUD operations. All panels
-  contained within the parent flex container — no width overflow.
+  type counts, orbit/zoom/pan, ground grid with axis indicators, node type
+  labels, entity detail/edit slide-out panel, stats overlay, and CRUD
+  operations. All panels contained within the parent flex container — no
+  width overflow.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -14,14 +15,10 @@
 	import { tick } from 'svelte';
 	import { fly, slide } from 'svelte/transition';
 	import {
-		Search,
 		Loader2,
 		Network,
-		List,
 		Trash2,
 		X,
-		ChevronDown,
-		ChevronRight,
 		AlertCircle,
 		Pencil,
 		Filter,
@@ -32,6 +29,7 @@
 		PanelLeftClose,
 		PanelLeft
 	} from 'lucide-svelte';
+	import * as THREE from 'three';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import type { GraphEntity, GraphRelation } from '$lib/components/flow/flow-types.js';
 
@@ -61,12 +59,10 @@
 	// State
 	// -----------------------------------------------------------------------
 
-	let viewMode = $state<'graph' | 'list'>('graph');
 	let entities = $state<GraphEntity[]>([]);
 	let relations = $state<GraphRelation[]>([]);
 	let loading = $state(true);
 	let error = $state('');
-	let searchQuery = $state('');
 
 	// Filter sidebar
 	let showFilterPanel = $state(true);
@@ -89,9 +85,6 @@
 		confidence: 1.0
 	});
 	let propertiesJsonError = $state('');
-
-	// List view state
-	let expandedTypes = $state<Set<string>>(new Set());
 
 	// 3D graph refs
 	let graphInstance: any = null;
@@ -169,28 +162,10 @@
 
 	let filteredEntities = $derived.by(() => {
 		let result = entities;
-		if (searchQuery.trim()) {
-			const q = searchQuery.toLowerCase();
-			result = result.filter(
-				(e) =>
-					(e.name ?? '').toLowerCase().includes(q) ||
-					(e.type ?? '').toLowerCase().includes(q)
-			);
-		}
 		if (hiddenTypes.size > 0) {
 			result = result.filter((e) => !hiddenTypes.has((e.type ?? '').toLowerCase()));
 		}
 		return result;
-	});
-
-	let entitiesByType = $derived.by(() => {
-		const groups: Record<string, GraphEntity[]> = {};
-		for (const entity of filteredEntities) {
-			const type = (entity.type ?? 'unknown').toLowerCase();
-			if (!groups[type]) groups[type] = [];
-			groups[type].push(entity);
-		}
-		return groups;
 	});
 
 	/** Number of visible types (not hidden). */
@@ -254,14 +229,39 @@
 			.graphData({ nodes, links })
 			.nodeId('id')
 			.nodeLabel((node: any) => `<b>${node.name}</b><br/><span style="color:${getTypeColor(node.type)}">${node.type}</span>`)
-			.nodeColor((node: any) => getTypeColor(node.type))
-			.nodeRelSize(4)
-			.nodeOpacity(0.9)
+			.nodeThreeObject((node: any) => {
+				const group = new THREE.Group();
+
+				// Sphere
+				const geometry = new THREE.SphereGeometry(4, 16, 16);
+				const material = new THREE.MeshLambertMaterial({ color: getTypeColor(node.type) });
+				const sphere = new THREE.Mesh(geometry, material);
+				group.add(sphere);
+
+				// Type label sprite
+				const canvas = document.createElement('canvas');
+				canvas.width = 128;
+				canvas.height = 32;
+				const ctx = canvas.getContext('2d')!;
+				ctx.font = '14px sans-serif';
+				ctx.fillStyle = getTypeColor(node.type);
+				ctx.textAlign = 'center';
+				ctx.fillText(node.type, 64, 22);
+				const texture = new THREE.CanvasTexture(canvas);
+				const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.8 });
+				const sprite = new THREE.Sprite(spriteMat);
+				sprite.scale.set(12, 3, 1);
+				sprite.position.y = 6;
+				group.add(sprite);
+
+				return group;
+			})
+			.nodeThreeObjectExtend(false)
 			.linkSource('source')
 			.linkTarget('target')
-			.linkColor(() => 'rgba(128,128,128,0.2)')
-			.linkWidth(0.5)
-			.linkDirectionalArrowLength(3)
+			.linkColor(() => 'rgba(156,163,175,0.6)')
+			.linkWidth(1.5)
+			.linkDirectionalArrowLength(4)
 			.linkDirectionalArrowRelPos(1)
 			.onNodeClick((node: any) => {
 				if (node.entity) {
@@ -273,6 +273,31 @@
 					graphContainerEl.style.cursor = node ? 'pointer' : 'default';
 				}
 			});
+
+		// Access the Three.js scene
+		const scene = graphInstance.scene();
+
+		// Ground grid — subtle reference plane
+		const gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x333333);
+		gridHelper.position.y = -50;
+		const gridMaterials = Array.isArray(gridHelper.material)
+			? gridHelper.material
+			: [gridHelper.material];
+		for (const mat of gridMaterials) {
+			mat.opacity = 0.15;
+			mat.transparent = true;
+		}
+		scene.add(gridHelper);
+
+		// Axis lines — subtle colored indicators
+		const axisLength = 60;
+		const axisMaterial = (color: number) => new THREE.LineBasicMaterial({ color, opacity: 0.4, transparent: true });
+		// X axis (red)
+		const xGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-axisLength, -50, 0), new THREE.Vector3(axisLength, -50, 0)]);
+		scene.add(new THREE.Line(xGeom, axisMaterial(0xff4444)));
+		// Z axis (blue)
+		const zGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -50, -axisLength), new THREE.Vector3(0, -50, axisLength)]);
+		scene.add(new THREE.Line(zGeom, axisMaterial(0x4444ff)));
 	}
 
 	function clearHighlight() {
@@ -284,10 +309,9 @@
 	$effect(() => {
 		void filteredEntities;
 		void relations;
-		void viewMode;
 		void graphVersion;
 
-		if (viewMode === 'graph' && !loading && filteredEntities.length > 0) {
+		if (!loading && filteredEntities.length > 0) {
 			tick().then(() => buildGraph3D());
 		}
 	});
@@ -527,12 +551,6 @@
 		}
 	}
 
-	function toggleTypeGroup(type: string) {
-		const next = new Set(expandedTypes);
-		if (next.has(type)) next.delete(type);
-		else next.add(type);
-		expandedTypes = next;
-	}
 </script>
 
 <div class="flex h-full min-h-0 min-w-0 flex-col">
@@ -552,17 +570,6 @@
 			{/if}
 		</button>
 
-		<!-- Search -->
-		<div class="relative min-w-0 flex-1">
-			<Search size={14} class="absolute top-1/2 left-2.5 -translate-y-1/2 text-text-secondary" />
-			<input
-				type="text"
-				bind:value={searchQuery}
-				placeholder="Search entities by name or type..."
-				class="w-full rounded-md border border-border bg-surface py-1.5 pr-3 pl-8 text-xs text-text-primary outline-none focus:border-accent"
-			/>
-		</div>
-
 		<!-- Refresh -->
 		<button
 			type="button"
@@ -573,27 +580,6 @@
 			<RefreshCw size={14} />
 		</button>
 
-		<!-- View toggle -->
-		<div class="flex shrink-0 rounded-md border border-border">
-			<button
-				type="button"
-				onclick={() => (viewMode = 'graph')}
-				class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-colors
-					{viewMode === 'graph' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
-			>
-				<Network size={13} />
-				Graph
-			</button>
-			<button
-				type="button"
-				onclick={() => (viewMode = 'list')}
-				class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium transition-colors
-					{viewMode === 'list' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
-			>
-				<List size={13} />
-				List
-			</button>
-		</div>
 	</div>
 
 	<!-- Error banner -->
@@ -707,107 +693,40 @@
 			<!-- ============================================================= -->
 			<!-- Graph View                                                     -->
 			<!-- ============================================================= -->
-			{#if viewMode === 'graph'}
-				<div
-					class="relative min-h-0 min-w-0 flex-1 bg-surface"
-					bind:this={containerEl}
-				>
-					{#if filteredEntities.length === 0}
-						<div class="absolute inset-0 flex flex-col items-center justify-center text-text-secondary">
-							<Network size={48} strokeWidth={1} class="mb-2 opacity-30" />
-							<p class="text-sm">No entities match the current filters.</p>
-							{#if hiddenTypes.size > 0}
-								<button
-									type="button"
-									onclick={showAllTypes}
-									class="mt-2 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
-								>
-									Show All Types
-								</button>
-							{/if}
-						</div>
-					{:else}
-						<div bind:this={graphContainerEl} class="h-full w-full"></div>
-					{/if}
-
-					<!-- Camera controls — fit-to-view for 3D -->
-					<div class="absolute bottom-3 right-3 flex flex-col gap-1">
-						<button
-							type="button"
-							onclick={() => { if (graphInstance) graphInstance.zoomToFit(500, 50); }}
-							class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
-							title="Fit to View"
-						>
-							<Maximize2 size={14} />
-						</button>
+			<div
+				class="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-surface"
+				bind:this={containerEl}
+			>
+				{#if filteredEntities.length === 0}
+					<div class="absolute inset-0 flex flex-col items-center justify-center text-text-secondary">
+						<Network size={48} strokeWidth={1} class="mb-2 opacity-30" />
+						<p class="text-sm">No entities match the current filters.</p>
+						{#if hiddenTypes.size > 0}
+							<button
+								type="button"
+								onclick={showAllTypes}
+								class="mt-2 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
+							>
+								Show All Types
+							</button>
+						{/if}
 					</div>
-				</div>
+				{:else}
+					<div bind:this={graphContainerEl} class="h-full w-full"></div>
+				{/if}
 
-			<!-- ============================================================= -->
-			<!-- List View                                                      -->
-			<!-- ============================================================= -->
-			{:else}
-				<div class="min-w-0 flex-1 overflow-y-auto bg-surface p-3">
-					{#if Object.keys(entitiesByType).length === 0}
-						<div class="flex flex-col items-center justify-center py-12 text-text-secondary">
-							<Network size={48} strokeWidth={1} class="mb-2 opacity-30" />
-							<p class="text-sm">No entities found.</p>
-						</div>
-					{:else}
-						<div class="flex flex-col gap-1.5">
-							{#each Object.entries(entitiesByType).sort((a, b) => b[1].length - a[1].length) as [type, typeEntities]}
-								<div class="rounded-lg border border-border bg-surface">
-									<button
-										type="button"
-										onclick={() => toggleTypeGroup(type)}
-										class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-secondary/50"
-									>
-										{#if expandedTypes.has(type)}
-											<ChevronDown size={13} class="text-text-secondary" />
-										{:else}
-											<ChevronRight size={13} class="text-text-secondary" />
-										{/if}
-										<span
-											class="inline-block h-2.5 w-2.5 rounded-full"
-											style="background-color: {getTypeColor(type)}"
-										></span>
-										<span class="text-xs font-medium capitalize text-text-primary">
-											{type.replace(/_/g, ' ')}
-										</span>
-										<span class="rounded-full bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">
-											{typeEntities.length}
-										</span>
-									</button>
-
-									{#if expandedTypes.has(type)}
-										<div class="border-t border-border px-3 py-1.5" transition:slide={{ duration: 150 }}>
-											<div class="flex flex-col gap-1">
-												{#each typeEntities as entity}
-													<button
-														type="button"
-														onclick={() => selectEntity(entity)}
-														class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-surface-secondary/50
-															{selectedEntity?.id === entity.id ? 'bg-accent/5 ring-1 ring-accent/30' : ''}"
-													>
-														<span class="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
-															{entity.name}
-														</span>
-														{#if entity.confidence != null && entity.confidence < 1.0}
-															<span class="shrink-0 rounded bg-warning/10 px-1 py-0.5 text-[10px] text-warning">
-																{Math.round(entity.confidence * 100)}%
-															</span>
-														{/if}
-													</button>
-												{/each}
-											</div>
-										</div>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/if}
+				<!-- Camera controls — fit-to-view for 3D -->
+				<div class="absolute bottom-3 right-3 flex flex-col gap-1">
+					<button
+						type="button"
+						onclick={() => { if (graphInstance) graphInstance.zoomToFit(500, 50); }}
+						class="rounded-md border border-border bg-surface/90 p-1.5 text-text-secondary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
+						title="Fit to View"
+					>
+						<Maximize2 size={14} />
+					</button>
 				</div>
-			{/if}
+			</div>
 
 			<!-- ============================================================= -->
 			<!-- Detail / Edit Slide-Out Panel                                 -->

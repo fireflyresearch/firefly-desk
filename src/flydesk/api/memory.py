@@ -19,7 +19,7 @@ def get_memory_repo() -> MemoryRepository:
 
 
 def _user_id(request: Request) -> str:
-    session = getattr(request.state, "session", None)
+    session = getattr(request.state, "user_session", None)
     if session and hasattr(session, "user_id"):
         return session.user_id
     raise HTTPException(status_code=401, detail="Not authenticated")

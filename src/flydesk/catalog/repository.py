@@ -423,7 +423,7 @@ class CatalogRepository:
             )
 
     async def update_knowledge_document(
-        self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None
+        self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_id=None
     ):
         """Update a knowledge document's metadata and optionally content."""
         import json as _json
@@ -445,6 +445,8 @@ class CatalogRepository:
                 row.content = content
             if status is not None:
                 row.status = str(status)
+            if workspace_id is not None:
+                row.workspace_id = workspace_id or None
             await session.commit()
             await session.refresh(row)
             return KnowledgeDocument(

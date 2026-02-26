@@ -49,6 +49,7 @@
 		base_url: string;
 		status: string;
 		tags: string[];
+		workspace_id?: string | null;
 	}
 
 	interface SystemFull {
@@ -69,6 +70,7 @@
 		status: string;
 		agent_enabled: boolean;
 		metadata: Record<string, unknown>;
+		workspace_id?: string | null;
 	}
 
 	// -----------------------------------------------------------------------
@@ -126,9 +128,21 @@
 		detectJobStatus === 'pending' || detectJobStatus === 'running'
 	);
 
+	// Workspaces
+	let workspaces = $state<{id: string; name: string}[]>([]);
+
 	// -----------------------------------------------------------------------
 	// Data loading
 	// -----------------------------------------------------------------------
+
+	async function loadWorkspaces() {
+		try {
+			const result = await apiJson<{id: string; name: string; description: string; icon: string; color: string; roles: string[]; users: string[]}[]>('/workspaces');
+			workspaces = result.map((w) => ({ id: w.id, name: w.name }));
+		} catch {
+			// Workspaces are optional
+		}
+	}
 
 	async function loadSystems() {
 		loading = true;
@@ -166,6 +180,7 @@
 	// Initial load
 	$effect(() => {
 		loadSystems();
+		loadWorkspaces();
 	});
 
 	// -----------------------------------------------------------------------
@@ -559,6 +574,7 @@
 			editingSystem={editingSystemFull}
 			onClose={closeWizard}
 			onSaved={onWizardSaved}
+			{workspaces}
 		/>
 	{/if}
 
@@ -664,6 +680,7 @@
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Name</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Base URL</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Workspace</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
 							<th class="w-24 px-4 py-2 text-xs font-medium text-text-secondary">Actions</th>
 						</tr>
@@ -757,6 +774,9 @@
 										{/if}
 									</div>
 								</td>
+								<td class="px-4 py-2 text-xs text-text-secondary">
+									{workspaces.find((w) => w.id === system.workspace_id)?.name || '--'}
+								</td>
 								<td class="px-4 py-2">
 									{#if system.tags.length > 0}
 										<div class="flex flex-wrap gap-1">
@@ -817,7 +837,7 @@
 							<!-- Expanded endpoints -->
 							{#if expanded}
 								<tr class="bg-surface-secondary/30">
-									<td colspan="7" class="px-8 py-3">
+									<td colspan="8" class="px-8 py-3">
 										{#if endpointCache[system.id] && endpointCache[system.id].length > 0}
 											<table class="w-full text-left text-xs">
 												<thead>
@@ -910,7 +930,7 @@
 							{/if}
 						{:else}
 							<tr>
-								<td colspan="7" class="px-4 py-8 text-center text-sm text-text-secondary">
+								<td colspan="8" class="px-4 py-8 text-center text-sm text-text-secondary">
 									No systems in the catalog. Add one to get started.
 								</td>
 							</tr>

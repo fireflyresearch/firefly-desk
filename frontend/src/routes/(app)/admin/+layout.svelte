@@ -35,21 +35,32 @@
 	let { children } = $props();
 
 	const navItems = [
+		// Overview
 		{ href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+
+		// Content & Data
 		{ href: '/admin/workspaces', label: 'Workspaces', icon: FolderOpen },
-		{ href: '/admin/agent', label: 'Agent', icon: Bot },
-		{ href: '/admin/processes', label: 'Processes', icon: GitBranch },
 		{ href: '/admin/catalog', label: 'Catalog', icon: Database },
-		{ href: '/admin/credentials', label: 'Credentials', icon: Key },
 		{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
-		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
+		{ href: '/admin/processes', label: 'Processes', icon: GitBranch },
+
+		// AI & Agent Configuration
+		{ href: '/admin/agent', label: 'Agent', icon: Bot },
 		{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Bot },
-		{ href: '/admin/users', label: 'Users & Roles', icon: Users },
 		{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 		{ href: '/admin/tools', label: 'Tools', icon: Wrench },
-		{ href: '/admin/exports', label: 'Exports', icon: Download },
+
+		// Security & Access
+		{ href: '/admin/users', label: 'Users & Roles', icon: Users },
+		{ href: '/admin/credentials', label: 'Credentials', icon: Key },
 		{ href: '/admin/sso', label: 'Single Sign-On', icon: Shield },
+
+		// Operations
+		{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
+		{ href: '/admin/exports', label: 'Exports', icon: Download },
 		{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },
+
+		// Help
 		{ href: '/admin/help', label: 'Help & Guides', icon: HelpCircle }
 	];
 
@@ -94,9 +105,9 @@
 		</nav>
 
 		<!-- Content area -->
-		<div class="flex-1 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#key currentPath}
-				<div in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
+				<div class="h-full" in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
 					{@render children()}
 				</div>
 			{/key}

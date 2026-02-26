@@ -16,7 +16,28 @@
 		Folder,
 		Users,
 		Shield,
-		X
+		X,
+		Briefcase,
+		Building2,
+		Database,
+		Globe,
+		Code,
+		BookOpen,
+		Heart,
+		Star,
+		Zap,
+		Settings,
+		Lock,
+		Cloud,
+		Server,
+		Layers,
+		Box,
+		Monitor,
+		Cpu,
+		HardDrive,
+		Wifi,
+		Truck,
+		ShoppingCart
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -33,6 +54,37 @@
 		roles: string[];
 		users: string[];
 	}
+
+	// -----------------------------------------------------------------------
+	// Icon options
+	// -----------------------------------------------------------------------
+
+	const ICON_OPTIONS: { name: string; component: typeof Folder }[] = [
+		{ name: 'folder', component: Folder },
+		{ name: 'briefcase', component: Briefcase },
+		{ name: 'building', component: Building2 },
+		{ name: 'users', component: Users },
+		{ name: 'shield', component: Shield },
+		{ name: 'database', component: Database },
+		{ name: 'globe', component: Globe },
+		{ name: 'code', component: Code },
+		{ name: 'book', component: BookOpen },
+		{ name: 'heart', component: Heart },
+		{ name: 'star', component: Star },
+		{ name: 'zap', component: Zap },
+		{ name: 'settings', component: Settings },
+		{ name: 'lock', component: Lock },
+		{ name: 'cloud', component: Cloud },
+		{ name: 'server', component: Server },
+		{ name: 'layers', component: Layers },
+		{ name: 'box', component: Box },
+		{ name: 'monitor', component: Monitor },
+		{ name: 'cpu', component: Cpu },
+		{ name: 'hard-drive', component: HardDrive },
+		{ name: 'wifi', component: Wifi },
+		{ name: 'truck', component: Truck },
+		{ name: 'shopping-cart', component: ShoppingCart }
+	];
 
 	// -----------------------------------------------------------------------
 	// State
@@ -52,8 +104,24 @@
 	let formDescription = $state('');
 	let formIcon = $state('folder');
 	let formColor = $state('#6366f1');
-	let formRoles = $state('');
-	let formUsers = $state('');
+	let formRoles = $state<string[]>([]);
+	let formUsers = $state<string[]>([]);
+
+	// Roles & users data
+	let availableRoles = $state<{ id: string; name: string }[]>([]);
+	let availableUsers = $state<{ id: string; name: string; email?: string }[]>([]);
+	let userSearchQuery = $state('');
+
+	let filteredUsers = $derived(
+		availableUsers
+			.filter(
+				(u) =>
+					!formUsers.includes(u.name) &&
+					(u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+						(u.email || '').toLowerCase().includes(userSearchQuery.toLowerCase()))
+			)
+			.slice(0, 10)
+	);
 
 	// Inline delete confirmation
 	let confirmingDeleteId = $state<string | null>(null);
@@ -79,6 +147,30 @@
 		loadWorkspaces();
 	});
 
+	// Load available roles and users
+	$effect(() => {
+		loadRolesAndUsers();
+	});
+
+	async function loadRolesAndUsers() {
+		try {
+			const roles = await apiJson<{ id: string; name: string }[]>('/admin/roles');
+			availableRoles = roles.map((r) => ({ id: r.id, name: r.name }));
+		} catch {
+			availableRoles = [];
+		}
+		try {
+			const users = await apiJson<Record<string, unknown>[]>('/admin/users');
+			availableUsers = users.map((u) => ({
+				id: String(u.id ?? ''),
+				name: String(u.name ?? u.display_name ?? u.email ?? u.id ?? ''),
+				email: u.email ? String(u.email) : undefined
+			}));
+		} catch {
+			availableUsers = [];
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// Modal helpers
 	// -----------------------------------------------------------------------
@@ -89,8 +181,9 @@
 		formDescription = '';
 		formIcon = 'folder';
 		formColor = '#6366f1';
-		formRoles = '';
-		formUsers = '';
+		formRoles = [];
+		formUsers = [];
+		userSearchQuery = '';
 		showModal = true;
 	}
 
@@ -100,8 +193,9 @@
 		formDescription = workspace.description;
 		formIcon = workspace.icon;
 		formColor = workspace.color;
-		formRoles = workspace.roles.join(', ');
-		formUsers = workspace.users.join(', ');
+		formRoles = workspace.roles;
+		formUsers = workspace.users;
+		userSearchQuery = '';
 		showModal = true;
 	}
 
@@ -114,13 +208,6 @@
 	// CRUD actions
 	// -----------------------------------------------------------------------
 
-	function parseCommaSeparated(value: string): string[] {
-		return value
-			.split(',')
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0);
-	}
-
 	async function saveWorkspace() {
 		if (!formName.trim()) return;
 		saving = true;
@@ -131,8 +218,8 @@
 				description: formDescription.trim(),
 				icon: formIcon.trim() || 'folder',
 				color: formColor.trim() || '#6366f1',
-				roles: parseCommaSeparated(formRoles),
-				users: parseCommaSeparated(formUsers)
+				roles: formRoles,
+				users: formUsers
 			};
 
 			if (editingWorkspace) {
@@ -219,7 +306,7 @@
 				class="fixed inset-0"
 				onclick={closeModal}
 			></div>
-			<div class="relative z-10 w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl">
+			<div class="relative z-10 w-full max-w-xl rounded-xl border border-border bg-surface p-6 shadow-xl">
 				<div class="mb-4 flex items-center justify-between">
 					<h2 class="text-base font-semibold text-text-primary">
 						{editingWorkspace ? 'Edit Workspace' : 'Create Workspace'}
@@ -266,67 +353,128 @@
 						></textarea>
 					</div>
 
-					<!-- Icon & Color (side by side) -->
-					<div class="grid grid-cols-2 gap-4">
-						<div class="flex flex-col gap-1">
-							<label for="ws-icon" class="text-sm font-medium text-text-primary">
-								Icon
-							</label>
-							<input
-								id="ws-icon"
-								type="text"
-								bind:value={formIcon}
-								placeholder="folder"
-								class="rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-							/>
+					<!-- Icon picker grid -->
+					<div class="flex flex-col gap-1">
+						<span class="text-sm font-medium text-text-primary">Icon</span>
+						<div class="grid grid-cols-6 gap-1.5">
+							{#each ICON_OPTIONS as opt}
+								<button
+									type="button"
+									onclick={() => (formIcon = opt.name)}
+									class="flex flex-col items-center gap-0.5 rounded-md p-2 transition-colors
+										{formIcon === opt.name
+										? 'bg-accent/10 ring-2 ring-accent'
+										: 'bg-surface-secondary hover:bg-surface-hover'}"
+								>
+									<opt.component size={18} class={formIcon === opt.name ? 'text-accent' : 'text-text-secondary'} />
+									<span class="text-[9px] text-text-secondary">{opt.name}</span>
+								</button>
+							{/each}
 						</div>
-						<div class="flex flex-col gap-1">
-							<label for="ws-color" class="text-sm font-medium text-text-primary">
-								Color
-							</label>
-							<div class="flex items-center gap-2">
-								<input
-									id="ws-color"
-									type="color"
-									bind:value={formColor}
-									class="h-8 w-8 cursor-pointer rounded border border-border bg-surface-secondary"
-								/>
-								<input
-									type="text"
-									bind:value={formColor}
-									placeholder="#6366f1"
-									class="flex-1 rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-								/>
-							</div>
+					</div>
+
+					<!-- Color -->
+					<div class="flex flex-col gap-1">
+						<label for="ws-color" class="text-sm font-medium text-text-primary">
+							Color
+						</label>
+						<div class="flex items-center gap-2">
+							<input
+								id="ws-color"
+								type="color"
+								bind:value={formColor}
+								class="h-8 w-8 cursor-pointer rounded border border-border bg-surface-secondary"
+							/>
+							<input
+								type="text"
+								bind:value={formColor}
+								placeholder="#6366f1"
+								class="flex-1 rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+							/>
 						</div>
 					</div>
 
 					<!-- Roles -->
 					<div class="flex flex-col gap-1">
-						<label for="ws-roles" class="text-sm font-medium text-text-primary">
-							Roles
-						</label>
-						<input
-							id="ws-roles"
-							type="text"
-							bind:value={formRoles}
-							placeholder="Comma-separated, e.g. admin, editor, viewer"
-							class="rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-						/>
+						<span class="text-sm font-medium text-text-primary">Roles</span>
+						{#if availableRoles.length > 0}
+							<div class="flex flex-wrap gap-1.5">
+								{#each availableRoles as role}
+									<button
+										type="button"
+										onclick={() => {
+											if (formRoles.includes(role.name)) {
+												formRoles = formRoles.filter((r) => r !== role.name);
+											} else {
+												formRoles = [...formRoles, role.name];
+											}
+										}}
+										class="rounded-full px-3 py-1 text-xs font-medium transition-colors
+											{formRoles.includes(role.name)
+											? 'bg-accent text-white'
+											: 'bg-surface-secondary text-text-secondary hover:bg-surface-hover'}"
+									>
+										{role.name}
+									</button>
+								{/each}
+							</div>
+						{:else}
+							<p class="text-xs text-text-secondary">No roles available</p>
+						{/if}
 					</div>
 
 					<!-- Users -->
 					<div class="flex flex-col gap-1">
-						<label for="ws-users" class="text-sm font-medium text-text-primary">
-							Users
-						</label>
-						<input
-							id="ws-users"
-							type="text"
-							bind:value={formUsers}
-							placeholder="Comma-separated, e.g. alice, bob"
-							class="rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-						/>
+						<span class="text-sm font-medium text-text-primary">Users</span>
+						<!-- Selected user chips -->
+						{#if formUsers.length > 0}
+							<div class="flex flex-wrap gap-1.5">
+								{#each formUsers as user}
+									<span class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
+										{user}
+										<button
+											type="button"
+											onclick={() => {
+												formUsers = formUsers.filter((u) => u !== user);
+											}}
+											class="hover:text-danger"
+										>
+											<X size={12} />
+										</button>
+									</span>
+								{/each}
+							</div>
+						{/if}
+						<!-- Search input + dropdown -->
+						<div class="relative">
+							<input
+								type="text"
+								bind:value={userSearchQuery}
+								placeholder="Search users..."
+								class="w-full rounded-md border border-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary placeholder:text-text-secondary/60 focus:border-accent focus:outline-none"
+							/>
+							{#if userSearchQuery.trim() && filteredUsers.length > 0}
+								<div class="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border border-border bg-surface shadow-lg">
+									{#each filteredUsers as fUser}
+										<button
+											type="button"
+											onclick={() => {
+												if (!formUsers.includes(fUser.name)) {
+													formUsers = [...formUsers, fUser.name];
+												}
+												userSearchQuery = '';
+											}}
+											class="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-text-primary hover:bg-surface-hover"
+										>
+											{fUser.name}
+											{#if fUser.email}
+												<span class="text-xs text-text-secondary">{fUser.email}</span>
+											{/if}
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
 					</div>
 
 					<!-- Buttons -->

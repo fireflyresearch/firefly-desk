@@ -47,6 +47,7 @@
 		status: string;
 		agent_enabled: boolean;
 		metadata: Record<string, unknown>;
+		workspace_id?: string | null;
 	}
 
 	interface Credential {
@@ -63,11 +64,13 @@
 	let {
 		editingSystem = null,
 		onClose,
-		onSaved
+		onSaved,
+		workspaces = []
 	}: {
 		editingSystem?: SystemPayload | null;
 		onClose: () => void;
 		onSaved: () => void;
+		workspaces?: {id: string; name: string}[];
 	} = $props();
 
 	// -----------------------------------------------------------------------
@@ -110,6 +113,7 @@
 	let status = $state(_init?.status ?? 'active');
 	let tags = $state(_init?.tags?.join(', ') ?? '');
 	let healthCheckPath = $state(_init?.health_check_path ?? '');
+	let workspaceId = $state(_init?.workspace_id ?? '');
 
 	// Step 2: Authentication
 	let authType = $state(_init?.auth_config?.auth_type ?? 'none');
@@ -226,7 +230,8 @@
 				.filter(Boolean),
 			status,
 			agent_enabled: agentEnabled,
-			metadata: _init?.metadata ?? {}
+			metadata: _init?.metadata ?? {},
+			workspace_id: workspaceId || null
 		};
 	}
 
@@ -425,6 +430,21 @@
 							class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
 						/>
 					</label>
+
+					{#if workspaces && workspaces.length > 0}
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-text-secondary">Workspace</span>
+							<select
+								bind:value={workspaceId}
+								class="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+							>
+								<option value="">No workspace</option>
+								{#each workspaces as ws}
+									<option value={ws.id}>{ws.name}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
 				</div>
 
 			<!-- Step 2: Authentication -->

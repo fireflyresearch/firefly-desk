@@ -100,8 +100,24 @@ from flydesk.conversation.repository import ConversationRepository
 from flydesk.config import get_config
 from flydesk.db import create_engine_from_url, create_session_factory
 from flydesk.models import Base
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+async def _apply_column_migrations(conn):
+    """Add columns that create_all() can't add to existing tables."""
+    migrations = [
+        ("external_systems", "workspace_id", "VARCHAR(255)"),
+        ("kb_documents", "workspace_id", "VARCHAR(255)"),
+    ]
+    for table, column, col_type in migrations:
+        try:
+            await conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
+            ))
+        except Exception:
+            pass  # Column already exists
 
 
 @asynccontextmanager
@@ -115,10 +131,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with engine.begin() as conn:
         # Enable pgvector extension for PostgreSQL
         if "postgresql" in config.database_url:
-            from sqlalchemy import text
-
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_column_migrations(conn)
 
     session_factory = create_session_factory(engine)
 
@@ -250,9 +265,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def get_document(self, document_id: str):
             return await catalog_repo.get_knowledge_document(document_id)
 
-        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None):
+        async def update_document(self, document_id, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_id=None):
             return await catalog_repo.update_knowledge_document(
-                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status
+                document_id, title=title, document_type=document_type, tags=tags, content=content, status=status, workspace_id=workspace_id
             )
 
     doc_store = _LiveDocStore()

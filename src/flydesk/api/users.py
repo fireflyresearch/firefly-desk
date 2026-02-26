@@ -545,11 +545,20 @@ async def unlink_sso_identity(
 
 
 @router.get("/api/profile")
-async def get_profile(request: Request) -> UserProfile:
+async def get_profile(request: Request, settings_repo: SettingsRepo) -> UserProfile:
     """Return the current user's profile information."""
     user_session = getattr(request.state, "user_session", None)
     if user_session is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Check DB for custom avatar (uploaded via /profile/avatar)
+    picture_url = user_session.picture_url
+    try:
+        user_settings = await settings_repo.get_user_settings(user_session.user_id)
+        if user_settings.picture_url:
+            picture_url = user_settings.picture_url
+    except Exception:
+        logger.warning("Failed to load user settings for avatar", exc_info=True)
 
     return UserProfile(
         user_id=user_session.user_id,
@@ -557,7 +566,7 @@ async def get_profile(request: Request) -> UserProfile:
         display_name=user_session.display_name,
         roles=user_session.roles,
         permissions=user_session.permissions,
-        picture_url=user_session.picture_url,
+        picture_url=picture_url,
         department=user_session.department,
         title=user_session.title,
         dev_mode=get_config().dev_mode,

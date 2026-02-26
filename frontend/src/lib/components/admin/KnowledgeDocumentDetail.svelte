@@ -44,6 +44,7 @@
 		chunk_count?: number;
 		created_at?: string;
 		updated_at?: string;
+		workspace_id?: string | null;
 	}
 
 	// -----------------------------------------------------------------------
@@ -57,9 +58,10 @@
 		onUpdated?: () => void;
 		onToggleFullscreen?: () => void;
 		isFullscreen?: boolean;
+		workspaces?: {id: string; name: string}[];
 	}
 
-	let { documentId, onClose, onDeleted, onUpdated, onToggleFullscreen, isFullscreen = false }: Props = $props();
+	let { documentId, onClose, onDeleted, onUpdated, onToggleFullscreen, isFullscreen = false, workspaces }: Props = $props();
 
 	// -----------------------------------------------------------------------
 	// State
@@ -80,7 +82,8 @@
 		title: '',
 		source: '',
 		tags: '',
-		content: ''
+		content: '',
+		workspace_id: ''
 	});
 
 	// -----------------------------------------------------------------------
@@ -113,7 +116,8 @@
 			title: doc.title,
 			source: doc.source || '',
 			tags: doc.tags.join(', '),
-			content: doc.content || ''
+			content: doc.content || '',
+			workspace_id: doc.workspace_id || ''
 		};
 		editing = true;
 	}
@@ -133,7 +137,8 @@
 			tags: editForm.tags
 				.split(',')
 				.map((t) => t.trim())
-				.filter(Boolean)
+				.filter(Boolean),
+			workspace_id: editForm.workspace_id || ''
 		};
 		if (contentChanged) {
 			payload.content = editForm.content;
@@ -425,6 +430,21 @@
 							class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
 						/>
 					</label>
+
+					{#if workspaces && workspaces.length > 0}
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-text-secondary">Workspace</span>
+							<select
+								bind:value={editForm.workspace_id}
+								class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+							>
+								<option value="">No workspace</option>
+								{#each workspaces as ws}
+									<option value={ws.id}>{ws.name}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
 
 					<div class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Content</span>

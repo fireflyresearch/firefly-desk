@@ -30,9 +30,10 @@
 
 	interface Props {
 		onDocumentAdded?: () => void;
+		workspaces?: {id: string; name: string}[];
 	}
 
-	let { onDocumentAdded }: Props = $props();
+	let { onDocumentAdded, workspaces = [] }: Props = $props();
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -67,6 +68,7 @@
 	let saving = $state(false);
 	let error = $state('');
 	let success = $state('');
+	let selectedWorkspaceId = $state('');
 
 	// Text form
 	let textForm = $state({
@@ -141,7 +143,8 @@
 			tags: textForm.tags
 				.split(',')
 				.map((t) => t.trim())
-				.filter(Boolean)
+				.filter(Boolean),
+			workspace_id: selectedWorkspaceId || undefined
 		};
 
 		try {
@@ -216,6 +219,9 @@
 		if (fileForm.tags) {
 			formData.append('tags', fileForm.tags);
 		}
+		if (selectedWorkspaceId) {
+			formData.append('workspace_id', selectedWorkspaceId);
+		}
 
 		try {
 			const headers: Record<string, string> = {};
@@ -274,7 +280,8 @@
 			tags: urlForm.tags
 				.split(',')
 				.map((t) => t.trim())
-				.filter(Boolean)
+				.filter(Boolean),
+			workspace_id: selectedWorkspaceId || undefined
 		};
 
 		try {
@@ -405,7 +412,8 @@
 					body: JSON.stringify({
 						spec: entry.spec,
 						title: entry.title || undefined,
-						tags
+						tags,
+						workspace_id: selectedWorkspaceId || undefined
 					})
 				});
 				results.push({ title: label, success: true });
@@ -440,6 +448,22 @@
 </script>
 
 <div class="flex flex-col gap-4">
+	<!-- Workspace selector -->
+	{#if workspaces.length > 0}
+		<label class="flex flex-col gap-1">
+			<span class="text-xs font-medium text-text-secondary">Workspace</span>
+			<select
+				bind:value={selectedWorkspaceId}
+				class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+			>
+				<option value="">No workspace</option>
+				{#each workspaces as ws}
+					<option value={ws.id}>{ws.name}</option>
+				{/each}
+			</select>
+		</label>
+	{/if}
+
 	<!-- Sub-tab bar -->
 	<div class="flex gap-1 rounded-lg bg-surface-secondary p-1">
 		{#each subTabs as tab}

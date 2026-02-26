@@ -41,6 +41,7 @@
 		chunk_count?: number;
 		created_at?: string;
 		metadata?: Record<string, unknown>;
+		workspace_id?: string | null;
 	}
 
 	// -----------------------------------------------------------------------
@@ -53,10 +54,16 @@
 	let error = $state('');
 	let searchQuery = $state('');
 	let statusFilter = $state('all');
+	let workspaces = $state<{id: string; name: string}[]>([]);
+	let workspaceFilter = $state('all');
 
 	// Selection
 	let selectedDocumentId = $state<string | null>(null);
 	let selectedIds = $state<Set<string>>(new Set());
+
+	// Pagination
+	let currentPage = $state(1);
+	let pageSize = $state(25);
 
 	// Detail panel resize / fullscreen
 	let detailWidth = $state(384);
@@ -81,23 +88,41 @@
 				(d.source ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				d.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
 			const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
-			return matchesSearch && matchesStatus;
+			const matchesWorkspace = workspaceFilter === 'all' || d.workspace_id === workspaceFilter;
+			return matchesSearch && matchesStatus && matchesWorkspace;
 		});
 	});
 
+	let totalPages = $derived(Math.ceil(filteredDocuments.length / pageSize));
+	let paginatedDocuments = $derived(
+		filteredDocuments.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+	);
+
 	let allSelected = $derived(
-		filteredDocuments.length > 0 && filteredDocuments.every((d) => selectedIds.has(d.id))
+		paginatedDocuments.length > 0 && paginatedDocuments.every((d) => selectedIds.has(d.id))
 	);
 
 	// -----------------------------------------------------------------------
 	// Data loading
 	// -----------------------------------------------------------------------
 
+	async function loadWorkspaces() {
+		try {
+			const result = await apiJson<{id: string; name: string; description: string; icon: string; color: string; roles: string[]; users: string[]}[]>('/workspaces');
+			workspaces = result.map((w) => ({ id: w.id, name: w.name }));
+		} catch {
+			// Workspaces are optional — silently ignore errors
+		}
+	}
+
 	async function loadDocuments() {
 		loading = true;
 		error = '';
 		try {
-			documents = await apiJson<KnowledgeDocument[]>('/knowledge/documents');
+			const url = workspaceFilter !== 'all'
+				? `/knowledge/documents?workspace_id=${workspaceFilter}`
+				: '/knowledge/documents';
+			documents = await apiJson<KnowledgeDocument[]>(url);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load documents';
 		} finally {
@@ -146,7 +171,15 @@
 	}
 
 	$effect(() => {
+		loadWorkspaces();
 		loadDocuments();
+	});
+
+	$effect(() => {
+		void searchQuery;
+		void statusFilter;
+		void workspaceFilter;
+		currentPage = 1;
 	});
 
 	// -----------------------------------------------------------------------
@@ -217,9 +250,13 @@
 
 	function toggleSelectAll() {
 		if (allSelected) {
-			selectedIds = new Set();
+			const next = new Set(selectedIds);
+			for (const d of paginatedDocuments) next.delete(d.id);
+			selectedIds = next;
 		} else {
-			selectedIds = new Set(filteredDocuments.map((d) => d.id));
+			const next = new Set(selectedIds);
+			for (const d of paginatedDocuments) next.add(d.id);
+			selectedIds = next;
 		}
 	}
 
@@ -394,6 +431,17 @@
 						<option value="archived">Archived</option>
 					</select>
 
+					<!-- Workspace filter dropdown -->
+					<select
+						bind:value={workspaceFilter}
+						class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+					>
+						<option value="all">All workspaces</option>
+						{#each workspaces as ws}
+							<option value={ws.id}>{ws.name}</option>
+						{/each}
+					</select>
+
 					{#if selectedIds.size > 0}
 						<div class="flex items-center gap-1.5">
 							<button
@@ -436,12 +484,13 @@
 								onUpdated={() => loadDocuments()}
 								onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
 								{isFullscreen}
+								{workspaces}
 							/>
 						</div>
 					{:else}
 						<div class="flex flex-1 gap-0 overflow-hidden min-w-0">
 							<!-- Table -->
-							<div class="min-w-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+							<div class="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-surface">
 								{@render documentTable()}
 							</div>
 
@@ -464,12 +513,13 @@
 									onUpdated={() => loadDocuments()}
 									onToggleFullscreen={() => (isFullscreen = !isFullscreen)}
 									{isFullscreen}
+									{workspaces}
 								/>
 							</div>
 						</div>
 					{/if}
 				{:else}
-					<div class="flex-1 overflow-auto rounded-lg border border-border bg-surface">
+					<div class="flex-1 overflow-hidden rounded-lg border border-border bg-surface">
 						{@render documentTable()}
 					</div>
 				{/if}
@@ -480,7 +530,7 @@
 		<!-- ================================================================= -->
 		{:else if activeTab === 'add'}
 			<div class="min-h-0 flex-1 overflow-y-auto">
-				<KnowledgeAddDocument onDocumentAdded={handleDocumentAdded} />
+				<KnowledgeAddDocument onDocumentAdded={handleDocumentAdded} {workspaces} />
 			</div>
 
 		<!-- ================================================================= -->
@@ -550,6 +600,7 @@
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Title</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Type</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
+						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Workspace</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Source</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Chunks</th>
@@ -558,7 +609,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each filteredDocuments as doc, i}
+					{#each paginatedDocuments as doc, i}
 						<tr
 							class="cursor-pointer border-b border-border last:border-b-0 transition-colors
 								{selectedDocumentId === doc.id ? 'bg-accent/5' : i % 2 === 1 ? 'bg-surface-secondary/50' : ''}
@@ -593,6 +644,9 @@
 										{badge.label}
 									</span>
 								{/if}
+							</td>
+							<td class="px-4 py-2 text-xs text-text-secondary">
+								{workspaces.find((w) => w.id === doc.workspace_id)?.name || '--'}
 							</td>
 							<td class="px-4 py-2 text-text-secondary">{doc.source || '--'}</td>
 							<td class="px-4 py-2">
@@ -634,8 +688,8 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="10" class="px-4 py-12 text-center">
-								{#if searchQuery || statusFilter !== 'all'}
+							<td colspan="11" class="px-4 py-12 text-center">
+								{#if searchQuery || statusFilter !== 'all' || workspaceFilter !== 'all'}
 									<div class="flex flex-col items-center gap-2">
 										<Search size={32} class="text-text-secondary/40" />
 										<p class="text-sm text-text-secondary">No documents match your search.</p>
@@ -665,5 +719,33 @@
 				</tbody>
 			</table>
 		</div>
+
+		<!-- Pagination footer -->
+		{#if filteredDocuments.length > pageSize}
+			<div class="flex items-center justify-between border-t border-border px-4 py-2">
+				<span class="text-xs text-text-secondary">
+					{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredDocuments.length)} of {filteredDocuments.length}
+				</span>
+				<div class="flex items-center gap-1">
+					<button
+						type="button"
+						disabled={currentPage <= 1}
+						onclick={() => currentPage--}
+						class="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+					>
+						Previous
+					</button>
+					<span class="px-2 text-xs text-text-secondary">Page {currentPage} of {totalPages}</span>
+					<button
+						type="button"
+						disabled={currentPage >= totalPages}
+						onclick={() => currentPage++}
+						class="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+					>
+						Next
+					</button>
+				</div>
+			</div>
+		{/if}
 	{/if}
 {/snippet}

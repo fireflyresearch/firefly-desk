@@ -67,6 +67,7 @@ class KnowledgeDocumentStore:
         tags: list[str] | None = None,
         content: str | None = None,
         status: str | None = None,
+        workspace_id: str | None = None,
     ) -> KnowledgeDocument | None:
         raise NotImplementedError
 
@@ -98,6 +99,7 @@ class DocumentMetadataUpdate(BaseModel):
     tags: list[str] | None = None
     content: str | None = None
     status: str | None = None
+    workspace_id: str | None = None  # "" to clear, str to set, None = no change
 
 
 class ImportURLRequest(BaseModel):
@@ -365,6 +367,7 @@ async def update_document_metadata(
         tags=body.tags,
         content=body.content,
         status=body.status,
+        workspace_id=body.workspace_id,
     )
     if updated is None:
         raise HTTPException(

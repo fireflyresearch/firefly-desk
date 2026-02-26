@@ -102,7 +102,7 @@
 		<div class="flex items-start gap-2">
 			<div class="flex max-w-[75%] flex-col items-end">
 				<div
-					class="rounded-2xl rounded-br-sm bg-accent/90 backdrop-blur-sm px-4 py-2.5 text-sm leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
+					class="rounded-2xl rounded-br-sm bg-accent/90 backdrop-blur-sm px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-sm whitespace-pre-wrap break-words"
 				>
 					{message.content}
 				</div>
@@ -157,15 +157,15 @@
 			</span>
 			</div>
 			<!-- User avatar -->
-			<div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+			<div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full overflow-hidden">
 				{#if $currentUser?.pictureUrl}
 					<img
 						src={$currentUser.pictureUrl}
 						alt={$currentUser.displayName}
-						class="h-7 w-7 rounded-full object-cover"
+						class="h-9 w-9 rounded-full object-cover"
 					/>
 				{:else}
-					<div class="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-white select-none">
+					<div class="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-medium text-white select-none">
 						{userInitials}
 					</div>
 				{/if}
@@ -178,24 +178,24 @@
 		<div class="flex gap-3">
 			<!-- Agent avatar (custom or default Ember) -->
 			<div class="mt-0.5 flex shrink-0 flex-col items-center">
-				<div class="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full">
+				<div class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full">
 					{#if $agentSettings.avatar_url}
 						<img
 							src={$agentSettings.avatar_url}
 							alt={$agentSettings.display_name || 'Assistant'}
-							class="h-7 w-7 rounded-full object-cover"
+							class="h-9 w-9 rounded-full object-cover"
 						/>
 					{:else}
-						<EmberAvatar size={20} />
+						<EmberAvatar size={24} />
 					{/if}
 				</div>
-				<span class="mt-0.5 text-center text-[9px] font-medium text-text-secondary">
+				<span class="mt-0.5 text-center text-[11px] font-medium text-text-secondary">
 					{$agentSettings.display_name || 'Ember'}
 				</span>
 			</div>
 			<!-- Message content -->
 			<div class="flex flex-col items-start">
-				<div class="rounded-2xl rounded-bl-sm bg-surface-secondary/50 px-4 py-2.5 text-sm leading-relaxed">
+				<div class="rounded-2xl rounded-bl-sm bg-surface-secondary px-4 py-2.5 text-[15px] leading-relaxed">
 					<MarkdownContent content={cleanContent} />
 				</div>
 				{#if !message.isStreaming && message.toolExecutions?.length}
@@ -205,7 +205,7 @@
 					<TokenUsage usage={message.usage} />
 				{/if}
 				{#if !message.isStreaming && $currentUser?.devMode && message.toolCount !== undefined}
-					<span class="mt-0.5 rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px] text-text-secondary" title="Number of tools available to the agent">
+					<span class="mt-0.5 rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-xs text-text-secondary" title="Number of tools available to the agent">
 						{message.toolCount} tools
 					</span>
 				{/if}
