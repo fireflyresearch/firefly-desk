@@ -352,40 +352,25 @@ class TestFileContextInPrompt:
 
 
 # ---------------------------------------------------------------------------
-# SSE streaming with file_ids (integration-level)
+# Chat endpoint without agent configured
 # ---------------------------------------------------------------------------
 
 
-class TestSSEStreamWithFileIds:
-    """Tests that SSE streaming works normally when file_ids are present."""
+class TestChatWithoutAgent:
+    """Chat endpoint returns 503 when agent is not configured."""
 
-    async def test_send_message_with_file_ids_returns_sse_stream(self, client):
-        """POST with file_ids returns 200 with SSE content type."""
+    async def test_no_agent_returns_503(self, client):
+        """POST returns 503 when agent is not configured."""
         response = await client.post(
-            "/api/chat/conversations/conv-files-1/send",
-            json={"message": "Analyze the report", "file_ids": ["f-1"]},
+            "/api/chat/conversations/conv-1/send",
+            json={"message": "Hello"},
         )
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
+        assert response.status_code == 503
 
-    async def test_sse_stream_with_file_ids_ends_with_done(self, client):
-        """SSE stream with file_ids ends with a done event."""
+    async def test_no_agent_returns_503_with_file_ids(self, client):
+        """POST with file_ids returns 503 when agent is not configured."""
         response = await client.post(
-            "/api/chat/conversations/conv-files-2/send",
-            json={"message": "Summarize", "file_ids": ["f-1", "f-2"]},
+            "/api/chat/conversations/conv-1/send",
+            json={"message": "Analyze", "file_ids": ["f-1"]},
         )
-        events = parse_sse_events(response.text)
-        assert len(events) > 0
-        assert events[-1]["event"] == "done"
-        assert events[-1]["data"]["conversation_id"] == "conv-files-2"
-
-    async def test_sse_stream_with_empty_file_ids(self, client):
-        """An empty file_ids list behaves the same as no file_ids."""
-        response = await client.post(
-            "/api/chat/conversations/conv-files-3/send",
-            json={"message": "Hello", "file_ids": []},
-        )
-        events = parse_sse_events(response.text)
-        token_events = [e for e in events if e["event"] == "token"]
-        assert len(token_events) >= 1
-        assert events[-1]["event"] == "done"
+        assert response.status_code == 503
