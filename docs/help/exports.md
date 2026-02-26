@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Exports
 
 Exports let you generate downloadable documents from data produced by the AI agent. You can export conversation results, data tables, and analysis outputs in CSV, JSON, or PDF format.

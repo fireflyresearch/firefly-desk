@@ -1,3 +1,7 @@
+---
+type: api_spec
+---
+
 # API Reference
 
 ## Overview

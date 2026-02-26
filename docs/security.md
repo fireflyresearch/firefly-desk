@@ -1,3 +1,7 @@
+---
+type: policy
+---
+
 # Security
 
 ## Overview

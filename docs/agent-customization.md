@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Agent Customization
 
 ## Overview

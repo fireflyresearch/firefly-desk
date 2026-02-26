@@ -1,3 +1,7 @@
+---
+type: manual
+---
+
 # Firefly Desk Documentation
 
 This directory contains the complete documentation for Firefly Desk, an AI-powered operational backoffice built by Firefly Software Solutions Inc.

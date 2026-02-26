@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Memories
 
 The agent can remember important information about you across conversations. This allows it to provide personalized responses without you needing to repeat yourself.

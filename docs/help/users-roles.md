@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Users & Roles
 
 Users & Roles manages who can access Firefly Desk and what they are allowed to do. The platform uses role-based access control (RBAC) where each user is assigned one or more roles, and each role defines a set of permissions.

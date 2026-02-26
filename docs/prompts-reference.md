@@ -1,3 +1,7 @@
+---
+type: api_spec
+---
+
 # Prompt Templates Reference
 
 ## Overview

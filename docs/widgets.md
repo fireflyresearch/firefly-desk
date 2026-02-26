@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Widget Reference
 
 ## Overview

@@ -1,3 +1,7 @@
+---
+type: faq
+---
+
 # Troubleshooting
 
 ## Backend Will Not Start

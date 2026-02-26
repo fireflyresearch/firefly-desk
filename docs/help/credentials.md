@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Credentials
 
 The Credential Vault securely stores API keys, tokens, passwords, and other secrets used by catalog system integrations. All credential values are encrypted at rest using a pluggable Key Management Service (KMS) architecture.

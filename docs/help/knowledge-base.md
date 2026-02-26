@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Knowledge Base
 
 The Knowledge Base is the agent's primary source of information. It stores documents that are automatically chunked, embedded, and indexed for vector search. When users ask questions, the agent retrieves relevant document snippets to ground its responses in your organization's actual content.

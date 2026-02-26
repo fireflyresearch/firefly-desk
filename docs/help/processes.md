@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Processes
 
 The Processes section manages business process discovery and exploration. Firefly Desk uses AI to automatically identify business processes by analyzing your catalog systems, knowledge base documents, and knowledge graph entities.

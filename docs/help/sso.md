@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # SSO
 
 Single Sign-On (SSO) lets users authenticate with Firefly Desk using their existing corporate identity provider. The platform implements the OpenID Connect (OIDC) protocol with PKCE (Proof Key for Code Exchange) for secure authorization code flows.

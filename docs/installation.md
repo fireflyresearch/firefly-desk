@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Installation
 
 ## System Requirements

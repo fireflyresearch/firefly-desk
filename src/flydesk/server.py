@@ -95,6 +95,7 @@ from flydesk.api.tools_admin import router as tools_admin_router
 from flydesk.api.users import router as users_router
 from flydesk.api.workspaces import router as workspace_router
 from flydesk.api.help_docs import router as help_docs_router
+from flydesk.knowledge.models import DocumentStatus
 from flydesk.audit.logger import AuditLogger
 from flydesk.auth.middleware import AuthMiddleware
 from flydesk.catalog.repository import CatalogRepository
@@ -729,11 +730,13 @@ async def _seed_platform_docs(
                     docs_path, existing_docs
                 )
 
-                # Assign default workspace to new and updated docs
+                # Assign default workspace and publish status to new and updated docs
                 for doc in new_docs:
                     doc.workspace_ids = list(ws_ids)
+                    doc.status = DocumentStatus.PUBLISHED
                 for doc in updated_docs:
                     doc.workspace_ids = list(ws_ids)
+                    doc.status = DocumentStatus.PUBLISHED
 
                 for doc in new_docs:
                     try:

@@ -1,3 +1,7 @@
+---
+type: manual
+---
+
 # Firefly Desk
 
 ## What is Firefly Desk?

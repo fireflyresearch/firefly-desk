@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Prompts
 
 Prompts are Jinja2 templates that control how the AI agent behaves, what context it receives, and how it structures its responses. The prompt system uses a template registry that loads `.j2` files from the templates directory and assembles them into the agent's system prompt at runtime.

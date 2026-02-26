@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Git Import
 
 Git Import lets you pull documentation directly from Git repositories into the Firefly Desk knowledge base. This is useful for keeping your agent's knowledge in sync with documentation that lives alongside your code.

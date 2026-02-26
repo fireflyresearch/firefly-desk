@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # LLM Providers
 
 LLM Providers configure the language models and embedding models that power the AI agent, knowledge base indexing, and process discovery. At least one active provider is required for the platform to function.

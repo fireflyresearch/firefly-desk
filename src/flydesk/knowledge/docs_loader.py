@@ -20,7 +20,7 @@ import logging
 import re
 from pathlib import Path
 
-from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +94,29 @@ def _resolve_document_type(raw: str | None) -> DocumentType:
     return DocumentType.OTHER
 
 
+def _infer_document_type(relative_path: str) -> DocumentType:
+    """Infer document type from the relative file path."""
+    path_lower = relative_path.lower()
+    if "help/" in path_lower or "tutorial" in path_lower:
+        return DocumentType.TUTORIAL
+    if "api" in path_lower:
+        return DocumentType.API_SPEC
+    if "faq" in path_lower:
+        return DocumentType.FAQ
+    if "policy" in path_lower or "security" in path_lower:
+        return DocumentType.POLICY
+    return DocumentType.REFERENCE
+
+
 class DocsLoader:
     """Load Markdown files from a directory into KnowledgeDocument instances."""
 
     @staticmethod
-    def load_from_directory(docs_path: str | Path) -> list[KnowledgeDocument]:
+    def load_from_directory(
+        docs_path: str | Path,
+        default_workspace_ids: list[str] | None = None,
+        default_status: DocumentStatus | None = None,
+    ) -> list[KnowledgeDocument]:
         """Scan *docs_path* recursively for ``*.md`` files and return documents.
 
         For each file the loader:
@@ -153,6 +171,12 @@ class DocsLoader:
                 str(frontmatter["type"]) if "type" in frontmatter else None
             )
 
+            if doc_type == DocumentType.OTHER and "type" not in frontmatter:
+                doc_type = _infer_document_type(relative)
+
+            # Resolve status
+            status = default_status if default_status is not None else DocumentStatus.DRAFT
+
             # Resolve source
             source = str(frontmatter.get("source", "")) or f"docs://{relative}"
 
@@ -166,7 +190,9 @@ class DocsLoader:
                     title=title,
                     content=content.strip(),
                     document_type=doc_type,
+                    status=status,
                     source=source,
+                    workspace_ids=list(default_workspace_ids) if default_workspace_ids else [],
                     tags=tags,
                     metadata={
                         "relative_path": relative,

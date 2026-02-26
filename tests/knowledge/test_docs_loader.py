@@ -197,10 +197,11 @@ class TestLoadFromDirectory:
         ids2 = {d.id for d in docs2}
         assert ids1 == ids2
 
-    def test_document_type_defaults_to_other(self, tmp_path: Path):
+    def test_document_type_inferred_when_no_frontmatter(self, tmp_path: Path):
         _write_md(tmp_path, "plain.md", "# Plain Doc\nNo type frontmatter.")
         docs = DocsLoader.load_from_directory(tmp_path)
-        assert docs[0].document_type == DocumentType.OTHER
+        # With no frontmatter type, inference kicks in; generic paths -> REFERENCE
+        assert docs[0].document_type == DocumentType.REFERENCE
 
     def test_unknown_type_defaults_to_other(self, tmp_path: Path):
         _write_md(tmp_path, "unknown.md", "---\ntype: alien\n---\n# Alien")

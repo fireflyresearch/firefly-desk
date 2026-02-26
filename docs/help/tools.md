@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Tools
 
 Tools are the actions the AI agent can perform during a conversation. They range from searching your knowledge base to calling external APIs and running custom Python scripts. The agent selects which tool to use based on the user's request and each tool's description.

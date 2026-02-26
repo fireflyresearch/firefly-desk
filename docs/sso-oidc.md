@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # SSO and OIDC
 
 ## Overview

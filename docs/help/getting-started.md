@@ -1,3 +1,7 @@
+---
+type: tutorial
+---
+
 # Getting Started
 
 Firefly Desk is an AI-powered backoffice platform that connects your organization's knowledge, external systems, and business processes through a conversational AI agent. The admin console is where you configure everything the agent needs to operate.

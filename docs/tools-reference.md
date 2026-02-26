@@ -1,3 +1,7 @@
+---
+type: api_spec
+---
+
 # Built-in Tools Reference
 
 ## Overview

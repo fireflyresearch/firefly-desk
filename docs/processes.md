@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Process Discovery
 
 ## Overview

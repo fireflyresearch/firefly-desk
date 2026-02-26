@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # User Memory
 
 Firefly Desk's User Memory system allows the agent to remember important information about users across conversations. When a user shares preferences, facts, or workflow details, the agent can save these as memories and recall them in future interactions to provide personalized, context-aware responses.

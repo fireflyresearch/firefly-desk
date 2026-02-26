@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Admin Console
 
 ## Overview
