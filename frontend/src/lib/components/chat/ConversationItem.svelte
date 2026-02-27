@@ -84,24 +84,44 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="group relative mx-2 mb-0.5 rounded-lg transition-all duration-150
-		{isActive ? 'border-l-2 border-accent bg-accent/6' : 'border-l-2 border-transparent hover:bg-surface-hover/60'}"
+	class="conversation-item group relative mx-1.5 mb-px rounded-lg transition-all duration-200 ease-out
+		{isActive
+			? 'is-active bg-surface-elevated shadow-[0_1px_3px_rgba(0,0,0,0.06),0_0_0_1px_var(--color-border)/0.3] ring-1 ring-accent/[0.12]'
+			: 'hover:bg-surface-hover/50'}"
+	draggable={!editing}
+	ondragstart={(e) => {
+		e.dataTransfer?.setData('text/conversation-id', id);
+		e.dataTransfer!.effectAllowed = 'move';
+	}}
 	oncontextmenu={handleRightClick}
 >
+	<!-- Active indicator bar -->
+	{#if isActive}
+		<div class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-accent shadow-[0_0_6px_var(--color-glow-accent)]"></div>
+	{/if}
+
 	<button
 		type="button"
 		onclick={() => { if (!editing) onSelect(id); }}
 		ondblclick={startRename}
-		class="flex w-full items-start gap-2.5 px-3 py-2.5 text-left"
+		class="flex w-full items-center gap-2.5 px-2.5 py-[9px] text-left"
 		disabled={editing}
 	>
-		<span class="mt-0.5 shrink-0 {isActive ? 'text-accent' : 'text-text-secondary/60'}">
+		<!-- Icon -->
+		<span
+			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-200
+				{isActive
+					? 'bg-accent/[0.08] text-accent'
+					: 'text-text-secondary/40 group-hover:text-text-secondary/70'}"
+		>
 			{#if isPinned}
-				<Pin size={14} />
+				<Pin size={14} class="rotate-45" />
 			{:else}
 				<MessageSquare size={14} />
 			{/if}
 		</span>
+
+		<!-- Content -->
 		<div class="min-w-0 flex-1">
 			{#if editing}
 				<!-- svelte-ignore a11y_autofocus -->
@@ -110,29 +130,32 @@
 					bind:value={editTitle}
 					onkeydown={handleKeydown}
 					autofocus
-					class="w-full rounded border border-accent/50 bg-surface px-1.5 py-0.5 text-sm text-text-primary outline-none focus:border-accent"
+					class="w-full rounded-md border border-accent/40 bg-surface px-2 py-1 text-[13px] text-text-primary shadow-inner outline-none transition-shadow focus:border-accent/60 focus:shadow-[0_0_0_3px_var(--color-glow-accent)]"
 					onclick={(e) => e.stopPropagation()}
 				/>
 			{:else}
 				<div
-					class="line-clamp-1 text-[13px] leading-snug {isActive ? 'font-semibold text-text-primary' : 'font-medium text-text-primary'}"
+					class="truncate text-[13px] leading-snug transition-colors duration-150
+						{isActive
+							? 'font-semibold text-text-primary'
+							: 'font-medium text-text-primary/85 group-hover:text-text-primary'}"
 				>
 					{title}
 				</div>
+				<div class="mt-px text-[11px] leading-snug text-text-secondary/45">
+					{formatRelativeTime(updatedAt)}
+				</div>
 			{/if}
-			<div class="mt-0.5 text-[11px] text-text-secondary/60 {!isActive ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''}">
-				{formatRelativeTime(updatedAt)}
-			</div>
 		</div>
 	</button>
 
 	<!-- Hover actions -->
 	{#if editing}
-		<div class="absolute right-2 top-2 flex items-center gap-0.5">
+		<div class="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
 			<button
 				type="button"
 				onclick={confirmRename}
-				class="flex h-6 w-6 items-center justify-center rounded text-green-500 hover:bg-green-500/10"
+				class="flex h-6 w-6 items-center justify-center rounded-md bg-success/10 text-success transition-colors hover:bg-success/20"
 				aria-label="Confirm rename"
 			>
 				<Check size={13} />
@@ -140,29 +163,31 @@
 			<button
 				type="button"
 				onclick={cancelRename}
-				class="flex h-6 w-6 items-center justify-center rounded text-text-secondary hover:bg-surface-hover"
+				class="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
 				aria-label="Cancel rename"
 			>
 				<X size={13} />
 			</button>
 		</div>
 	{:else}
-		<div class="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+		<div
+			class="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-px rounded-md bg-surface-elevated/90 opacity-0 shadow-sm ring-1 ring-border/20 backdrop-blur-sm transition-all duration-200 group-hover:opacity-100"
+		>
 			<button
 				type="button"
 				onclick={startRename}
-				class="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary/70 hover:bg-surface-hover hover:text-text-primary"
+				class="flex h-6 w-6 items-center justify-center rounded-l-md text-text-secondary/60 transition-colors hover:bg-surface-hover hover:text-text-primary"
 				aria-label="Rename conversation"
 			>
-				<Pencil size={12} />
+				<Pencil size={11} />
 			</button>
 			<button
 				type="button"
 				onclick={handleDotClick}
-				class="flex h-6 w-6 items-center justify-center rounded-md text-text-secondary/70 hover:bg-surface-hover hover:text-text-primary"
+				class="flex h-6 w-6 items-center justify-center rounded-r-md text-text-secondary/60 transition-colors hover:bg-surface-hover hover:text-text-primary"
 				aria-label="More actions"
 			>
-				<MoreHorizontal size={14} />
+				<MoreHorizontal size={13} />
 			</button>
 		</div>
 	{/if}

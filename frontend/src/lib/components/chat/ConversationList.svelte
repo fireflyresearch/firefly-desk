@@ -46,6 +46,7 @@
 	let showFolderModal = $state(false);
 	let folderError = $state<string | null>(null);
 	let searchFocused = $state(false);
+	let ungroupedDragOver = $state(false);
 
 	// Load data on mount
 	$effect(() => {
@@ -216,6 +217,29 @@
 			);
 		} catch (error) {
 			console.error('[ConversationList] Move failed:', error);
+		}
+	}
+
+	async function handleDropOnFolder(conversationId: string, folderId: string | null) {
+		try {
+			await moveToFolder(conversationId, folderId);
+			conversations.update((convs) =>
+				convs.map((c) =>
+					c.id === conversationId
+						? {
+								...c,
+								metadata: folderId
+									? { ...c.metadata, folder_id: folderId }
+									: (() => {
+											const { folder_id: _, ...rest } = c.metadata;
+											return rest;
+										})()
+							}
+						: c
+				)
+			);
+		} catch (error) {
+			console.error('[ConversationList] Drop move failed:', error);
 		}
 	}
 
@@ -435,6 +459,7 @@
 						onToggle={() => toggleSection(`folder-${folder.id}`)}
 						onRename={handleFolderRename}
 						onDelete={handleFolderDelete}
+					onDrop={handleDropOnFolder}
 					>
 						{#each folderConvos as conversation (conversation.id)}
 							<ConversationItem
@@ -452,8 +477,29 @@
 				{/if}
 			{/each}
 
-			{#if $folders.length > 0 && Object.keys(folderGroups).length > 0}
-				<div class="mx-3 my-1.5 h-px bg-border/15"></div>
+			{#if $folders.length > 0}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="mx-3 my-1.5 h-px transition-all {ungroupedDragOver ? 'h-6 rounded bg-accent/10 ring-1 ring-accent/30 flex items-center justify-center' : 'bg-border/15'}"
+					ondragover={(e) => {
+						if (e.dataTransfer?.types.includes('text/conversation-id')) {
+							e.preventDefault();
+							e.dataTransfer!.dropEffect = 'move';
+							ungroupedDragOver = true;
+						}
+					}}
+					ondragleave={() => { ungroupedDragOver = false; }}
+					ondrop={(e) => {
+						e.preventDefault();
+						ungroupedDragOver = false;
+						const convId = e.dataTransfer?.getData('text/conversation-id');
+						if (convId) handleDropOnFolder(convId, null);
+					}}
+				>
+					{#if ungroupedDragOver}
+						<span class="text-[10px] text-accent/70 font-medium">Remove from folder</span>
+					{/if}
+				</div>
 			{/if}
 
 			<!-- Ungrouped conversations by date -->

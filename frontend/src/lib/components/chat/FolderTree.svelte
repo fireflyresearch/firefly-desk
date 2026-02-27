@@ -78,6 +78,7 @@
 		onToggle: () => void;
 		onRename: (id: string, name: string) => void;
 		onDelete: (id: string) => void;
+		onDrop: (conversationId: string, folderId: string) => void;
 		children: Snippet;
 	}
 
@@ -88,12 +89,14 @@
 		onToggle,
 		onRename,
 		onDelete,
+		onDrop,
 		children
 	}: FolderTreeProps = $props();
 
 	let editing = $state(false);
 	let editName = $state('');
 	let showActions = $state(false);
+	let dragOver = $state(false);
 
 	function startRename() {
 		editing = true;
@@ -121,7 +124,25 @@
 
 <div class="mb-1">
 	<!-- Folder header -->
-	<div class="group flex items-center gap-1 px-3 py-1.5">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="group flex items-center gap-1 px-3 py-1.5 rounded-md transition-colors
+			{dragOver ? 'bg-accent/10 ring-1 ring-accent/30' : ''}"
+		ondragover={(e) => {
+			if (e.dataTransfer?.types.includes('text/conversation-id')) {
+				e.preventDefault();
+				e.dataTransfer!.dropEffect = 'move';
+				dragOver = true;
+			}
+		}}
+		ondragleave={() => { dragOver = false; }}
+		ondrop={(e) => {
+			e.preventDefault();
+			dragOver = false;
+			const convId = e.dataTransfer?.getData('text/conversation-id');
+			if (convId) onDrop(convId, folder.id);
+		}}
+	>
 		<button
 			type="button"
 			onclick={onToggle}
