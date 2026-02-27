@@ -701,11 +701,8 @@
 	<!-- Top toolbar                                                        -->
 	<!-- ================================================================= -->
 	<div class="flex h-12 shrink-0 items-center gap-3 border-b border-border/40 bg-surface px-4">
-		<!-- Title -->
-		<h1 class="text-sm font-semibold text-text-primary">Processes</h1>
-
-		<!-- Search (compact) -->
-		<div class="relative">
+		<!-- Search (aligned with sidebar width) -->
+		<div class="relative w-60">
 			<Search
 				size={13}
 				class="absolute top-1/2 left-2.5 -translate-y-1/2 text-text-secondary"
@@ -714,7 +711,7 @@
 				type="text"
 				bind:value={searchQuery}
 				placeholder="Search processes..."
-				class="h-8 w-56 rounded-lg border border-border bg-surface py-1.5 pr-3 pl-8 text-sm text-text-primary outline-none focus:border-accent"
+				class="h-8 w-full rounded-lg border border-border bg-surface py-1.5 pr-3 pl-8 text-sm text-text-primary outline-none focus:border-accent"
 			/>
 		</div>
 
