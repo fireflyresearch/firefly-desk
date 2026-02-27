@@ -49,6 +49,15 @@ class KnowledgeRetriever:
         self._embedding_provider = embedding_provider
         self._vector_store = vector_store
 
+        # Detect SQL dialect at init time.  AsyncSession.bind is always None
+        # in SQLAlchemy 2.x so we read the engine from the session factory's
+        # configuration instead.
+        try:
+            engine = session_factory.kw.get("bind")
+            self._dialect: str = engine.dialect.name if engine else "sqlite"
+        except (AttributeError, TypeError):
+            self._dialect = "sqlite"
+
     async def retrieve(
         self,
         query: str,
@@ -98,16 +107,13 @@ class KnowledgeRetriever:
             return results
 
         # 3. Determine backend and route to appropriate search strategy
-        async with self._session_factory() as session:
-            dialect = session.bind.dialect.name if session.bind else "sqlite"
-
         # Over-fetch when tag_filter is set so post-filtering can still
         # return up to top_k results.
         fetch_k = top_k * 3 if tag_filter else top_k
 
         if use_keywords:
             scored = await self._keyword_search(query, fetch_k)
-        elif dialect == "postgresql":
+        elif self._dialect == "postgresql":
             scored = await self._pgvector_search(query_embedding, fetch_k)
         else:
             scored = await self._inmemory_search(query_embedding, fetch_k)

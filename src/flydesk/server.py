@@ -51,8 +51,10 @@ from flydesk.api.deps import (
     get_export_repo,
     get_export_service,
     get_export_storage,
+    get_feedback_repo,
     get_file_repo,
     get_file_storage,
+    get_folder_repo,
     get_git_provider_repo,
     get_indexing_producer,
     get_job_repo,
@@ -219,6 +221,12 @@ async def _init_repositories(
         encryption_key=config.credential_encryption_key,
     )
 
+    from flydesk.conversation.folder_repository import FolderRepository
+    from flydesk.feedback.repository import FeedbackRepository
+
+    folder_repo = FolderRepository(session_factory)
+    feedback_repo = FeedbackRepository(session_factory)
+
     # Wire dependency overrides
     app.dependency_overrides[get_catalog_repo] = lambda: catalog_repo
     app.dependency_overrides[get_audit_logger] = lambda: audit_logger
@@ -230,6 +238,8 @@ async def _init_repositories(
     app.dependency_overrides[get_sandbox_executor] = lambda: sandbox_executor
     app.dependency_overrides[get_llm_repo] = lambda: llm_repo
     app.dependency_overrides[get_document_source_repo] = lambda: doc_source_repo
+    app.dependency_overrides[get_folder_repo] = lambda: folder_repo
+    app.dependency_overrides[get_feedback_repo] = lambda: feedback_repo
 
     return {
         "catalog_repo": catalog_repo,
@@ -545,7 +555,7 @@ async def _init_agent(  # noqa: PLR0913
 
     from flydesk.tools.document_tools import DocumentToolExecutor
 
-    doc_executor = DocumentToolExecutor(file_storage)
+    doc_executor = DocumentToolExecutor(file_storage, file_repo=file_repo)
     builtin_executor.set_document_executor(doc_executor)
 
     # Conversation memory store

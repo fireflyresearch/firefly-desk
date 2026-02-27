@@ -78,6 +78,7 @@ class AutoTriggerService:
             logger.warning(
                 "Failed to submit kg_extract_single for %s", doc_id, exc_info=True
             )
+        self._schedule_trigger("system_discovery")
 
     async def on_catalog_updated(self, system_id: str) -> None:
         """Called after a catalog system or endpoint is created/updated.
@@ -90,6 +91,7 @@ class AutoTriggerService:
         logger.debug("Catalog updated: %s -- scheduling triggers", system_id)
         self._schedule_trigger("kg_recompute")
         self._schedule_trigger("process_discovery")
+        self._schedule_trigger("system_discovery")
 
     # ------------------------------------------------------------------
     # Debounce logic

@@ -25,6 +25,8 @@ class DocumentType(StrEnum):
     FAQ = "faq"
     POLICY = "policy"
     REFERENCE = "reference"
+    CHANGELOG = "changelog"
+    README = "readme"
     OTHER = "other"
 
 

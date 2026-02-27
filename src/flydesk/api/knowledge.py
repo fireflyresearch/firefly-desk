@@ -463,7 +463,10 @@ async def import_openapi_spec(
 ) -> ImportResult:
     """Parse an OpenAPI spec and import the resulting documents."""
     parser = OpenAPIParser()
-    documents = parser.parse(body.spec_content, body.spec_format)
+    try:
+        documents = parser.parse(body.spec_content, body.spec_format)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Apply user-supplied tags to all parsed documents
     if body.tags:

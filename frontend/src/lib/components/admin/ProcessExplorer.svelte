@@ -245,9 +245,9 @@
 	// Data loading
 	// -----------------------------------------------------------------------
 
-	async function loadProcesses() {
+	async function loadProcesses(preserveError = false) {
 		loading = true;
-		error = '';
+		if (!preserveError) error = '';
 		try {
 			processes = await apiJson<BusinessProcess[]>('/processes');
 		} catch (e) {
@@ -257,9 +257,9 @@
 		}
 	}
 
-	async function loadProcessDetail(id: string) {
+	async function loadProcessDetail(id: string, preserveError = false) {
 		loadingDetail = true;
-		error = '';
+		if (!preserveError) error = '';
 		editingStep = null;
 		try {
 			selectedProcess = await apiJson<BusinessProcess>(`/processes/${id}`);
@@ -531,11 +531,11 @@
 					// Stream ended -- update final state
 					if (discoveryJobStatus !== 'failed' && discoveryJobStatus !== 'cancelled') {
 						discoveryJobStatus = 'completed';
+						discoveryProgressMessage = '';
 					}
-					discoveryProgressMessage = '';
-					await loadProcesses();
+					await loadProcesses(true);
 					if (selectedProcess) {
-						await loadProcessDetail(selectedProcess.id);
+						await loadProcessDetail(selectedProcess.id, true);
 					}
 				}
 			);

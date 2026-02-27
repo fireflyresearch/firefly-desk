@@ -194,7 +194,11 @@ class OpenAPIParser:
 
     @staticmethod
     def _load_spec(content: str, spec_format: str) -> dict[str, Any]:
-        """Load a spec string into a dict, handling both JSON and YAML."""
+        """Load a spec string into a dict, handling both JSON and YAML.
+
+        Raises:
+            ValueError: If the content cannot be parsed as JSON or YAML.
+        """
         if spec_format == "json":
             try:
                 return json.loads(content)  # type: ignore[no-any-return]
@@ -207,4 +211,4 @@ class OpenAPIParser:
                 return result
         except yaml.YAMLError:
             pass
-        return {}
+        raise ValueError("Failed to parse spec as JSON or YAML")

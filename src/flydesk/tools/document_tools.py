@@ -18,6 +18,7 @@ import csv
 import io
 import json
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from flydesk.catalog.enums import HttpMethod, RiskLevel
@@ -25,6 +26,7 @@ from flydesk.tools.builtin import BUILTIN_SYSTEM_ID
 from flydesk.tools.factory import ToolDefinition
 
 if TYPE_CHECKING:
+    from flydesk.files.repository import FileUploadRepository
     from flydesk.files.storage import FileStorageProvider
 
 logger = logging.getLogger(__name__)
@@ -203,13 +205,51 @@ class DocumentToolExecutor:
         "document_convert",
     })
 
-    def __init__(self, storage: FileStorageProvider) -> None:
+    def __init__(
+        self,
+        storage: FileStorageProvider,
+        file_repo: FileUploadRepository | None = None,
+    ) -> None:
         self._storage = storage
+        self._file_repo = file_repo
 
     @classmethod
     def is_document_tool(cls, tool_name: str) -> bool:
         """Return True if *tool_name* is handled by this executor."""
         return tool_name in cls._TOOL_NAMES
+
+    async def _register_file_upload(
+        self,
+        filename: str,
+        storage_path: str,
+        content_type: str,
+        size_bytes: int,
+    ) -> str | None:
+        """Create a FileUpload record so the file is downloadable via the API.
+
+        Returns the file ID if the record was created, otherwise ``None``.
+        """
+        if self._file_repo is None:
+            return None
+
+        from flydesk.files.models import FileUpload
+
+        file_id = str(uuid.uuid4())
+        upload = FileUpload(
+            id=file_id,
+            user_id="agent",
+            filename=filename,
+            content_type=content_type,
+            file_size=size_bytes,
+            storage_path=storage_path,
+            storage_backend="local",
+        )
+        try:
+            await self._file_repo.create(upload)
+        except Exception:
+            logger.warning("Failed to register FileUpload for %s", filename, exc_info=True)
+            return None
+        return file_id
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Dispatch to the appropriate document handler."""
@@ -341,9 +381,14 @@ class DocumentToolExecutor:
 
         buf = io.BytesIO()
         doc.save(buf)
+        file_bytes = buf.getvalue()
         filename = f"{title}.docx"
-        path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["docx"])
-        return {"format": "docx", "file_path": path, "filename": filename}
+        path = await self._storage.store(filename, file_bytes, _CONTENT_TYPES["docx"])
+        result: dict[str, Any] = {"format": "docx", "file_path": path, "filename": filename}
+        file_id = await self._register_file_upload(filename, path, _CONTENT_TYPES["docx"], len(file_bytes))
+        if file_id:
+            result["file_id"] = file_id
+        return result
 
     async def _create_xlsx(self, title: str, content: dict[str, Any]) -> dict[str, Any]:
         from openpyxl import Workbook
@@ -366,9 +411,14 @@ class DocumentToolExecutor:
 
         buf = io.BytesIO()
         wb.save(buf)
+        file_bytes = buf.getvalue()
         filename = f"{title}.xlsx"
-        path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["xlsx"])
-        return {"format": "xlsx", "file_path": path, "filename": filename}
+        path = await self._storage.store(filename, file_bytes, _CONTENT_TYPES["xlsx"])
+        result: dict[str, Any] = {"format": "xlsx", "file_path": path, "filename": filename}
+        file_id = await self._register_file_upload(filename, path, _CONTENT_TYPES["xlsx"], len(file_bytes))
+        if file_id:
+            result["file_id"] = file_id
+        return result
 
     async def _create_pdf(self, title: str, content: dict[str, Any]) -> dict[str, Any]:
         from reportlab.lib.pagesizes import letter
@@ -387,9 +437,14 @@ class DocumentToolExecutor:
             story.append(Spacer(1, 6))
 
         doc.build(story)
+        file_bytes = buf.getvalue()
         filename = f"{title}.pdf"
-        path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["pdf"])
-        return {"format": "pdf", "file_path": path, "filename": filename}
+        path = await self._storage.store(filename, file_bytes, _CONTENT_TYPES["pdf"])
+        result: dict[str, Any] = {"format": "pdf", "file_path": path, "filename": filename}
+        file_id = await self._register_file_upload(filename, path, _CONTENT_TYPES["pdf"], len(file_bytes))
+        if file_id:
+            result["file_id"] = file_id
+        return result
 
     async def _create_pptx(self, title: str, content: dict[str, Any]) -> dict[str, Any]:
         from pptx import Presentation
@@ -419,9 +474,14 @@ class DocumentToolExecutor:
 
         buf = io.BytesIO()
         prs.save(buf)
+        file_bytes = buf.getvalue()
         filename = f"{title}.pptx"
-        path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["pptx"])
-        return {"format": "pptx", "file_path": path, "filename": filename}
+        path = await self._storage.store(filename, file_bytes, _CONTENT_TYPES["pptx"])
+        result: dict[str, Any] = {"format": "pptx", "file_path": path, "filename": filename}
+        file_id = await self._register_file_upload(filename, path, _CONTENT_TYPES["pptx"], len(file_bytes))
+        if file_id:
+            result["file_id"] = file_id
+        return result
 
     # ---- Modify ----
 

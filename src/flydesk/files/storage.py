@@ -36,8 +36,8 @@ class LocalFileStorage:
     """Store files on the local filesystem."""
 
     def __init__(self, base_dir: str = "./uploads") -> None:
-        self._base_dir = base_dir
-        os.makedirs(base_dir, exist_ok=True)
+        self._base_dir = os.path.abspath(base_dir)
+        os.makedirs(self._base_dir, exist_ok=True)
 
     async def store(self, filename: str, content: bytes, content_type: str) -> str:
         """Store a file locally and return its path."""
@@ -50,10 +50,21 @@ class LocalFileStorage:
 
     async def retrieve(self, storage_path: str) -> bytes:
         """Read a file from local storage."""
-        with open(storage_path, "rb") as f:
+        # If storage_path is relative, resolve against base_dir
+        full_path = (
+            storage_path
+            if os.path.isabs(storage_path)
+            else os.path.join(self._base_dir, os.path.basename(storage_path))
+        )
+        with open(full_path, "rb") as f:
             return f.read()
 
     async def delete(self, storage_path: str) -> None:
         """Delete a file from local storage."""
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
+        full_path = (
+            storage_path
+            if os.path.isabs(storage_path)
+            else os.path.join(self._base_dir, os.path.basename(storage_path))
+        )
+        if os.path.exists(full_path):
+            os.remove(full_path)
