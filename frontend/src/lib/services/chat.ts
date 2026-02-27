@@ -71,7 +71,11 @@ export async function sendMessage(
 	const assistantMessageId = crypto.randomUUID();
 
 	// 1. Add user message (skip internal messages like __setup_init__)
-	const isInternalMessage = message.startsWith('__') && message.endsWith('__');
+	const isInternalMessage =
+		(message.startsWith('__') && message.endsWith('__')) ||
+		message.startsWith('__form_submit__:') ||
+		message.startsWith('__confirm__:') ||
+		message.startsWith('__reject__:');
 	if (!isInternalMessage) {
 		addMessage({
 			id: userMessageId,

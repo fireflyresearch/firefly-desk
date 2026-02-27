@@ -37,6 +37,7 @@ import MetricsChart from '$lib/components/widgets/MetricsChart.svelte';
 import ServiceMap from '$lib/components/widgets/ServiceMap.svelte';
 import LogViewer from '$lib/components/widgets/LogViewer.svelte';
 import SpanDetail from '$lib/components/widgets/SpanDetail.svelte';
+import DynamicForm from '$lib/components/widgets/DynamicForm.svelte';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -73,7 +74,8 @@ export const widgetRegistry: Record<string, Component<any>> = {
 	'metrics-chart': MetricsChart,
 	'service-map': ServiceMap,
 	'log-viewer': LogViewer,
-	'span-detail': SpanDetail
+	'span-detail': SpanDetail,
+	'dynamic-form': DynamicForm
 };
 
 // ---------------------------------------------------------------------------

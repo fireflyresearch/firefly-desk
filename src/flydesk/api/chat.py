@@ -387,6 +387,87 @@ async def _handle_confirmation(
     )
 
 
+async def _handle_form_submit(
+    request: Request,
+    body: ChatMessage,
+    conversation_id: str,
+) -> StreamingResponse:
+    """Handle __form_submit__:<widget_id>:<action> messages.
+
+    Parses the form submission, formats it as a clear text message, and
+    forwards it to the agent for processing.
+    """
+    import json as _json
+
+    msg = body.message
+    # Parse: __form_submit__:<widget_id>:<action>\n<json>
+    first_line, _, json_body = msg.partition("\n")
+    parts = first_line.split(":", 2)  # ['__form_submit__', widget_id, action]
+    widget_id = parts[1] if len(parts) > 1 else "unknown"
+    action = parts[2] if len(parts) > 2 else "submit"
+
+    try:
+        form_data = _json.loads(json_body) if json_body.strip() else {}
+    except _json.JSONDecodeError:
+        form_data = {}
+
+    # Build a clear text message for the agent
+    if action in ("decline", "cancel"):
+        agent_message = f"The user declined/cancelled the form (widget: {widget_id})."
+    else:
+        formatted_fields = "\n".join(
+            f"  - {k}: {v}" for k, v in form_data.items()
+        )
+        agent_message = (
+            f"The user submitted a form (action: {action}, widget: {widget_id}) "
+            f"with the following data:\n{formatted_fields}"
+        )
+
+    desk_agent = getattr(request.app.state, "desk_agent", None)
+    user_session = getattr(request.state, "user_session", None)
+
+    if desk_agent and user_session:
+        async def form_stream():
+            collected: list[str] = []
+            collected_widgets: list[dict] = []
+            collected_usage: dict | None = None
+
+            async for event in desk_agent.stream(
+                agent_message, user_session, conversation_id,
+                file_ids=body.file_ids or None,
+            ):
+                if event.event == SSEEventType.TOKEN and isinstance(event.data, dict):
+                    token = event.data.get("content", "")
+                    if token:
+                        collected.append(token)
+                elif event.event == SSEEventType.WIDGET and isinstance(event.data, dict):
+                    collected_widgets.append(event.data)
+                elif event.event == SSEEventType.USAGE and isinstance(event.data, dict):
+                    collected_usage = event.data
+                yield event.to_sse()
+
+            await _persist_messages(
+                request, conversation_id, msg, "".join(collected),
+                widgets=collected_widgets or None,
+                usage=collected_usage,
+            )
+
+        return StreamingResponse(
+            form_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    raise HTTPException(
+        status_code=503,
+        detail="The chat agent is not configured.",
+    )
+
+
 @router.post("/conversations/{conversation_id}/send")
 async def send_message(
     conversation_id: str,
@@ -441,6 +522,12 @@ async def send_message(
     if confirmation_service and body.message.startswith(("__confirm__:", "__reject__:")):
         return await _handle_confirmation(
             request, body, conversation_id, confirmation_service, user_session,
+        )
+
+    # Handle form submissions (__form_submit__:<widget_id>:<action>)
+    if body.message.startswith("__form_submit__:"):
+        return await _handle_form_submit(
+            request, body, conversation_id,
         )
 
     # Handle slash commands (e.g. /help, /status, /context, /memory)

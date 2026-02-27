@@ -9,7 +9,7 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram, traces-timeline, metrics-chart, service-map, log-viewer, span-detail.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram, dynamic-form, traces-timeline, metrics-chart, service-map, log-viewer, span-detail.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
@@ -429,6 +429,44 @@ Props:
   - `attributes` (optional): Key-value pairs displayed in the attributes section.
   - `events` (optional): Array of `{name, timestamp, attributes?}` span events.
   - `links` (optional): Array of `{traceId, spanId, attributes?}` linked spans.
+
+## dynamic-form
+
+Interactive form widget that collects structured data from the user. Combines read-only information sections, editable form fields, and action buttons (approve/decline/custom) into a single card.
+
+Use this when you need the user to provide specific data (e.g. account details, configuration values, approval with parameters). The user fills in the form and clicks an action button; their input is sent back as a structured message for you to process.
+
+```
+:::widget{type="dynamic-form" inline=true}
+{"title": "Account Opening", "sections": [{"kind": "info", "items": [{"label": "Service", "value": "Core Banking"}, {"label": "Operation", "value": "Create Account"}]}, {"kind": "fields", "fields": [{"key": "name", "label": "Account Name", "type": "text", "required": true, "placeholder": "e.g. John Doe"}, {"key": "type", "label": "Account Type", "type": "select", "required": true, "options": ["CHECKING", "SAVINGS"]}, {"key": "amount", "label": "Initial Deposit", "type": "currency", "currency_code": "EUR"}, {"key": "notes", "label": "Notes", "type": "textarea"}]}, {"kind": "actions", "buttons": [{"label": "Create Account", "action": "approve", "style": "primary"}, {"label": "Cancel", "action": "decline", "style": "ghost"}]}]}
+:::
+```
+
+**Sections:**
+- `kind: "info"` — Read-only information. Props: `items` (array of `{label, value}`), or `message` with optional `severity` ("info"/"warning"/"error"/"success") for alert-style messages.
+- `kind: "fields"` — Editable form fields. Props: `fields` (array of field objects).
+- `kind: "actions"` — Action buttons. Props: `buttons` (array of `{label, action, style}`).
+
+**Field types:** `text`, `number`, `select`, `date`, `textarea`, `checkbox`, `email`, `phone`, `url`, `currency`, `password`, `radio`, `toggle`.
+
+**Field properties:**
+- `key` (required): Field identifier used in submitted data.
+- `label` (required): Display label.
+- `type` (required): One of the field types above.
+- `required` (optional): Mark as required (validated on submit).
+- `placeholder` (optional): Placeholder text.
+- `description` (optional): Help text below the field.
+- `default` (optional): Default value. Use `"today"` for date fields to auto-fill today's date.
+- `options` (optional): Array of string options for `select` and `radio` types.
+- `currency_code` (optional): Currency label for `currency` type (e.g. "EUR", "USD").
+
+**Button styles:** `"primary"` (accent color), `"danger"` (red), `"ghost"` (text only), `"default"` (neutral).
+
+**When to use dynamic-form vs. other widgets:**
+- Need user to fill in data → `dynamic-form`
+- Just displaying data → `data-table`, `key-value`, `entity-card`
+- Simple yes/no confirmation → `confirmation`
+- Follow-up prompt suggestions → `action-buttons`
 
 ## Usage Guidelines
 
