@@ -871,15 +871,48 @@
 				{/if}
 
 				{#if tokenUsage && (tokenUsage.total_input_tokens > 0 || tokenUsage.total_output_tokens > 0)}
-					<ChartWidget
-						chartType="doughnut"
-						title="Token Usage"
-						labels={['Input Tokens', 'Output Tokens']}
-						datasets={[{
-							label: 'Tokens',
-							data: [tokenUsage.total_input_tokens, tokenUsage.total_output_tokens]
-						}]}
-					/>
+					{@const total = tokenUsage.total_input_tokens + tokenUsage.total_output_tokens}
+					{@const inputPct = total > 0 ? (tokenUsage.total_input_tokens / total) * 100 : 50}
+					<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
+						<div class="border-b border-border px-4 py-3">
+							<h3 class="text-sm font-semibold text-text-primary">Token Usage</h3>
+						</div>
+						<div class="p-4 space-y-4">
+							<!-- Stacked bar -->
+							<div class="h-3 rounded-full overflow-hidden bg-surface-secondary flex">
+								<div class="h-full bg-accent transition-all" style="width: {inputPct}%"></div>
+								<div class="h-full bg-ember transition-all" style="width: {100 - inputPct}%"></div>
+							</div>
+
+							<!-- Legend + numbers -->
+							<div class="grid grid-cols-2 gap-3">
+								<div class="flex items-center gap-2">
+									<span class="inline-block h-2.5 w-2.5 rounded-full bg-accent"></span>
+									<div>
+										<p class="text-xs text-text-secondary">Input</p>
+										<p class="text-sm font-semibold text-text-primary">{formatTokenCount(tokenUsage.total_input_tokens)}</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block h-2.5 w-2.5 rounded-full bg-ember"></span>
+									<div>
+										<p class="text-xs text-text-secondary">Output</p>
+										<p class="text-sm font-semibold text-text-primary">{formatTokenCount(tokenUsage.total_output_tokens)}</p>
+									</div>
+								</div>
+							</div>
+
+							<!-- Cost + period -->
+							<div class="flex items-center justify-between border-t border-border pt-3">
+								<span class="text-xs text-text-secondary">
+									Last {tokenUsage.period_days} day{tokenUsage.period_days !== 1 ? 's' : ''}
+								</span>
+								<span class="text-sm font-semibold text-text-primary">
+									${tokenUsage.estimated_cost_usd.toFixed(2)}
+								</span>
+							</div>
+						</div>
+					</div>
 				{/if}
 			</div>
 		{/if}

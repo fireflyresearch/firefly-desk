@@ -130,18 +130,43 @@ class AutoTriggerService:
                 if trigger_type == "process_discovery" and self._settings_repo is not None:
                     try:
                         discovery_settings = await self._settings_repo.get_all_app_settings(
-                            category="discovery"
+                            category="process_discovery"
                         )
                         workspace_ids_raw = discovery_settings.get("workspace_ids", "")
                         if workspace_ids_raw:
-                            payload["workspace_ids"] = [
-                                ws.strip() for ws in workspace_ids_raw.split(",") if ws.strip()
-                            ]
+                            # Settings are stored as JSON list by the API
+                            import json as _json
+                            try:
+                                parsed = _json.loads(workspace_ids_raw)
+                                if isinstance(parsed, list):
+                                    payload["workspace_ids"] = [
+                                        ws for ws in parsed if isinstance(ws, str) and ws.strip()
+                                    ]
+                                else:
+                                    payload["workspace_ids"] = [
+                                        ws.strip() for ws in workspace_ids_raw.split(",") if ws.strip()
+                                    ]
+                            except (_json.JSONDecodeError, TypeError):
+                                payload["workspace_ids"] = [
+                                    ws.strip() for ws in workspace_ids_raw.split(",") if ws.strip()
+                                ]
                         doc_types_raw = discovery_settings.get("document_types", "")
                         if doc_types_raw:
-                            payload["document_types"] = [
-                                dt.strip() for dt in doc_types_raw.split(",") if dt.strip()
-                            ]
+                            import json as _json
+                            try:
+                                parsed = _json.loads(doc_types_raw)
+                                if isinstance(parsed, list):
+                                    payload["document_types"] = [
+                                        dt for dt in parsed if isinstance(dt, str) and dt.strip()
+                                    ]
+                                else:
+                                    payload["document_types"] = [
+                                        dt.strip() for dt in doc_types_raw.split(",") if dt.strip()
+                                    ]
+                            except (_json.JSONDecodeError, TypeError):
+                                payload["document_types"] = [
+                                    dt.strip() for dt in doc_types_raw.split(",") if dt.strip()
+                                ]
                         focus_hint = discovery_settings.get("focus_hint", "")
                         if focus_hint:
                             payload["focus_hint"] = focus_hint

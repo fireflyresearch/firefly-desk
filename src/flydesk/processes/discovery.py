@@ -120,6 +120,17 @@ class DiscoveryContext:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_system_only(doc: Any, system_ws_id: str) -> bool:
+    """Return True if *doc* belongs exclusively to the system workspace."""
+    ws_ids: list[str] = getattr(doc, "workspace_ids", []) or []
+    return ws_ids == [system_ws_id]
+
+
+# ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
 
@@ -377,6 +388,9 @@ class ProcessDiscoveryEngine:
 
         # Knowledge base documents
         try:
+            # Skip the internal system workspace unless explicitly requested
+            from flydesk.server import DEFAULT_WORKSPACE_ID as _SYSTEM_WS
+
             if workspace_ids:
                 all_docs = []
                 for ws_id in workspace_ids:
@@ -392,6 +406,11 @@ class ProcessDiscoveryEngine:
                         documents.append(doc)
             else:
                 documents = await self._catalog_repo.list_knowledge_documents()
+                # Exclude documents that belong *only* to the system workspace
+                documents = [
+                    doc for doc in documents
+                    if not _is_system_only(doc, _SYSTEM_WS)
+                ]
 
             if document_types:
                 type_set = set(document_types)
