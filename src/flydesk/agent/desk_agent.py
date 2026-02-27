@@ -42,7 +42,9 @@ if TYPE_CHECKING:
     from flydesk.files.repository import FileUploadRepository
     from flydesk.files.storage import FileStorageProvider
     from flydesk.settings.repository import SettingsRepository
+    from flydesk.tools.custom_repository import CustomToolRepository
     from flydesk.tools.executor import ToolCall, ToolExecutor, ToolResult
+    from flydesk.tools.sandbox import SandboxExecutor
 
 _logger = logging.getLogger(__name__)
 
@@ -154,6 +156,8 @@ class DeskAgent:
         customization_service: AgentCustomizationService | None = None,
         settings_repo: SettingsRepository | None = None,
         feedback_repo: FeedbackRepository | None = None,
+        custom_tool_repo: CustomToolRepository | None = None,
+        sandbox_executor: SandboxExecutor | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -173,6 +177,8 @@ class DeskAgent:
         self._customization_service = customization_service
         self._settings_repo = settings_repo
         self._feedback_repo = feedback_repo
+        self._custom_tool_repo = custom_tool_repo
+        self._sandbox_executor = sandbox_executor
 
     # ------------------------------------------------------------------
     # Public API
@@ -204,7 +210,7 @@ class DeskAgent:
         self._last_multimodal_parts = multimodal_parts
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
-        adapted = self._adapt_tools(tools, session, conversation_id)
+        adapted = await self._adapt_tools(tools, session, conversation_id)
         usage_data: dict[str, Any] = {}
         t0 = time.monotonic()
         raw_text = await self._call_llm(
@@ -299,7 +305,7 @@ class DeskAgent:
         )
 
         # Adapt catalog tools for genai tool-use
-        adapted = self._adapt_tools(tools, session, conversation_id)
+        adapted = await self._adapt_tools(tools, session, conversation_id)
 
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
@@ -408,7 +414,7 @@ class DeskAgent:
             message, session, conversation_id, tools, file_ids,
         )
         self._last_multimodal_parts = multimodal_parts
-        adapted = self._adapt_tools(tools, session, conversation_id)
+        adapted = await self._adapt_tools(tools, session, conversation_id)
 
         # Create agent
         if self._agent_factory is None:
@@ -944,7 +950,7 @@ class DeskAgent:
 
         return tools, system_prompt, multimodal_parts
 
-    def _adapt_tools(
+    async def _adapt_tools(
         self,
         tools: list[ToolDefinition] | None,
         session: UserSession,
@@ -955,12 +961,29 @@ class DeskAgent:
         Returns ``None`` when there is no executor or no tools, so
         :meth:`_call_llm` / :meth:`_stream_llm` can pass the value
         directly to :meth:`DeskAgentFactory.create_agent`.
+
+        When a :class:`CustomToolRepository` and :class:`SandboxExecutor` are
+        configured, active custom tools are loaded and included alongside the
+        catalog and built-in tools.
         """
         if not tools or self._tool_executor is None:
             return None
+
+        # Load active custom tools from the repository (if configured).
+        custom_tools: list[tuple[Any, Any]] | None = None
+        if self._custom_tool_repo is not None and self._sandbox_executor is not None:
+            try:
+                active = await self._custom_tool_repo.list(active_only=True)
+                if active:
+                    custom_tools = [(t, self._sandbox_executor) for t in active]
+                    _logger.debug("Loaded %d active custom tools.", len(active))
+            except Exception:
+                _logger.debug("Failed to load custom tools.", exc_info=True)
+
         return adapt_tools(
             tools, self._tool_executor, session, conversation_id,
             builtin_executor=self._builtin_executor,
+            custom_tools=custom_tools,
         )
 
     async def _stream_llm(

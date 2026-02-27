@@ -57,6 +57,7 @@ class DeskConfig(BaseSettings):
 
     # -- Agent --
     agent_name: str = "Ember"
+    company_name: str = ""
     agent_instructions: str | None = None
     max_turns_per_conversation: int = 200
     max_tools_per_turn: int = 10

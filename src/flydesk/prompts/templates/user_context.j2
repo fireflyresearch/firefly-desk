@@ -8,4 +8,7 @@
 {%- if user_title %}
 - Title: {{ user_title }}
 {%- endif %}
+{%- if user_permissions %}
+- Permissions: {{ user_permissions | join(", ") }}
+{%- endif %}
 - You may only use tools this user has permission to access.

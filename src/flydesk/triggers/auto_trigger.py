@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from flydesk.config import DeskConfig
     from flydesk.jobs.runner import JobRunner
+    from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +48,13 @@ class AutoTriggerService:
         *,
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
         auto_kg_extract: bool = True,
+        settings_repo: SettingsRepository | None = None,
     ) -> None:
         self._config = config
         self._job_runner = job_runner
         self._debounce_seconds = debounce_seconds
         self._auto_kg_extract = auto_kg_extract
+        self._settings_repo = settings_repo
 
         # Pending trigger types accumulated during the debounce window.
         self._pending_triggers: set[str] = set()
@@ -79,6 +82,7 @@ class AutoTriggerService:
                 "Failed to submit kg_extract_single for %s", doc_id, exc_info=True
             )
         self._schedule_trigger("system_discovery")
+        self._schedule_trigger("process_discovery")
 
     async def on_catalog_updated(self, system_id: str) -> None:
         """Called after a catalog system or endpoint is created/updated.
@@ -122,7 +126,31 @@ class AutoTriggerService:
 
         for trigger_type in sorted(triggers):
             try:
-                await self._job_runner.submit(trigger_type, {})
+                payload: dict[str, Any] = {}
+                if trigger_type == "process_discovery" and self._settings_repo is not None:
+                    try:
+                        discovery_settings = await self._settings_repo.get_all_app_settings(
+                            category="discovery"
+                        )
+                        workspace_ids_raw = discovery_settings.get("workspace_ids", "")
+                        if workspace_ids_raw:
+                            payload["workspace_ids"] = [
+                                ws.strip() for ws in workspace_ids_raw.split(",") if ws.strip()
+                            ]
+                        doc_types_raw = discovery_settings.get("document_types", "")
+                        if doc_types_raw:
+                            payload["document_types"] = [
+                                dt.strip() for dt in doc_types_raw.split(",") if dt.strip()
+                            ]
+                        focus_hint = discovery_settings.get("focus_hint", "")
+                        if focus_hint:
+                            payload["focus_hint"] = focus_hint
+                    except Exception:
+                        logger.warning(
+                            "Failed to load discovery settings; submitting with empty payload.",
+                            exc_info=True,
+                        )
+                await self._job_runner.submit(trigger_type, payload)
                 logger.info("Auto-trigger fired: %s", trigger_type)
             except Exception:
                 logger.warning(

@@ -561,6 +561,19 @@ class ProcessDiscoveryEngine:
     # Merge strategy
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize process name for fuzzy matching."""
+        import re
+
+        # Lowercase, strip extra whitespace, remove common suffixes
+        name = name.lower().strip()
+        name = re.sub(r'\s+', ' ', name)
+        for suffix in (' process', ' workflow', ' procedure', ' flow'):
+            if name.endswith(suffix):
+                name = name[:-len(suffix)]
+        return name
+
     async def _merge_processes(
         self,
         discovered: list[BusinessProcess],
@@ -578,10 +591,13 @@ class ProcessDiscoveryEngine:
         stats = {"discovered": len(discovered), "created": 0, "updated": 0, "skipped": 0}
 
         existing = await self._process_repo.list(limit=500)
-        existing_by_name: dict[str, BusinessProcess] = {p.name: p for p in existing}
+        existing_by_name: dict[str, BusinessProcess] = {
+            self._normalize_name(p.name): p for p in existing
+        }
 
         for proc in discovered:
-            existing_proc = existing_by_name.get(proc.name)
+            normalized = self._normalize_name(proc.name)
+            existing_proc = existing_by_name.get(normalized)
 
             if existing_proc is None:
                 # Brand new process -- create it

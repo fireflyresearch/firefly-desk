@@ -9,7 +9,7 @@ Format:
 :::
 ```
 
-Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram, dynamic-form, traces-timeline, metrics-chart, service-map, log-viewer, span-detail.
+Available widget types: status-badge, entity-card, data-table, key-value, alert, timeline, diff-viewer, confirmation, export, image, chart, mermaid-diagram, citation-card, progress-bar, accordion, metric-card, code-block, action-buttons, flow-diagram, dynamic-form, traces-timeline, metrics-chart, service-map, log-viewer, span-detail, safety-plan, file_viewer, editable-table, paginated-table, dynamic-filter, entity-view.
 
 Use `panel=true` for detailed views that open in the side panel.
 Use `inline=true` (default) for small widgets embedded in chat.
@@ -467,6 +467,123 @@ Use this when you need the user to provide specific data (e.g. account details, 
 - Just displaying data → `data-table`, `key-value`, `entity-card`
 - Simple yes/no confirmation → `confirmation`
 - Follow-up prompt suggestions → `action-buttons`
+
+## safety-plan
+
+Batch operation safety plan overview. Lists all operations in a batch with per-operation risk indicators, which operations need confirmation, and an overall batch risk assessment.
+
+```
+:::widget{type="safety-plan" inline=true}
+{"title": "Batch Update Plan", "operations": [{"tool_name": "update_config", "risk_level": "high_write", "requires_confirmation": true, "description": "Update production config"}, {"tool_name": "get_status", "risk_level": "read", "requires_confirmation": false}], "overall_risk": "high_write"}
+:::
+```
+
+Props:
+- `operations` (required): Array of operation objects, each with:
+  - `tool_name` (required): Name of the tool/operation.
+  - `risk_level` (required): One of "read", "low_write", "high_write", "destructive".
+  - `requires_confirmation` (required): Whether the operation needs user approval.
+  - `description` (optional): Short explanation of the operation.
+- `title` (optional): Heading displayed above the plan. Defaults to "Safety Plan".
+- `overall_risk` (optional): Override overall risk level. Auto-computed from the highest operation risk if omitted.
+
+## file_viewer
+
+Button that opens a full-screen file viewer modal. Use to let the user preview an uploaded or generated file.
+
+```
+:::widget{type="file_viewer" inline=true}
+{"file_id": "f-abc-123", "file_name": "report.pdf", "content_type": "application/pdf"}
+:::
+```
+
+Props:
+- `file_id` (required): Internal file identifier used to fetch the file.
+- `file_name` (required): Display name shown on the button.
+- `content_type` (required): MIME type of the file (e.g. "application/pdf", "image/png").
+
+## editable-table
+
+Inline-editable table with dirty-tracking and optional save-back to a server endpoint. Users can click cells to edit values.
+
+```
+:::widget{type="editable-table" panel=true}
+{"title": "Configuration", "columns": [{"key": "param", "label": "Parameter"}, {"key": "value", "label": "Value", "editable": true, "type": "text"}], "rows": [{"param": "timeout", "value": "30s"}, {"param": "retries", "value": "3"}], "save_endpoint": "/api/config"}
+:::
+```
+
+Props:
+- `columns` (required): Array of column definitions, each with:
+  - `key` (required): Row field key.
+  - `label` (required): Column header text.
+  - `editable` (optional): Whether cells in this column are editable. Default false.
+  - `type` (optional): Editor type — "text", "number", "select", or "date". Default "text".
+  - `options` (optional): Array of string options when type is "select".
+- `rows` (required): Array of row objects; each key matches a column key.
+- `title` (optional): Heading displayed above the table.
+- `save_endpoint` (optional): URL to PATCH modified rows. If omitted, edits are local only.
+- `save_method` (optional): HTTP method for saving. Default "PATCH".
+
+## paginated-table
+
+Server-side paginated table that fetches pages from a data endpoint. Supports external filter events from a `dynamic-filter` widget.
+
+```
+:::widget{type="paginated-table" panel=true}
+{"title": "Audit Log", "columns": [{"key": "timestamp", "label": "Time"}, {"key": "action", "label": "Action"}, {"key": "user", "label": "User"}], "data_endpoint": "/api/audit-log", "page_size": 25, "total_count": 500, "widget_id": "audit-table"}
+:::
+```
+
+Props:
+- `columns` (required): Array of `{key, label}` defining column order and header text.
+- `data_endpoint` (required): URL to fetch paginated data. The widget appends `?offset=N&limit=M` query parameters.
+- `page_size` (optional, default 25): Number of rows per page.
+- `total_count` (optional): Initial total row count for pagination controls.
+- `title` (optional): Heading displayed above the table.
+- `widget_id` (optional): ID used to receive filter events from a `dynamic-filter` widget.
+
+## dynamic-filter
+
+Standalone filter bar that dispatches filter events to a target widget (typically a `paginated-table`). Supports text search, select dropdowns, date ranges, and number ranges.
+
+```
+:::widget{type="dynamic-filter" inline=true}
+{"title": "Filters", "target_widget_id": "audit-table", "filters": [{"field": "user", "label": "User", "type": "text"}, {"field": "action", "label": "Action", "type": "select", "options": ["CREATE", "UPDATE", "DELETE"]}, {"field": "date", "label": "Date", "type": "date_range"}]}
+:::
+```
+
+Props:
+- `filters` (required): Array of filter field definitions, each with:
+  - `field` (required): Query parameter name.
+  - `label` (required): Display label.
+  - `type` (required): One of "text", "select", "date_range", "number_range".
+  - `options` (optional): Array of string options for "select" type.
+- `target_widget_id` (optional): ID of the widget to receive filter events.
+- `title` (optional): Heading displayed above the filter bar.
+
+## entity-view
+
+Comprehensive 360-degree entity view with a header card and tabbed sections. Supports detail fields, metrics with trends, timeline events, related items, and embedded tables.
+
+```
+:::widget{type="entity-view" panel=true}
+{"header": {"title": "Acme Corp", "subtitle": "Enterprise Customer", "status": "Active", "status_color": "success"}, "sections": [{"type": "details", "title": "Overview", "items": [{"label": "Industry", "value": "Technology"}, {"label": "Region", "value": "North America"}]}, {"type": "metrics", "title": "KPIs", "items": [{"label": "MRR", "value": "$12,400", "trend": "up", "change": "+8%"}]}]}
+:::
+```
+
+Props:
+- `header` (required): Header object with:
+  - `title` (required): Primary entity name.
+  - `subtitle` (optional): Secondary text below the title.
+  - `avatar_url` (optional): URL for an avatar image. Falls back to a letter initial.
+  - `status` (optional): Status badge text.
+  - `status_color` (optional): Badge color — "success", "warning", "danger", or "default".
+- `sections` (required): Array of section objects, each with:
+  - `type` (required): Section type — "details", "metrics", "timeline", "related", or "table".
+  - `title` (required): Tab label.
+  - `items` (optional): Array of items (structure depends on section type).
+  - `events` (optional): Array of `{date, title, description?}` for "timeline" sections.
+  - `columns` / `rows` (optional): Column definitions and row data for "table" sections.
 
 ## Usage Guidelines
 

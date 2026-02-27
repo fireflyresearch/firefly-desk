@@ -53,7 +53,7 @@ No knowledge graph entities are currently available.
 ### {{ doc.title }} (type: {{ doc.document_type }})
 {% if doc.tags %}Tags: {{ doc.tags | join(', ') }}{% endif %}
 
-{{ doc.content[:500] }}{% if doc.content | length > 500 %}...{% endif %}
+{{ doc.content[:3000] }}{% if doc.content | length > 3000 %}...{% endif %}
 
 {% endfor %}
 {% else %}

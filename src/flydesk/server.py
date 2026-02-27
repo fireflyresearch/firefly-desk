@@ -249,6 +249,9 @@ async def _init_repositories(
         "memory_repo": memory_repo,
         "llm_repo": llm_repo,
         "doc_source_repo": doc_source_repo,
+        "feedback_repo": feedback_repo,
+        "custom_tool_repo": custom_tool_repo,
+        "sandbox_executor": sandbox_executor,
     }
 
 
@@ -470,6 +473,9 @@ async def _init_agent(  # noqa: PLR0913
     file_repo: Any,
     file_storage: Any,
     http_client: Any,
+    feedback_repo: Any = None,
+    custom_tool_repo: Any = None,
+    sandbox_executor: Any = None,
 ) -> dict[str, Any]:
     """Wire the DeskAgent and all its dependencies (retriever, tools, KG, etc.)."""
     from flydesk.agent.context import ContextEnricher
@@ -629,7 +635,9 @@ async def _init_agent(  # noqa: PLR0913
     # Auto-trigger service
     from flydesk.triggers.auto_trigger import AutoTriggerService
 
-    auto_trigger = AutoTriggerService(config, job_runner, auto_kg_extract=auto_kg_extract)
+    auto_trigger = AutoTriggerService(
+        config, job_runner, auto_kg_extract=auto_kg_extract, settings_repo=settings_repo,
+    )
     app.state.auto_trigger = auto_trigger
     app.state.auto_kg_extract = auto_kg_extract
     app.dependency_overrides[get_auto_trigger] = lambda: auto_trigger
@@ -648,6 +656,7 @@ async def _init_agent(  # noqa: PLR0913
         widget_parser=widget_parser,
         audit_logger=audit_logger,
         agent_name=config.agent_name,
+        company_name=config.company_name or None,
         tool_executor=tool_executor,
         builtin_executor=builtin_executor,
         file_repo=file_repo,
@@ -658,6 +667,9 @@ async def _init_agent(  # noqa: PLR0913
         catalog_repo=catalog_repo,
         customization_service=customization_service,
         settings_repo=settings_repo,
+        feedback_repo=feedback_repo,
+        custom_tool_repo=custom_tool_repo,
+        sandbox_executor=sandbox_executor,
     )
     app.state.desk_agent = desk_agent
     app.state.context_enricher = context_enricher
@@ -898,6 +910,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         file_repo=files["file_repo"],
         file_storage=files["file_storage"],
         http_client=http_client,
+        feedback_repo=repos["feedback_repo"],
+        custom_tool_repo=repos["custom_tool_repo"],
+        sandbox_executor=repos["sandbox_executor"],
     )
     ctx.closables.append(agent_ctx["auto_trigger"])
     if hasattr(agent_ctx["memory_store"], "close"):
