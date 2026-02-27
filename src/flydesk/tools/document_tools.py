@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,24 @@ if TYPE_CHECKING:
     from flydesk.files.storage import FileStorageProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    """Coerce *value* to a dict.
+
+    LLMs sometimes send JSON-object parameters as a serialised string rather
+    than an actual dict.  This helper transparently handles both cases.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +314,7 @@ class DocumentToolExecutor:
     async def _create(self, arguments: dict[str, Any]) -> dict[str, Any]:
         fmt: str = arguments.get("format", "")
         title: str = arguments.get("title", "")
-        content: dict[str, Any] = arguments.get("content", {})
+        content: dict[str, Any] = _coerce_dict(arguments.get("content", {}))
 
         if not fmt:
             return {"error": "format is required"}
@@ -306,6 +325,8 @@ class DocumentToolExecutor:
             return await self._create_docx(title, content)
         if fmt == "xlsx":
             return await self._create_xlsx(title, content)
+        if fmt == "pptx":
+            return await self._create_pptx(title, content)
         if fmt == "pdf":
             return await self._create_pdf(title, content)
         return {"error": f"Unsupported create format: {fmt}"}
@@ -370,12 +391,44 @@ class DocumentToolExecutor:
         path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["pdf"])
         return {"format": "pdf", "file_path": path, "filename": filename}
 
+    async def _create_pptx(self, title: str, content: dict[str, Any]) -> dict[str, Any]:
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        prs = Presentation()
+
+        # Title slide
+        title_layout = prs.slide_layouts[0]
+        slide = prs.slides.add_slide(title_layout)
+        slide.shapes.title.text = title
+        if slide.placeholders[1]:
+            slide.placeholders[1].text = content.get("subtitle", "")
+
+        # Content slides
+        body_layout = prs.slide_layouts[1]
+        for slide_data in content.get("slides", []):
+            s = prs.slides.add_slide(body_layout)
+            s.shapes.title.text = slide_data.get("title", "")
+            body = s.placeholders[1]
+            tf = body.text_frame
+            for i, bullet in enumerate(slide_data.get("bullets", [])):
+                if i == 0:
+                    tf.text = str(bullet)
+                else:
+                    tf.add_paragraph().text = str(bullet)
+
+        buf = io.BytesIO()
+        prs.save(buf)
+        filename = f"{title}.pptx"
+        path = await self._storage.store(filename, buf.getvalue(), _CONTENT_TYPES["pptx"])
+        return {"format": "pptx", "file_path": path, "filename": filename}
+
     # ---- Modify ----
 
     async def _modify(self, arguments: dict[str, Any]) -> dict[str, Any]:
         file_path: str = arguments.get("file_path", "")
         operation: str = arguments.get("operation", "")
-        data: dict[str, Any] = arguments.get("data", {})
+        data: dict[str, Any] = _coerce_dict(arguments.get("data", {}))
 
         if not file_path:
             return {"error": "file_path is required"}
@@ -563,5 +616,6 @@ class DocumentToolExecutor:
 _CONTENT_TYPES: dict[str, str] = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "pdf": "application/pdf",
 }

@@ -22,6 +22,7 @@
 		ToggleRight
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import SSOWizard from './SSOWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -83,6 +84,9 @@
 	let loading = $state(true);
 	let error = $state('');
 
+	// Wizard state
+	let showWizard = $state(false);
+
 	// Form state
 	let showForm = $state(false);
 	let editingId = $state<string | null>(null);
@@ -130,20 +134,7 @@
 	// -----------------------------------------------------------------------
 
 	function openAddForm() {
-		editingId = null;
-		formData = {
-			provider_type: 'keycloak',
-			display_name: '',
-			issuer_url: '',
-			client_id: '',
-			client_secret: '',
-			tenant_id: '',
-			scopes: '',
-			roles_claim: '',
-			permissions_claim: '',
-			allowed_email_domains: ''
-		};
-		showForm = true;
+		showWizard = true;
 	}
 
 	function openEditForm(provider: OIDCProvider) {
@@ -656,4 +647,10 @@
 			</div>
 		</div>
 	{/if}
+
+	<SSOWizard
+		open={showWizard}
+		onClose={() => (showWizard = false)}
+		onSaved={() => { showWizard = false; loadProviders(); }}
+	/>
 </div>

@@ -1,17 +1,20 @@
 <!--
   InputBar.svelte - Message input area at the bottom of the chat.
 
-  Features auto-expanding textarea (up to 8 lines), Enter to send,
-  Shift+Enter for newline, file attachment via Paperclip button,
-  slash command autocomplete, and a send button.
+  ChatGPT-style layout: textarea on top, controls bar below with
+  [+] attachment menu, microphone, model chip, and send button.
+  Preserves slash command autocomplete, mention autocomplete, and
+  file upload. Uses Svelte 5 runes.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Paperclip, Send, Terminal, Activity, Database, Settings, FileText, HelpCircle, BookOpen, Server } from 'lucide-svelte';
+	import { Send, Terminal, Activity, Database, Settings, FileText, HelpCircle, BookOpen, Server } from 'lucide-svelte';
 	import FileUploadArea from './FileUploadArea.svelte';
-	import ModelStatus from './ModelStatus.svelte';
+	import AttachmentMenu from './AttachmentMenu.svelte';
+	import SpeechToText from './SpeechToText.svelte';
+	import ModelChip from './ModelChip.svelte';
 	import { uploadFile, type UploadedFile } from '$lib/services/files.js';
 
 	interface SlashCommand {
@@ -41,7 +44,6 @@
 
 	let text = $state('');
 	let textareaEl: HTMLTextAreaElement | undefined = $state();
-	let fileInputEl: HTMLInputElement | undefined = $state();
 	let uploading = $state(false);
 	let showSlashMenu = $state(false);
 	let slashFilter = $state('');
@@ -103,7 +105,6 @@
 	}
 
 	function selectSlashCommand(cmd: SlashCommand) {
-		// If the command takes an argument (context, prompt), add a space
 		const needsArg = cmd.command === '/context' || cmd.command === '/prompt';
 		text = needsArg ? cmd.command + ' ' : cmd.command;
 		showSlashMenu = false;
@@ -138,7 +139,6 @@
 	function selectMention(item: { id: string; name: string; type: string }) {
 		const prefix = mentionType === 'knowledge' ? '@' : '#';
 		const token = `${prefix}[${item.name}](${item.id})`;
-		// Replace the trigger char + filter text with the token
 		const before = text.slice(0, mentionTriggerPos);
 		const cursorPos = textareaEl?.selectionStart ?? text.length;
 		const after = text.slice(cursorPos);
@@ -205,7 +205,6 @@
 	function handleInput() {
 		adjustHeight();
 
-		// Detect slash command typing
 		const val = text;
 		if (val.startsWith('/') && !val.includes(' ')) {
 			showSlashMenu = true;
@@ -219,24 +218,19 @@
 		if (!showSlashMenu) {
 			const cursorPos = textareaEl?.selectionStart ?? val.length;
 			const textBeforeCursor = val.slice(0, cursorPos);
-
-			// Find the last @ or # that starts a mention
 			const atIdx = textBeforeCursor.lastIndexOf('@');
 			const hashIdx = textBeforeCursor.lastIndexOf('#');
-
 			const triggerIdx = Math.max(atIdx, hashIdx);
 			const triggerChar = triggerIdx === atIdx ? '@' : '#';
 
 			if (triggerIdx >= 0) {
 				const textAfterTrigger = textBeforeCursor.slice(triggerIdx + 1);
-				// Only show menu if no space in the filter text (still typing the mention)
 				if (!textAfterTrigger.includes(' ') && textAfterTrigger.length <= 50) {
 					mentionType = triggerChar === '@' ? 'knowledge' : 'system';
 					mentionFilter = textAfterTrigger;
 					mentionTriggerPos = triggerIdx;
 					selectedMentionIdx = 0;
 					showMentionMenu = true;
-					// Debounce the API fetch
 					clearTimeout(mentionDebounceTimer);
 					mentionDebounceTimer = setTimeout(() => fetchMentionItems(), 200);
 				} else {
@@ -248,16 +242,8 @@
 		}
 	}
 
-	function openFilePicker() {
-		fileInputEl?.click();
-	}
-
-	function handleFileChange(e: Event) {
-		const input = e.target as HTMLInputElement;
-		if (input.files) {
-			pendingFiles = [...pendingFiles, ...Array.from(input.files)];
-			input.value = '';
-		}
+	function handleFileSelect(files: File[]) {
+		pendingFiles = [...pendingFiles, ...files];
 	}
 
 	function handlePaste(e: ClipboardEvent) {
@@ -266,6 +252,12 @@
 			e.preventDefault();
 			pendingFiles = [...pendingFiles, ...Array.from(clipboardFiles)];
 		}
+	}
+
+	function handleSpeechTranscript(transcript: string) {
+		text += transcript;
+		adjustHeight();
+		textareaEl?.focus();
 	}
 
 	function removeFile(index: number) {
@@ -348,27 +340,10 @@
 			</div>
 		{/if}
 
-		<div class="rounded-2xl border border-border/60 bg-surface p-1 shadow-sm transition-all duration-200 focus-within:ring-0 focus-within:shadow-md">
-			<div class="flex items-end gap-1">
-				<button
-					type="button"
-					onclick={openFilePicker}
-					disabled={disabled || uploading}
-					class="mb-1.5 ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-					aria-label="Attach file"
-				>
-					<Paperclip size={16} />
-				</button>
-
-				<input
-					bind:this={fileInputEl}
-					type="file"
-					multiple
-					onchange={handleFileChange}
-					class="hidden"
-					aria-hidden="true"
-				/>
-
+		<!-- Main input container -->
+		<div class="overflow-hidden rounded-2xl border border-border/60 bg-surface shadow-sm transition-all duration-200 focus-within:shadow-md">
+			<!-- Textarea area -->
+			<div class="px-3 pt-3 pb-1">
 				<textarea
 					bind:this={textareaEl}
 					bind:value={text}
@@ -376,29 +351,35 @@
 					onkeydown={handleKeydown}
 					onpaste={handlePaste}
 					disabled={disabled || uploading}
-					rows={2}
+					rows={1}
 					placeholder={uploading ? 'Uploading files...' : 'Ask Ember anything...'}
-					class="min-h-[72px] flex-1 resize-none bg-transparent px-2 py-3 text-sm leading-relaxed text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
+					class="min-h-[24px] w-full resize-none bg-transparent text-sm leading-relaxed text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				></textarea>
-
-				<button
-					type="button"
-					onclick={handleSend}
-					disabled={!canSend}
-					class="mb-1.5 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-all hover:scale-105 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-					aria-label="Send message"
-				>
-					<Send size={16} />
-				</button>
 			</div>
-		</div>
 
-		<!-- Footer: model indicator + hint -->
-		<div class="flex items-center justify-between px-2 pt-1.5">
-			<ModelStatus compact />
-			<span class="text-[10px] text-text-secondary">
-				<kbd class="rounded bg-surface-secondary/50 px-1 py-0.5 font-mono text-[9px]">Shift+Enter</kbd> for new line
-			</span>
+			<!-- Controls bar -->
+			<div class="flex items-center gap-1 px-2 pb-2 pt-0.5">
+				<!-- Left side: attachment + mic -->
+				<AttachmentMenu disabled={disabled || uploading} onFileSelect={handleFileSelect} />
+				<SpeechToText onTranscript={handleSpeechTranscript} disabled={disabled || uploading} />
+
+				<!-- Center: model chip -->
+				<div class="flex-1">
+					<ModelChip />
+				</div>
+
+				<!-- Right side: send button -->
+				{#if canSend}
+					<button
+						type="button"
+						onclick={handleSend}
+						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-all hover:scale-105 hover:bg-accent-hover"
+						aria-label="Send message"
+					>
+						<Send size={16} />
+					</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>

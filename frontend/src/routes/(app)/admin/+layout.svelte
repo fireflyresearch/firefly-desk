@@ -76,7 +76,7 @@
 {#if $isAdmin}
 	<div class="flex h-full">
 		<!-- Sidebar -->
-		<nav class="flex w-56 shrink-0 flex-col border-r border-border/50 bg-surface-secondary">
+		<nav class="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border/50 bg-surface-secondary">
 			<ul class="flex flex-col gap-0.5 p-2 pt-2">
 				<!-- Back to Chat -->
 				<li>
@@ -113,7 +113,7 @@
 		<!-- Content area -->
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#key currentPath}
-				<div class="h-full" in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
+				<div in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
 					{@render children()}
 				</div>
 			{/key}

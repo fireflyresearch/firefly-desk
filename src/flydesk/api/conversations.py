@@ -17,7 +17,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from flydesk.api.deps import get_conversation_repo
+from flydesk.api.deps import get_conversation_repo, get_folder_repo
+from flydesk.conversation.folder_repository import FolderRepository
 from flydesk.conversation.models import Conversation, ConversationWithMessages, Message
 from flydesk.conversation.repository import ConversationRepository
 
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 # ---------------------------------------------------------------------------
 
 Repo = Annotated[ConversationRepository, Depends(get_conversation_repo)]
+Folders = Annotated[FolderRepository, Depends(get_folder_repo)]
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +51,26 @@ class UpdateConversationRequest(BaseModel):
 
     title: str | None = None
     metadata: dict | None = None
+
+
+class CreateFolderRequest(BaseModel):
+    """Body for creating a conversation folder."""
+
+    name: str
+    icon: str = "folder"
+
+
+class RenameFolderRequest(BaseModel):
+    """Body for renaming a folder."""
+
+    name: str
+    icon: str | None = None
+
+
+class ReorderFoldersRequest(BaseModel):
+    """Body for reordering folders."""
+
+    folder_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -155,3 +177,59 @@ async def list_messages(
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
 
     return await repo.get_messages(conversation_id, user_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Folder Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/folders")
+async def list_folders(request: Request, folders: Folders) -> list[dict]:
+    """List the authenticated user's conversation folders."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    return await folders.list_folders(user_id)
+
+
+@router.post("/folders", status_code=201)
+async def create_folder(
+    request: Request, body: CreateFolderRequest, folders: Folders
+) -> dict:
+    """Create a new conversation folder."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    return await folders.create_folder(user_id, body.name, body.icon)
+
+
+@router.patch("/folders/{folder_id}")
+async def rename_folder(
+    folder_id: str, body: RenameFolderRequest, request: Request, folders: Folders
+) -> Response:
+    """Update a conversation folder's name and optionally its icon."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    await folders.update_folder(folder_id, user_id, body.name, body.icon)
+    return Response(status_code=204)
+
+
+@router.delete("/folders/{folder_id}", status_code=204)
+async def delete_folder(
+    folder_id: str, request: Request, folders: Folders
+) -> Response:
+    """Delete a conversation folder and unset folder_id on affected conversations."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    await folders.delete_folder(folder_id, user_id)
+    return Response(status_code=204)
+
+
+@router.put("/folders/reorder", status_code=204)
+async def reorder_folders(
+    request: Request, body: ReorderFoldersRequest, folders: Folders
+) -> Response:
+    """Reorder folders by providing an ordered list of folder IDs."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    await folders.reorder_folders(user_id, body.folder_ids)
+    return Response(status_code=204)

@@ -66,7 +66,7 @@
 >
 	<!-- Left panel (chat) -->
 	<div
-		class="min-h-0 overflow-auto"
+		class="h-full min-h-0 overflow-auto"
 		style:width={rightVisible ? `${leftPercent}%` : '100%'}
 		style:transition={isDragging ? 'none' : 'width 0.15s ease'}
 	>

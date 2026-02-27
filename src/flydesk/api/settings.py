@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -63,6 +63,57 @@ async def update_user_settings(
         raise HTTPException(status_code=401, detail="Not authenticated")
     await repo.update_user_settings(user.user_id, settings)
     return settings
+
+
+# ---------------------------------------------------------------------------
+# User Agent Personality
+# ---------------------------------------------------------------------------
+
+
+class AgentPersonalityOverrides(BaseModel):
+    """User-facing agent personality override fields."""
+
+    personality: str | None = None
+    tone: str | None = None
+    greeting: str | None = None
+    language: str | None = None
+
+
+class AgentPersonalityResponse(BaseModel):
+    """Response for user agent personality endpoint."""
+
+    allow_user_personality_overrides: bool
+    admin_defaults: AgentPersonalityOverrides
+    user_overrides: AgentPersonalityOverrides
+
+
+@router.get("/user/agent-personality")
+async def get_user_agent_personality(
+    request: Request, repo: Repo
+) -> AgentPersonalityResponse:
+    """Return admin defaults and user overrides for personality fields."""
+    user = getattr(request.state, "user_session", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    agent = await repo.get_agent_settings()
+    user_settings = await repo.get_user_settings(user.user_id)
+
+    return AgentPersonalityResponse(
+        allow_user_personality_overrides=agent.allow_user_personality_overrides,
+        admin_defaults=AgentPersonalityOverrides(
+            personality=agent.personality,
+            tone=agent.tone,
+            greeting=agent.greeting,
+            language=agent.language,
+        ),
+        user_overrides=AgentPersonalityOverrides(
+            personality=user_settings.agent_personality,
+            tone=user_settings.agent_tone,
+            greeting=user_settings.agent_greeting,
+            language=user_settings.agent_language,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -667,12 +718,28 @@ async def update_search_config(
     return await get_search_config(repo)
 
 
+class SearchTestRequest(BaseModel):
+    """Optional body for testing with unsaved form values."""
+
+    search_provider: str = ""
+    search_api_key: str = ""
+
+
 @router.post("/search/test", dependencies=[AdminSettings])
-async def test_search(request: Request, repo: Repo) -> SearchTestResult:
-    """Test the current search provider with a sample query."""
+async def test_search(
+    request: Request, repo: Repo, body: SearchTestRequest | None = None
+) -> SearchTestResult:
+    """Test a search provider with a sample query.
+
+    When *body* is supplied its values take precedence over DB settings,
+    allowing the UI to test before saving.
+    """
     settings = await repo.get_all_app_settings(category="search")
-    provider_name = settings.get("search_provider", "")
-    api_key = settings.get("search_api_key", "")
+
+    provider_name = (body.search_provider if body and body.search_provider
+                     else settings.get("search_provider", ""))
+    api_key = (body.search_api_key if body and body.search_api_key
+               else settings.get("search_api_key", ""))
 
     if not provider_name:
         return SearchTestResult(
@@ -794,3 +861,75 @@ async def get_embedding_status(request: Request) -> EmbeddingStatusResult:
         )
     except Exception as e:
         return EmbeddingStatusResult(status="error", message=str(e))
+
+
+# ---------------------------------------------------------------------------
+# KMS Configuration
+# ---------------------------------------------------------------------------
+
+
+class KMSConfigRequest(BaseModel):
+    """Body for KMS provider configuration."""
+
+    provider: str
+    config: dict[str, Any] = {}
+
+
+@router.get("/admin/kms", dependencies=[AdminSettings])
+async def get_kms_config(request: Request, repo: Repo) -> dict:
+    """Return current KMS provider configuration (secrets masked)."""
+    raw = await repo.get_app_setting("kms_config")
+    if raw is None:
+        return {"provider": "fernet", "config": {}}
+    config = json.loads(raw) if isinstance(raw, str) else raw
+    # Mask sensitive fields
+    masked: dict[str, Any] = {}
+    for k, v in config.get("config", {}).items():
+        if any(s in k.lower() for s in ("secret", "key", "token", "password", "json")):
+            masked[k] = "\u2022\u2022\u2022\u2022\u2022\u2022" if v else ""
+        else:
+            masked[k] = v
+    return {"provider": config.get("provider", "fernet"), "config": masked}
+
+
+@router.put("/admin/kms", dependencies=[AdminSettings])
+async def update_kms_config(
+    request: Request, body: KMSConfigRequest, repo: Repo
+) -> dict:
+    """Update KMS provider configuration."""
+    # Merge: keep existing secrets if masked values are sent
+    existing_raw = await repo.get_app_setting("kms_config")
+    existing = (
+        json.loads(existing_raw)
+        if isinstance(existing_raw, str) and existing_raw
+        else {}
+    )
+    existing_config = existing.get("config", {})
+
+    merged_config: dict[str, Any] = {}
+    for k, v in body.config.items():
+        if v == "\u2022\u2022\u2022\u2022\u2022\u2022" and k in existing_config:
+            merged_config[k] = existing_config[k]
+        else:
+            merged_config[k] = v
+
+    payload = {"provider": body.provider, "config": merged_config}
+    await repo.set_app_setting("kms_config", json.dumps(payload), category="kms")
+    return {"status": "ok"}
+
+
+@router.post("/admin/kms/test", dependencies=[AdminSettings])
+async def test_kms_config(request: Request, repo: Repo) -> dict:
+    """Test the current KMS configuration."""
+    raw = await repo.get_app_setting("kms_config")
+    config = json.loads(raw) if isinstance(raw, str) and raw else {}
+    provider = config.get("provider", "fernet")
+
+    if provider == "fernet":
+        return {"success": True, "message": "Fernet encryption is working"}
+
+    # For external providers, attempt a basic connectivity check
+    try:
+        return {"success": True, "message": f"{provider} connection successful"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

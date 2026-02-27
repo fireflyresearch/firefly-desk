@@ -133,6 +133,8 @@ class SettingsRepository:
                     and getattr(field_info.annotation, "__origin__", None) is list
                 ):
                     data[field_name] = json.loads(raw_val) if raw_val else []
+                elif field_info.annotation is bool:
+                    data[field_name] = raw_val.lower() in ("true", "1")
                 else:
                     data[field_name] = raw_val
         return AgentSettings(**data)

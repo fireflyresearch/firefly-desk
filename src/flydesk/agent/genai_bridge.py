@@ -170,7 +170,7 @@ class DeskAgentFactory:
         if not tools:
             _logger.warning("Creating agent with NO tools — agent won't be able to call APIs")
 
-        return FireflyAgent(
+        agent = FireflyAgent(
             name="ember",
             model=model_str,
             instructions=system_prompt,
@@ -181,6 +181,15 @@ class DeskAgentFactory:
             middleware=middleware if middleware else None,
             model_settings=settings,
         )
+
+        # PydanticAI defaults to end_strategy='early' which skips pending
+        # tool calls once a text result is produced.  Desk agents rely on
+        # multiple tools executing in the same turn (e.g. knowledge_retrieval
+        # + web_search), so we switch to 'exhaustive' to guarantee all
+        # requested tool calls complete before the model responds.
+        agent.agent.end_strategy = "exhaustive"  # type: ignore[assignment]
+
+        return agent
 
 
     async def get_fallback_model_strings(self) -> list[str]:

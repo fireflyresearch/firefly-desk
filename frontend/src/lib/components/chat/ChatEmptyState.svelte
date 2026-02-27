@@ -139,35 +139,19 @@
 	let suggestions = $derived(apiSuggestions.length > 0 ? apiSuggestions : fallbackSuggestions);
 </script>
 
-<div
-	class="relative flex min-h-full flex-col items-center justify-center px-4"
-	style="background: radial-gradient(circle at 50% 30%, var(--color-ember-glow) 0%, transparent 60%)"
->
+<div class="relative flex min-h-full flex-col items-center justify-center px-4">
 	<!-- Hero section -->
 	<div class="mb-10 flex flex-col items-center gap-4">
-		<!-- Avatar with animated radial glow ring -->
-		<div class="relative">
-			<!-- Outer pulsing glow -->
-			<div
-				class="absolute inset-0 -m-4 rounded-full blur-xl"
-				style="background: radial-gradient(circle, var(--color-ember) 0%, transparent 70%); opacity: 0.12; animation: ember-pulse 3s ease-in-out infinite;"
-			></div>
-			<!-- Inner glow ring -->
-			<div
-				class="absolute inset-0 -m-2 rounded-full border border-ember/20"
-				style="box-shadow: 0 0 20px var(--color-ember-glow), inset 0 0 20px var(--color-ember-glow);"
-			></div>
-			<!-- Avatar container -->
-			<div
-				class="relative flex h-16 w-16 items-center justify-center rounded-full border border-ember/20 bg-surface-elevated shadow-lg"
-			>
-				<EmberAvatar size={36} />
-			</div>
+		<!-- Avatar container -->
+		<div
+			class="flex h-14 w-14 items-center justify-center rounded-full border border-border/60 bg-surface-elevated shadow-sm"
+		>
+			<EmberAvatar size={32} />
 		</div>
 
 		<!-- Greeting text -->
 		<div class="text-center">
-			<h2 class="text-2xl font-bold text-text-primary">
+			<h2 class="text-2xl font-semibold text-text-primary">
 				{greeting}
 			</h2>
 			<p class="mt-2 text-sm text-text-secondary">
@@ -181,13 +165,13 @@
 		{#each suggestions as suggestion, i}
 			<button
 				type="button"
-				class="group flex items-start gap-3 rounded-xl border border-border/50 bg-surface-secondary/60 px-4 py-3.5 text-left backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-ember/30 hover:bg-surface-secondary/80 hover:shadow-lg hover:shadow-ember/5
+				class="group flex items-start gap-3 rounded-xl border border-border/50 bg-surface-secondary/60 px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-border-hover hover:bg-surface-secondary
 					{mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}"
 				style="transition-delay: {mounted ? i * 80 : 0}ms"
 				onclick={() => onSuggestionClick(suggestion.text)}
 			>
 				<span
-					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ember/10 text-ember transition-colors group-hover:bg-ember/20"
+					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-hover text-text-secondary transition-colors group-hover:bg-accent/10 group-hover:text-accent"
 				>
 					<suggestion.icon size={16} />
 				</span>
@@ -203,17 +187,3 @@
 		{/each}
 	</div>
 </div>
-
-<style>
-	@keyframes ember-pulse {
-		0%,
-		100% {
-			opacity: 0.1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.18;
-			transform: scale(1.08);
-		}
-	}
-</style>

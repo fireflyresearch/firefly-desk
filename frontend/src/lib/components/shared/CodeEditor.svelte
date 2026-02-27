@@ -63,12 +63,12 @@
 			import('@codemirror/theme-one-dark'),
 			import('@codemirror/lang-python'),
 			import('@codemirror/lang-html'),
-			import('@codemirror/lang-javascript')
+			import('@codemirror/lang-json')
 		]).then(
-			([cm, cmView, cmState, cmCommands, cmTheme, cmPython, cmHtml, cmJs]) => {
+			([cm, cmView, cmState, cmCommands, cmTheme, cmPython, cmHtml, cmJson]) => {
 				const langExtension =
 					language === 'json'
-						? cmJs.javascript()
+						? cmJson.json()
 						: language === 'jinja2'
 							? cmHtml.html()
 							: cmPython.python();
@@ -97,8 +97,18 @@
 					extensions.push(cmView.EditorView.editable.of(false));
 				}
 
+				// Auto-pretty-print JSON values on initial load
+				let initialDoc = value;
+				if (language === 'json' && initialDoc) {
+					try {
+						initialDoc = JSON.stringify(JSON.parse(initialDoc), null, 2);
+					} catch {
+						// Keep original value if not valid JSON
+					}
+				}
+
 				view = new cmView.EditorView({
-					doc: value,
+					doc: initialDoc,
 					extensions,
 					parent: container
 				});
@@ -125,6 +135,6 @@
 
 <div
 	bind:this={container}
-	class="min-w-0 overflow-hidden rounded-md border border-border [&_.cm-editor]:!outline-none [&_.cm-editor]:max-w-full [&_.cm-scroller]:!overflow-auto"
+	class="min-w-0 overflow-hidden rounded-md border border-border [&_.cm-editor]:!outline-none [&_.cm-editor]:max-w-full [&_.cm-editor]:min-h-[inherit] [&_.cm-scroller]:!overflow-auto [&_.cm-scroller]:min-h-[inherit] [&_.cm-content]:min-h-[inherit]"
 	style="min-height: {minHeight}"
 ></div>

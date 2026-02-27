@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
+    from flydesk.feedback.repository import FeedbackRepository
     from flydesk.files.models import FileUpload
     from flydesk.files.repository import FileUploadRepository
     from flydesk.files.storage import FileStorageProvider
@@ -152,6 +153,7 @@ class DeskAgent:
         catalog_repo: CatalogRepository | None = None,
         customization_service: AgentCustomizationService | None = None,
         settings_repo: SettingsRepository | None = None,
+        feedback_repo: FeedbackRepository | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -170,6 +172,7 @@ class DeskAgent:
         self._catalog_repo = catalog_repo
         self._customization_service = customization_service
         self._settings_repo = settings_repo
+        self._feedback_repo = feedback_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -874,7 +877,7 @@ class DeskAgent:
         language = "en"
         if self._customization_service is not None:
             try:
-                profile = await self._customization_service.get_profile()
+                profile = await self._customization_service.get_profile_for_user(session.user_id)
                 agent_name = profile.name
                 personality = profile.personality
                 tone = profile.tone
@@ -883,6 +886,16 @@ class DeskAgent:
                 language = profile.language
             except Exception:
                 _logger.debug("Failed to load agent profile; using defaults.", exc_info=True)
+
+        # Load user feedback summary for adaptive behavior
+        feedback_context = ""
+        if self._feedback_repo is not None:
+            try:
+                feedback_context = await self._feedback_repo.get_feedback_context(
+                    session.user_id,
+                )
+            except Exception:
+                _logger.debug("Failed to load feedback summary.", exc_info=True)
 
         prompt_context = PromptContext(
             agent_name=agent_name,
@@ -902,6 +915,7 @@ class DeskAgent:
             behavior_rules=behavior_rules,
             custom_instructions=custom_instructions,
             language=language,
+            feedback_context=feedback_context,
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 

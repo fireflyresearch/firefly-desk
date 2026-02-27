@@ -25,6 +25,10 @@ class UserSettings(BaseModel):
     default_model_id: str | None = None
     display_preferences: dict[str, Any] = Field(default_factory=dict)
     picture_url: str | None = None
+    agent_personality: str | None = None
+    agent_tone: str | None = None
+    agent_greeting: str | None = None
+    agent_language: str | None = None
 
 
 class AppSettings(BaseModel):
@@ -49,3 +53,4 @@ class AgentSettings(BaseModel):
     behavior_rules: list[str] = Field(default_factory=list)
     custom_instructions: str = ""  # Free-form additional instructions
     language: str = "en"
+    allow_user_personality_overrides: bool = True

@@ -18,6 +18,10 @@ export interface UserSettings {
 	sidebarCollapsed: boolean;
 	notificationsEnabled: boolean;
 	defaultModelId: string | null;
+	agentPersonality: string | null;
+	agentTone: string | null;
+	agentGreeting: string | null;
+	agentLanguage: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -29,7 +33,11 @@ const DEFAULTS: UserSettings = {
 	agentVerbose: false,
 	sidebarCollapsed: false,
 	notificationsEnabled: true,
-	defaultModelId: null
+	defaultModelId: null,
+	agentPersonality: null,
+	agentTone: null,
+	agentGreeting: null,
+	agentLanguage: null
 };
 
 // ---------------------------------------------------------------------------
@@ -57,7 +65,11 @@ export async function loadUserSettings(): Promise<void> {
 			sidebarCollapsed: (raw.sidebar_collapsed as boolean) ?? DEFAULTS.sidebarCollapsed,
 			notificationsEnabled:
 				(raw.notifications_enabled as boolean) ?? DEFAULTS.notificationsEnabled,
-			defaultModelId: (raw.default_model_id as string | null) ?? DEFAULTS.defaultModelId
+			defaultModelId: (raw.default_model_id as string | null) ?? DEFAULTS.defaultModelId,
+			agentPersonality: (raw.agent_personality as string | null) ?? DEFAULTS.agentPersonality,
+			agentTone: (raw.agent_tone as string | null) ?? DEFAULTS.agentTone,
+			agentGreeting: (raw.agent_greeting as string | null) ?? DEFAULTS.agentGreeting,
+			agentLanguage: (raw.agent_language as string | null) ?? DEFAULTS.agentLanguage
 		});
 	} catch {
 		// Use defaults on error
@@ -75,7 +87,11 @@ export async function saveUserSettings(): Promise<void> {
 			sidebar_collapsed: current.sidebarCollapsed,
 			notifications_enabled: current.notificationsEnabled,
 			default_model_id: current.defaultModelId,
-			display_preferences: {}
+			display_preferences: {},
+			agent_personality: current.agentPersonality,
+			agent_tone: current.agentTone,
+			agent_greeting: current.agentGreeting,
+			agent_language: current.agentLanguage
 		})
 	});
 }

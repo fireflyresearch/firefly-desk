@@ -329,6 +329,29 @@
 								{/each}
 							</select>
 						</label>
+
+						<!-- Allow User Personality Overrides -->
+						<div class="flex items-center justify-between rounded-lg border border-border bg-surface-secondary/50 px-4 py-3">
+							<div>
+								<span class="block text-xs font-medium text-text-primary">Allow User Personality Overrides</span>
+								<span class="block text-[11px] text-text-secondary">
+									When enabled, users can customise personality, tone, greeting, and language in their settings
+								</span>
+							</div>
+							<button
+								type="button"
+								role="switch"
+								aria-checked={form.allow_user_personality_overrides}
+								onclick={() => (form.allow_user_personality_overrides = !form.allow_user_personality_overrides)}
+								class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors
+									{form.allow_user_personality_overrides ? 'bg-accent' : 'bg-border'}"
+							>
+								<span
+									class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
+										{form.allow_user_personality_overrides ? 'translate-x-5' : 'translate-x-0'}"
+								/>
+							</button>
+						</div>
 					</div>
 				</section>
 

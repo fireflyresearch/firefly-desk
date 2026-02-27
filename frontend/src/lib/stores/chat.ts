@@ -9,8 +9,10 @@ import { writable } from 'svelte/store';
 import {
 	fetchConversations as apiFetchConversations,
 	fetchMessages as apiFetchMessages,
-	createConversation as apiCreateConversation
+	createConversation as apiCreateConversation,
+	fetchFolders as apiFetchFolders
 } from '$lib/services/conversations.js';
+import type { ApiFolder } from '$lib/services/conversations.js';
 import type { ToolExecution } from './tools.js';
 
 // ---------------------------------------------------------------------------
@@ -66,11 +68,19 @@ export interface ReasoningPlanStep {
 	status: string;
 }
 
+export interface ConversationMetadata {
+	pinned?: boolean;
+	archived?: boolean;
+	folder_id?: string;
+	[key: string]: unknown;
+}
+
 export interface Conversation {
 	id: string;
 	title: string;
 	lastMessage: string;
 	updatedAt: Date;
+	metadata: ConversationMetadata;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +93,7 @@ export const messages = writable<Message[]>([]);
 export const isStreaming = writable<boolean>(false);
 export const reasoningSteps = writable<ReasoningStep[]>([]);
 export const reasoningPlan = writable<ReasoningPlanStep[]>([]);
+export const folders = writable<ApiFolder[]>([]);
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -214,11 +225,24 @@ export async function loadConversations(): Promise<void> {
 				id: c.id,
 				title: c.title ?? 'Untitled',
 				lastMessage: '',
-				updatedAt: new Date(c.updated_at ?? c.created_at ?? new Date().toISOString())
+				updatedAt: new Date(c.updated_at ?? c.created_at ?? new Date().toISOString()),
+				metadata: (c.metadata ?? {}) as ConversationMetadata
 			}))
 		);
 	} catch (error) {
 		console.error('[ChatStore] Failed to load conversations:', error);
+	}
+}
+
+/**
+ * Load folders from the backend and populate the folders store.
+ */
+export async function loadFolders(): Promise<void> {
+	try {
+		const apiFolders = await apiFetchFolders();
+		folders.set(apiFolders);
+	} catch (error) {
+		console.error('[ChatStore] Failed to load folders:', error);
 	}
 }
 
@@ -256,7 +280,8 @@ export async function createNewConversation(): Promise<string> {
 			id: apiConv.id,
 			title: apiConv.title ?? 'New Conversation',
 			lastMessage: '',
-			updatedAt: new Date(apiConv.updated_at ?? apiConv.created_at ?? new Date().toISOString())
+			updatedAt: new Date(apiConv.updated_at ?? apiConv.created_at ?? new Date().toISOString()),
+			metadata: (apiConv.metadata ?? {}) as ConversationMetadata
 		};
 		conversations.update((convs) => [conv, ...convs]);
 		activeConversationId.set(conv.id);

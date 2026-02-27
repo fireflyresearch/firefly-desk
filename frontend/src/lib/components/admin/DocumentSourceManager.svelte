@@ -31,6 +31,7 @@
 		Info
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
+	import DocumentSourceWizard from './DocumentSourceWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Props
@@ -231,6 +232,7 @@
 	let sources = $state<DocumentSource[]>([]);
 	let loading = $state(true);
 	let error = $state('');
+	let showWizard = $state(false);
 
 	// Form state
 	let showForm = $state(false);
@@ -254,6 +256,9 @@
 
 	// Delete confirmation
 	let confirmDeleteId = $state<string | null>(null);
+
+	// Collapsible guide
+	let showGuide = $state(false);
 
 	// -----------------------------------------------------------------------
 	// Update auth method when source type changes (only for new sources)
@@ -295,16 +300,7 @@
 	// -----------------------------------------------------------------------
 
 	function openAddForm() {
-		editingId = null;
-		formData = {
-			name: '',
-			source_type: 's3',
-			auth_method: 'credentials',
-			config: {},
-			sync_enabled: false,
-			sync_cron: ''
-		};
-		showForm = true;
+		showWizard = true;
 	}
 
 	function openEditForm(source: DocumentSource) {
@@ -534,24 +530,31 @@
 				</button>
 			</div>
 
-			<!-- Setup guide -->
+			<!-- Setup guide (collapsible) -->
 			{#if !editingId && SOURCE_GUIDES[formData.source_type]}
 				{@const guide = SOURCE_GUIDES[formData.source_type]}
-				<div class="mb-4 rounded-lg border border-accent/20 bg-accent/5 p-4">
-					<div class="mb-2 flex items-center gap-2">
-						<BookOpen size={14} class="text-accent" />
-						<span class="text-xs font-semibold text-accent">{guide.title}</span>
+				<button
+					type="button"
+					onclick={() => (showGuide = !showGuide)}
+					class="mb-2 flex w-full items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-left text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
+				>
+					<BookOpen size={14} />
+					{guide.title}
+					<span class="ml-auto text-[10px] font-normal text-accent/60">{showGuide ? 'Hide' : 'Show'}</span>
+				</button>
+				{#if showGuide}
+					<div class="mb-4 rounded-lg border border-accent/20 bg-accent/5 p-4">
+						<ol class="mb-2 list-inside list-decimal space-y-1 text-xs text-text-secondary">
+							{#each guide.steps as step}
+								<li>{step}</li>
+							{/each}
+						</ol>
+						<div class="flex items-start gap-1.5 rounded-md bg-accent/5 px-2.5 py-1.5">
+							<Info size={12} class="mt-0.5 shrink-0 text-accent/70" />
+							<p class="text-[11px] text-accent/80">{guide.tip}</p>
+						</div>
 					</div>
-					<ol class="mb-2 list-inside list-decimal space-y-1 text-xs text-text-secondary">
-						{#each guide.steps as step}
-							<li>{step}</li>
-						{/each}
-					</ol>
-					<div class="flex items-start gap-1.5 rounded-md bg-accent/5 px-2.5 py-1.5">
-						<Info size={12} class="mt-0.5 shrink-0 text-accent/70" />
-						<p class="text-[11px] text-accent/80">{guide.tip}</p>
-					</div>
-				</div>
+				{/if}
 			{/if}
 
 			<form
@@ -942,4 +945,10 @@
 			</div>
 		</div>
 	{/if}
+
+	<DocumentSourceWizard
+		open={showWizard}
+		onClose={() => (showWizard = false)}
+		onCreated={() => { showWizard = false; loadSources(); }}
+	/>
 </div>

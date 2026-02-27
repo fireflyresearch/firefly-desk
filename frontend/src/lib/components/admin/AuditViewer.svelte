@@ -39,7 +39,10 @@
 	// Filters
 	let filterUserId = $state('');
 	let filterEventType = $state('');
+	let filterRiskLevel = $state('');
 	let filterLimit = $state(50);
+
+	const riskLevels = ['', 'info', 'low', 'medium', 'high', 'critical'] as const;
 
 	// Expanded row
 	let expandedEventId = $state<string | null>(null);
@@ -74,6 +77,7 @@
 			const params = new URLSearchParams();
 			if (filterUserId) params.set('user_id', filterUserId);
 			if (filterEventType) params.set('event_type', filterEventType);
+			if (filterRiskLevel) params.set('risk_level', filterRiskLevel);
 			params.set('limit', String(filterLimit));
 
 			const query = params.toString();
@@ -111,16 +115,43 @@
 	// Helpers
 	// -----------------------------------------------------------------------
 
-	function formatTimestamp(ts: string): string {
+	function formatRelativeTime(ts: string): string {
+		const d = new Date(ts);
+		const now = new Date();
+		const diffMs = now.getTime() - d.getTime();
+		const diffSec = Math.floor(diffMs / 1000);
+		const diffMin = Math.floor(diffSec / 60);
+		const diffHr = Math.floor(diffMin / 60);
+		const diffDays = Math.floor(diffHr / 24);
+		if (diffSec < 60) return 'just now';
+		if (diffMin < 60) return `${diffMin}m ago`;
+		if (diffHr < 24) return `${diffHr}h ago`;
+		if (diffDays < 7) return `${diffDays}d ago`;
+		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatFullTimestamp(ts: string): string {
 		const d = new Date(ts);
 		return d.toLocaleString('en-US', {
 			month: 'short',
 			day: 'numeric',
+			year: 'numeric',
 			hour: '2-digit',
 			minute: '2-digit',
 			second: '2-digit',
 			hour12: false
 		});
+	}
+
+	function riskLevelColor(level?: string): string {
+		switch (level) {
+			case 'critical': return 'bg-danger/15 text-danger';
+			case 'high': return 'bg-orange-500/15 text-orange-400';
+			case 'medium': return 'bg-warning/15 text-warning';
+			case 'low': return 'bg-accent/15 text-accent';
+			case 'info': return 'bg-text-secondary/10 text-text-secondary';
+			default: return '';
+		}
 	}
 
 	function formatDetail(detail: Record<string, unknown>): string {
@@ -281,55 +312,81 @@
 	</div>
 
 	<!-- Filters -->
-	<div class="flex items-end gap-3 rounded-lg border border-border bg-surface p-3">
-		<div class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-			<Filter size={14} />
-			Filters
+	<div class="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
+		<!-- Top row: user filter, risk level, limit, apply -->
+		<div class="flex items-end gap-3">
+			<div class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
+				<Filter size={14} />
+				Filters
+			</div>
+
+			<label class="flex flex-col gap-1">
+				<span class="text-xs text-text-secondary">User ID</span>
+				<input
+					type="text"
+					bind:value={filterUserId}
+					placeholder="All users"
+					class="w-40 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+				/>
+			</label>
+
+			<label class="flex flex-col gap-1">
+				<span class="text-xs text-text-secondary">Risk Level</span>
+				<select
+					bind:value={filterRiskLevel}
+					class="w-32 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+				>
+					<option value="">All levels</option>
+					{#each riskLevels.slice(1) as level}
+						<option value={level}>{level}</option>
+					{/each}
+				</select>
+			</label>
+
+			<label class="flex flex-col gap-1">
+				<span class="text-xs text-text-secondary">Limit</span>
+				<select
+					bind:value={filterLimit}
+					class="w-20 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+				>
+					<option value={25}>25</option>
+					<option value={50}>50</option>
+					<option value={100}>100</option>
+					<option value={200}>200</option>
+				</select>
+			</label>
+
+			<button
+				type="button"
+				onclick={applyFilters}
+				class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+			>
+				Apply
+			</button>
 		</div>
 
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-text-secondary">User ID</span>
-			<input
-				type="text"
-				bind:value={filterUserId}
-				placeholder="All users"
-				class="w-40 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-			/>
-		</label>
-
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-text-secondary">Event Type</span>
-			<select
-				bind:value={filterEventType}
-				class="w-44 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+		<!-- Event type pills -->
+		<div class="flex flex-wrap items-center gap-1.5">
+			<span class="mr-1 text-xs text-text-secondary">Type:</span>
+			<button
+				type="button"
+				onclick={() => { filterEventType = ''; applyFilters(); }}
+				class="rounded-full px-2.5 py-1 text-xs font-medium transition-colors
+					{filterEventType === '' ? 'bg-accent text-white' : 'bg-surface-secondary text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
 			>
-				<option value="">All types</option>
-				{#each eventTypes.slice(1) as type}
-					<option value={type}>{formatEventType(type)}</option>
-				{/each}
-			</select>
-		</label>
-
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-text-secondary">Limit</span>
-			<select
-				bind:value={filterLimit}
-				class="w-20 rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-			>
-				<option value={25}>25</option>
-				<option value={50}>50</option>
-				<option value={100}>100</option>
-				<option value={200}>200</option>
-			</select>
-		</label>
-
-		<button
-			type="button"
-			onclick={applyFilters}
-			class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-		>
-			Apply
-		</button>
+				All
+			</button>
+			{#each eventTypes.slice(1) as type}
+				<button
+					type="button"
+					onclick={() => { filterEventType = type; applyFilters(); }}
+					class="rounded-full px-2.5 py-1 text-xs font-medium transition-colors
+						{filterEventType === type ? 'bg-accent text-white' : 'bg-surface-secondary text-text-secondary hover:bg-surface-hover hover:text-text-primary'}"
+				>
+					{formatEventType(type)}
+				</button>
+			{/each}
+		</div>
 	</div>
 
 	<!-- Error banner -->
@@ -353,6 +410,7 @@
 							<th class="w-8 px-2 py-2"></th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Timestamp</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Event Type</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Risk</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">User</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Action</th>
 							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Details</th>
@@ -374,9 +432,12 @@
 									{/if}
 								</td>
 								<td class="whitespace-nowrap px-4 py-2">
-									<span class="inline-flex items-center gap-1 text-xs text-text-secondary">
+									<span
+										class="inline-flex items-center gap-1 text-xs text-text-secondary"
+										title={formatFullTimestamp(event.timestamp)}
+									>
 										<Clock size={12} />
-										{formatTimestamp(event.timestamp)}
+										{formatRelativeTime(event.timestamp)}
 									</span>
 								</td>
 								<td class="px-4 py-2">
@@ -385,6 +446,15 @@
 									>
 										{formatEventType(event.event_type)}
 									</span>
+								</td>
+								<td class="px-4 py-2">
+									{#if event.risk_level}
+										<span class="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium {riskLevelColor(event.risk_level)}">
+											{event.risk_level}
+										</span>
+									{:else}
+										<span class="text-xs text-text-secondary/40">--</span>
+									{/if}
 								</td>
 								<td class="px-4 py-2 font-mono text-xs text-text-secondary">
 									{event.user_id}
@@ -398,7 +468,7 @@
 							<!-- Expanded detail row -->
 							{#if expandedEventId === event.id}
 								<tr transition:slide={{ duration: 200 }}>
-									<td colspan="6" class="px-4 py-4 bg-surface-secondary/30 border-b border-border">
+									<td colspan="7" class="px-4 py-4 bg-surface-secondary/30 border-b border-border">
 										{#if loadingDetail}
 											<div class="flex items-center justify-center py-4">
 												<Loader2 size={18} class="animate-spin text-text-secondary" />
@@ -478,12 +548,34 @@
 												</div>
 											</div>
 
+											<!-- Tool call details (if present) -->
+											{#if expandedDetail.detail?.tool_name || expandedDetail.detail?.tool}
+												<div class="mt-3 rounded-lg border border-border bg-surface p-3">
+													<h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Tool Call</h4>
+													<div class="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+														<span><span class="font-medium text-text-secondary">Name:</span> <span class="font-mono text-text-primary">{expandedDetail.detail.tool_name ?? expandedDetail.detail.tool}</span></span>
+														{#if expandedDetail.detail.duration_ms}
+															<span><span class="font-medium text-text-secondary">Duration:</span> <span class="text-text-primary">{expandedDetail.detail.duration_ms}ms</span></span>
+														{/if}
+														{#if expandedDetail.risk_level}
+															<span><span class="font-medium text-text-secondary">Risk:</span> <span class="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium {riskLevelColor(expandedDetail.risk_level)}">{expandedDetail.risk_level}</span></span>
+														{/if}
+													</div>
+													{#if expandedDetail.detail.parameters || expandedDetail.detail.params}
+														<div class="mt-2">
+															<span class="text-[11px] font-medium text-text-secondary">Parameters:</span>
+															<pre class="mt-1 whitespace-pre-wrap break-all rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] text-text-primary">{JSON.stringify(expandedDetail.detail.parameters ?? expandedDetail.detail.params, null, 2)}</pre>
+														</div>
+													{/if}
+												</div>
+											{/if}
+
 											<!-- Bottom: raw JSON -->
 											<details class="mt-3">
-												<summary class="text-xs text-text-secondary cursor-pointer hover:text-text-primary transition-colors" onclick={(e: MouseEvent) => e.stopPropagation()}>
+												<summary class="cursor-pointer text-xs text-text-secondary transition-colors hover:text-text-primary" onclick={(e: MouseEvent) => e.stopPropagation()}>
 													Raw JSON
 												</summary>
-												<pre class="mt-2 text-xs bg-surface rounded-md p-3 overflow-x-auto border border-border text-text-primary">{JSON.stringify(expandedDetail.detail, null, 2)}</pre>
+												<pre class="mt-2 whitespace-pre-wrap break-all rounded-md border border-border bg-surface p-3 font-mono text-[11px] text-text-primary">{JSON.stringify(expandedDetail.detail, null, 2)}</pre>
 											</details>
 										{/if}
 									</td>
@@ -491,7 +583,7 @@
 							{/if}
 						{:else}
 							<tr>
-								<td colspan="6" class="px-4 py-8 text-center text-sm text-text-secondary">
+								<td colspan="7" class="px-4 py-8 text-center text-sm text-text-secondary">
 									No audit events match the current filters.
 								</td>
 							</tr>

@@ -7,6 +7,7 @@
   MessageActions.svelte - Floating action bar for assistant messages.
 
   Provides Copy, Regenerate, ThumbsUp, and ThumbsDown actions.
+  ThumbsDown opens a FeedbackDialog for structured feedback.
   Appears on hover over assistant messages via the parent group.
 -->
 <script lang="ts">
@@ -14,6 +15,7 @@
 	import { submitFeedback, regenerateLastMessage } from '$lib/services/chat.js';
 	import { activeConversationId, isStreaming } from '$lib/stores/chat.js';
 	import { get } from 'svelte/store';
+	import FeedbackDialog from './FeedbackDialog.svelte';
 
 	interface MessageActionsProps {
 		messageId: string;
@@ -24,6 +26,7 @@
 
 	let copied = $state(false);
 	let feedbackGiven = $state<'up' | 'down' | null>(null);
+	let showFeedbackDialog = $state(false);
 
 	async function handleCopy() {
 		try {
@@ -33,7 +36,6 @@
 				copied = false;
 			}, 2000);
 		} catch {
-			// Fallback for environments without clipboard API
 			console.warn('[MessageActions] Clipboard API unavailable');
 		}
 	}
@@ -48,14 +50,35 @@
 
 	async function handleFeedback(rating: 'up' | 'down') {
 		if (feedbackGiven) return;
-		feedbackGiven = rating;
 
+		if (rating === 'down') {
+			showFeedbackDialog = true;
+			return;
+		}
+
+		// Thumbs up: record immediately
+		feedbackGiven = 'up';
 		try {
-			await submitFeedback(messageId, rating);
+			await submitFeedback(messageId, 'up');
 		} catch {
 			console.error('[MessageActions] Failed to submit feedback');
 			feedbackGiven = null;
 		}
+	}
+
+	async function handleFeedbackSubmit(categories: string[], comment: string) {
+		showFeedbackDialog = false;
+		feedbackGiven = 'down';
+		try {
+			await submitFeedback(messageId, 'down', categories, comment);
+		} catch {
+			console.error('[MessageActions] Failed to submit feedback');
+			feedbackGiven = null;
+		}
+	}
+
+	function handleFeedbackCancel() {
+		showFeedbackDialog = false;
 	}
 </script>
 
@@ -115,3 +138,10 @@
 		<ThumbsDown size={14} />
 	</button>
 </div>
+
+{#if showFeedbackDialog}
+	<FeedbackDialog
+		onSubmit={handleFeedbackSubmit}
+		onCancel={handleFeedbackCancel}
+	/>
+{/if}

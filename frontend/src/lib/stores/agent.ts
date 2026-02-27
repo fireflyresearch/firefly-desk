@@ -24,6 +24,7 @@ export interface AgentSettings {
 	behavior_rules: string[];
 	custom_instructions: string;
 	language: string;
+	allow_user_personality_overrides: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,8 @@ export const AGENT_DEFAULTS: AgentSettings = {
 	greeting: "Hello! I'm {name}, your intelligent assistant.",
 	behavior_rules: [],
 	custom_instructions: '',
-	language: 'en'
+	language: 'en',
+	allow_user_personality_overrides: true
 };
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,7 @@
 		{#if showSidebar}
 			<div
 				transition:slide={{ axis: 'x', duration: 200 }}
-				class="w-72 shrink-0 border-r border-border/50 bg-surface-secondary"
+				class="w-80 shrink-0 border-r border-border/50 bg-surface-secondary"
 			>
 				<ConversationList />
 			</div>

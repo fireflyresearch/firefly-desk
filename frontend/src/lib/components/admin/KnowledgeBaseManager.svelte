@@ -93,15 +93,6 @@
 	let embeddingStatus = $state<'ok' | 'warning' | 'error' | null>(null);
 	let embeddingStatusMessage = $state('');
 
-	// Search engine config
-	let searchProvider = $state('');
-	let searchApiKey = $state('');
-	let searchMaxResults = $state(5);
-	let searchLoading = $state(false);
-	let searchSaving = $state(false);
-	let searchTesting = $state(false);
-	let searchTestResult = $state<{ success: boolean; error?: string; result_count?: number } | null>(null);
-
 	// -----------------------------------------------------------------------
 	// Derived
 	// -----------------------------------------------------------------------
@@ -124,6 +115,8 @@
 	let paginatedDocuments = $derived(
 		filteredDocuments.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 	);
+
+	let detailPanelOpen = $derived(selectedDocumentId !== null && !isFullscreen);
 
 	let allSelected = $derived(
 		paginatedDocuments.length > 0 && paginatedDocuments.every((d) => selectedIds.has(d.id))
@@ -253,53 +246,6 @@
 		}
 	}
 
-	async function loadSearchConfig() {
-		searchLoading = true;
-		try {
-			const config = await apiJson<any>('/settings/search');
-			searchProvider = config.search_provider || '';
-			searchApiKey = config.search_api_key || '';
-			searchMaxResults = config.search_max_results || 5;
-		} catch {
-			// Defaults are fine
-		} finally {
-			searchLoading = false;
-		}
-	}
-
-	async function saveSearchConfig() {
-		searchSaving = true;
-		try {
-			await apiJson('/settings/search', {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					search_provider: searchProvider,
-					search_api_key: searchApiKey,
-					search_max_results: searchMaxResults
-				})
-			});
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save search config';
-		} finally {
-			searchSaving = false;
-		}
-	}
-
-	async function testSearchConnection() {
-		searchTesting = true;
-		searchTestResult = null;
-		try {
-			searchTestResult = await apiJson<any>('/settings/search/test', {
-				method: 'POST'
-			});
-		} catch (e) {
-			searchTestResult = { success: false, error: e instanceof Error ? e.message : 'Test failed' };
-		} finally {
-			searchTesting = false;
-		}
-	}
-
 	$effect(() => {
 		loadWorkspaces();
 		loadDocuments();
@@ -413,7 +359,7 @@
 		function onMouseMove(ev: MouseEvent) {
 			// Moving left increases width (detail is on the right)
 			const delta = startX - ev.clientX;
-			detailWidth = Math.max(300, Math.min(800, startWidth + delta));
+			detailWidth = Math.max(300, Math.min(600, startWidth + delta));
 		}
 
 		function onMouseUp() {
@@ -528,7 +474,7 @@
 			</button>
 			<button
 				type="button"
-				onclick={() => { activeTab = 'settings'; loadKnowledgeSettings(); loadEmbeddingStatus(); loadSearchConfig(); }}
+				onclick={() => { activeTab = 'settings'; loadKnowledgeSettings(); loadEmbeddingStatus(); }}
 				class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors
 					{activeTab === 'settings'
 					? 'border-b-2 border-accent text-accent'
@@ -836,87 +782,6 @@
 							</button>
 						</div>
 
-						<!-- Search Engine Config -->
-						<div class="rounded-xl border border-border bg-surface p-5">
-							<h3 class="mb-4 text-sm font-semibold text-text-primary">Search Engine</h3>
-							<p class="mb-4 text-xs text-text-secondary">
-								Configure a web search provider to let Ember search the internet for current information.
-							</p>
-
-							<div class="space-y-3">
-								<div>
-									<label class="mb-1 block text-xs font-medium text-text-secondary">Provider</label>
-									<select
-										bind:value={searchProvider}
-										class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-									>
-										<option value="">None (disabled)</option>
-										<option value="tavily">Tavily</option>
-									</select>
-								</div>
-
-								{#if searchProvider}
-									<div>
-										<label class="mb-1 block text-xs font-medium text-text-secondary">API Key</label>
-										<input
-											type="password"
-											bind:value={searchApiKey}
-											placeholder="Enter API key..."
-											class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-										/>
-									</div>
-
-									<div>
-										<label class="mb-1 block text-xs font-medium text-text-secondary">
-											Max Results: {searchMaxResults}
-										</label>
-										<input
-											type="range"
-											min="1"
-											max="10"
-											bind:value={searchMaxResults}
-											class="w-full accent-accent"
-										/>
-									</div>
-								{/if}
-
-								<div class="flex items-center gap-2">
-									<button
-										type="button"
-										onclick={saveSearchConfig}
-										disabled={searchSaving}
-										class="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
-									>
-										{searchSaving ? 'Saving...' : 'Save'}
-									</button>
-
-									{#if searchProvider}
-										<button
-											type="button"
-											onclick={testSearchConnection}
-											disabled={searchTesting}
-											class="rounded-lg border border-border px-4 py-1.5 text-sm text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
-										>
-											{searchTesting ? 'Testing...' : 'Test Connection'}
-										</button>
-									{/if}
-								</div>
-
-								{#if searchTestResult}
-									<div
-										class="rounded-md border px-3 py-2 text-xs {searchTestResult.success
-											? 'border-success/30 bg-success/5 text-success'
-											: 'border-danger/30 bg-danger/5 text-danger'}"
-									>
-										{#if searchTestResult.success}
-											Search working — {searchTestResult.result_count} results returned
-										{:else}
-											Search test failed: {searchTestResult.error}
-										{/if}
-									</div>
-								{/if}
-							</div>
-						</div>
 					</div>
 				{/if}
 			</div>
@@ -953,9 +818,11 @@
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Workspace</th>
 						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Source</th>
-						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
-						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Chunks</th>
-						<th class="px-4 py-2 text-xs font-medium text-text-secondary">Created</th>
+						{#if !detailPanelOpen}
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Chunks</th>
+							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Created</th>
+						{/if}
 						<th class="w-16 px-4 py-2 text-xs font-medium text-text-secondary">Actions</th>
 					</tr>
 				</thead>
@@ -1014,6 +881,7 @@
 								{/if}
 							</td>
 							<td class="px-4 py-2 text-text-secondary">{doc.source || '--'}</td>
+							{#if !detailPanelOpen}
 							<td class="px-4 py-2">
 								{#if doc.tags.length > 0}
 									<div class="flex flex-wrap gap-1">
@@ -1040,6 +908,7 @@
 							<td class="px-4 py-2 text-xs text-text-secondary">
 								{formatDate(doc.created_at)}
 							</td>
+						{/if}
 							<td class="px-4 py-2" onclick={(e) => e.stopPropagation()}>
 								<button
 									type="button"
@@ -1053,7 +922,7 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="11" class="px-4 py-12 text-center">
+							<td colspan={detailPanelOpen ? 8 : 11} class="px-4 py-12 text-center">
 								{#if searchQuery || statusFilter !== 'all' || workspaceFilter !== 'all'}
 									<div class="flex flex-col items-center gap-2">
 										<Search size={32} class="text-text-secondary/40" />

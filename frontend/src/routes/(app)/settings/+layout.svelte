@@ -10,12 +10,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { ArrowLeft, User, Palette, Info, Brain, Bot } from 'lucide-svelte';
-	import { isAdmin } from '$lib/stores/user.js';
 
 	let { children } = $props();
 
 	const navItems = [
 		{ href: '/settings', label: 'Profile', icon: User, exact: true },
+		{ href: '/settings/personality', label: 'Agent Personality', icon: Bot },
 		{ href: '/settings/memories', label: 'Memories', icon: Brain },
 		{ href: '/settings/appearance', label: 'Appearance', icon: Palette },
 		{ href: '/settings/about', label: 'About', icon: Info }
@@ -60,19 +60,6 @@
 				</li>
 			{/each}
 
-			<!-- Admin-only link to Agent Personality -->
-			{#if $isAdmin}
-				<li><div class="my-1.5 border-b border-border/50"></div></li>
-				<li>
-					<a
-						href="/admin/agent"
-						class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-					>
-						<Bot size={16} />
-						Agent Personality
-					</a>
-				</li>
-			{/if}
 		</ul>
 	</nav>
 

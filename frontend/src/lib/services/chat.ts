@@ -136,18 +136,24 @@ export async function sendMessage(
 /**
  * Submit feedback (thumbs up/down) for an assistant message.
  *
- * @param messageId - The ID of the message to provide feedback on.
- * @param rating    - Either "up" or "down".
- * @param comment   - Optional text comment accompanying the feedback.
+ * @param messageId  - The ID of the message to provide feedback on.
+ * @param rating     - Either "up" or "down".
+ * @param categories - Optional feedback categories (e.g. "incorrect", "too_verbose").
+ * @param comment    - Optional text comment accompanying the feedback.
  */
 export async function submitFeedback(
 	messageId: string,
 	rating: 'up' | 'down',
+	categories?: string[],
 	comment?: string
 ): Promise<void> {
 	await apiJson('/chat/messages/' + encodeURIComponent(messageId) + '/feedback', {
 		method: 'POST',
-		body: JSON.stringify({ rating, ...(comment ? { comment } : {}) })
+		body: JSON.stringify({
+			rating,
+			...(categories?.length ? { categories } : {}),
+			...(comment ? { comment } : {})
+		})
 	});
 }
 

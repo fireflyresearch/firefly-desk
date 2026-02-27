@@ -16,9 +16,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from flydesk.api.deps import get_audit_logger
+from flydesk.api.deps import get_audit_logger, get_feedback_repo
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
+from flydesk.feedback.repository import FeedbackRepository
 
 router = APIRouter(prefix="/api/chat", tags=["feedback"])
 
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/api/chat", tags=["feedback"])
 # ---------------------------------------------------------------------------
 
 AuditLog = Annotated[AuditLogger, Depends(get_audit_logger)]
+FeedbackRepo = Annotated[FeedbackRepository, Depends(get_feedback_repo)]
 
 
 # ---------------------------------------------------------------------------
@@ -40,10 +42,21 @@ class FeedbackRating(StrEnum):
     DOWN = "down"
 
 
+class FeedbackCategory(StrEnum):
+    INCORRECT = "incorrect"
+    UNHELPFUL = "unhelpful"
+    TOO_VERBOSE = "too_verbose"
+    TOO_BRIEF = "too_brief"
+    OFF_TOPIC = "off_topic"
+    TONE_ISSUE = "tone_issue"
+    FORMATTING = "formatting"
+
+
 class FeedbackRequest(BaseModel):
     """Body for submitting feedback on a message."""
 
     rating: FeedbackRating
+    categories: list[FeedbackCategory] = Field(default_factory=list)
     comment: str | None = Field(default=None, max_length=2000)
 
 
@@ -52,6 +65,14 @@ class FeedbackResponse(BaseModel):
 
     message_id: str
     status: str = "recorded"
+
+
+class FeedbackSummaryResponse(BaseModel):
+    """Aggregated feedback summary for the current user."""
+
+    summary: str
+    total_positive: int
+    total_negative: int
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +91,7 @@ async def submit_feedback(
     request: Request,
     audit: AuditLog,
 ) -> FeedbackResponse:
-    """Record user feedback (thumbs up/down + optional comment) on a message.
+    """Record user feedback (thumbs up/down + optional categories/comment) on a message.
 
     The feedback is stored as an audit event of type ``MESSAGE_FEEDBACK``.
     """
@@ -85,9 +106,27 @@ async def submit_feedback(
             detail={
                 "message_id": message_id,
                 "rating": body.rating.value,
+                **({"categories": [c.value for c in body.categories]} if body.categories else {}),
                 **({"comment": body.comment} if body.comment else {}),
             },
         )
     )
 
     return FeedbackResponse(message_id=message_id)
+
+
+@router.get("/feedback/summary", response_model=FeedbackSummaryResponse)
+async def get_feedback_summary(
+    request: Request,
+    feedback_repo: FeedbackRepo,
+) -> FeedbackSummaryResponse:
+    """Get aggregated feedback summary for the current user."""
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+
+    summary, positive, negative = await feedback_repo.get_user_feedback_summary(user_id)
+    return FeedbackSummaryResponse(
+        summary=summary,
+        total_positive=positive,
+        total_negative=negative,
+    )

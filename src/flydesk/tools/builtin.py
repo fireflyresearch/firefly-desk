@@ -973,8 +973,8 @@ class BuiltinToolExecutor:
                 "Ask an admin to configure one in Settings > Search Engine."
             }
 
-        max_results = int(arguments.get("max_results", 5))
-        include_content = arguments.get("include_content", False)
+        max_results = int(arguments.get("max_results") or 5)
+        include_content = bool(arguments.get("include_content") or False)
 
         try:
             if include_content:

@@ -25,6 +25,8 @@ from flydesk.auth.oidc import OIDCClient
 from flydesk.auth.local_user_repository import LocalUserRepository
 from flydesk.auth.repository import OIDCProviderRepository
 from flydesk.catalog.repository import CatalogRepository
+from flydesk.conversation.folder_repository import FolderRepository
+from flydesk.feedback.repository import FeedbackRepository
 from flydesk.conversation.repository import ConversationRepository
 from flydesk.exports.repository import ExportRepository
 from flydesk.exports.service import ExportService
@@ -141,6 +143,17 @@ def get_document_source_repo() -> DocumentSourceRepository:
     )
 
 
+def get_folder_repo() -> FolderRepository:
+    """Provide a FolderRepository instance.
+
+    In production this is wired to the real database session factory.
+    In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_folder_repo must be overridden via app.dependency_overrides"
+    )
+
+
 def get_export_repo() -> ExportRepository:
     """Provide an ExportRepository instance.
 
@@ -149,6 +162,17 @@ def get_export_repo() -> ExportRepository:
     """
     raise NotImplementedError(
         "get_export_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_feedback_repo() -> FeedbackRepository:
+    """Provide a FeedbackRepository instance.
+
+    In production this is wired to the real database session factory.
+    In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_feedback_repo must be overridden via app.dependency_overrides"
     )
 
 

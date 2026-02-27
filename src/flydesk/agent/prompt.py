@@ -38,6 +38,7 @@ class PromptContext:
     process_context: list[Any] = field(default_factory=list)
     custom_instructions: str = ""
     language: str = "en"
+    feedback_context: str = ""
 
 
 class SystemPromptBuilder:
@@ -91,6 +92,12 @@ class SystemPromptBuilder:
             sections.append(
                 self._registry.get("conversation_history").render(
                     conversation_summary=context.conversation_summary,
+                )
+            )
+        if context.feedback_context:
+            sections.append(
+                self._registry.get("feedback_context").render(
+                    feedback_context=context.feedback_context,
                 )
             )
 

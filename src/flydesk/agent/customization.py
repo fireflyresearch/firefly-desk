@@ -81,6 +81,40 @@ class AgentCustomizationService:
 
         return self._cached_profile
 
+    async def get_profile_for_user(self, user_id: str) -> AgentProfile:
+        """Return an agent profile with user-level personality overrides applied.
+
+        Falls back to the admin base profile when overrides are disabled
+        or the user has not set any custom values.
+        """
+        base = await self.get_profile()
+
+        try:
+            agent_settings = await self._settings_repo.get_agent_settings()
+            if not agent_settings.allow_user_personality_overrides:
+                return base
+
+            user_settings = await self._settings_repo.get_user_settings(user_id)
+
+            return AgentProfile(
+                name=base.name,
+                display_name=base.display_name,
+                avatar_url=base.avatar_url,
+                personality=user_settings.agent_personality or base.personality,
+                tone=user_settings.agent_tone or base.tone,
+                greeting=user_settings.agent_greeting or base.greeting,
+                behavior_rules=base.behavior_rules,
+                custom_instructions=base.custom_instructions,
+                language=user_settings.agent_language or base.language,
+            )
+        except Exception:
+            _logger.warning(
+                "Failed to load user personality overrides for %s; using base profile.",
+                user_id,
+                exc_info=True,
+            )
+            return base
+
     async def update_profile(self, profile: AgentProfile) -> AgentProfile:
         """Persist an updated profile and invalidate the cache."""
         from flydesk.settings.models import AgentSettings

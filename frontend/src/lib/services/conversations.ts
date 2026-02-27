@@ -35,6 +35,14 @@ export interface ApiMessage {
 	created_at: string | null;
 }
 
+export interface ApiFolder {
+	id: string;
+	name: string;
+	icon: string;
+	sort_order: number;
+	created_at: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -89,4 +97,100 @@ export async function fetchMessages(
 	return apiJson<ApiMessage[]>(
 		`/conversations/${encodeURIComponent(conversationId)}/messages`
 	);
+}
+
+/**
+ * Update a conversation's metadata (used for pin, archive, move to folder).
+ */
+export async function updateConversationMetadata(
+	id: string,
+	metadata: Record<string, unknown>
+): Promise<void> {
+	await apiFetch(`/conversations/${encodeURIComponent(id)}`, {
+		method: 'PATCH',
+		body: JSON.stringify({ metadata })
+	});
+}
+
+/**
+ * Pin or unpin a conversation.
+ */
+export async function pinConversation(
+	id: string,
+	pinned: boolean
+): Promise<void> {
+	// We need to fetch current metadata first to merge
+	const conv = await apiJson<ApiConversation>(
+		`/conversations/${encodeURIComponent(id)}`
+	);
+	const metadata = { ...conv.metadata, pinned };
+	await updateConversationMetadata(id, metadata);
+}
+
+/**
+ * Archive a conversation.
+ */
+export async function archiveConversation(
+	id: string,
+	archived: boolean
+): Promise<void> {
+	const conv = await apiJson<ApiConversation>(
+		`/conversations/${encodeURIComponent(id)}`
+	);
+	const metadata = { ...conv.metadata, archived };
+	await updateConversationMetadata(id, metadata);
+}
+
+/**
+ * Move a conversation into a folder (or remove from folder with null).
+ */
+export async function moveToFolder(
+	id: string,
+	folderId: string | null
+): Promise<void> {
+	const conv = await apiJson<ApiConversation>(
+		`/conversations/${encodeURIComponent(id)}`
+	);
+	const { folder_id: _, ...rest } = conv.metadata;
+	const metadata = folderId ? { ...rest, folder_id: folderId } : rest;
+	await updateConversationMetadata(id, metadata);
+}
+
+// ---------------------------------------------------------------------------
+// Folder API
+// ---------------------------------------------------------------------------
+
+export async function fetchFolders(): Promise<ApiFolder[]> {
+	return apiJson<ApiFolder[]>('/conversations/folders');
+}
+
+export async function createFolder(name: string, icon: string = 'folder'): Promise<ApiFolder> {
+	return apiJson<ApiFolder>('/conversations/folders', {
+		method: 'POST',
+		body: JSON.stringify({ name, icon })
+	});
+}
+
+export async function renameFolder(
+	id: string,
+	name: string,
+	icon?: string
+): Promise<void> {
+	await apiFetch(`/conversations/folders/${encodeURIComponent(id)}`, {
+		method: 'PATCH',
+		body: JSON.stringify({ name, ...(icon !== undefined && { icon }) })
+	});
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+	await apiFetch(`/conversations/folders/${encodeURIComponent(id)}`, {
+		method: 'DELETE'
+	});
+}
+
+export async function reorderFolders(folderIds: string[]): Promise<void> {
+	await apiFetch('/conversations/folders/reorder', {
+		method: 'PUT',
+		body: JSON.stringify({ folder_ids: folderIds })
+	});
 }

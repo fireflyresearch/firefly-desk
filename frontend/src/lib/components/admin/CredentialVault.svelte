@@ -17,9 +17,11 @@
 		Loader2,
 		ShieldCheck,
 		Shield,
-		ChevronDown
+		ChevronDown,
+		Settings
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import KMSConfigWizard from './KMSConfigWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -51,6 +53,7 @@
 	// KMS status
 	let kmsStatus = $state<{ provider: string; is_dev_key: boolean } | null>(null);
 	let showEncryption = $state(false);
+	let showKMSWizard = $state(false);
 
 	// Form state
 	let showForm = $state(false);
@@ -280,6 +283,14 @@
 					Provider configuration requires environment variable changes and application
 					restart.
 				</p>
+				<button
+					type="button"
+					onclick={() => (showKMSWizard = true)}
+					class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+				>
+					<Settings size={14} />
+					Configure KMS Provider
+				</button>
 			</div>
 		{/if}
 	</div>
@@ -485,4 +496,10 @@
 			</div>
 		</div>
 	{/if}
+
+	<KMSConfigWizard
+		open={showKMSWizard}
+		onClose={() => (showKMSWizard = false)}
+		onSaved={() => { showKMSWizard = false; loadKmsStatus(); }}
+	/>
 </div>
