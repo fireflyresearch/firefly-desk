@@ -343,7 +343,7 @@ class TestTokenUsageEndpoint:
         assert data["estimated_cost_usd"] == 18.0
 
     async def test_token_usage_ignores_non_agent_events(self, client):
-        """Only agent_response events contribute to token counts."""
+        """Only agent_response and discovery_response events contribute to token counts."""
         ac, _, audit, sf = client
         # tool_call with tokens should be ignored
         await _seed_audit_event(
@@ -363,6 +363,27 @@ class TestTokenUsageEndpoint:
         data = response.json()
         assert data["total_input_tokens"] == 100
         assert data["total_output_tokens"] == 50
+
+    async def test_token_usage_includes_discovery_events(self, client):
+        """Discovery response events contribute to token counts."""
+        ac, _, audit, sf = client
+        await _seed_audit_event(
+            audit, sf,
+            event_type=AuditEventType.AGENT_RESPONSE,
+            action="chat-response",
+            detail={"input_tokens": 1000, "output_tokens": 500},
+        )
+        await _seed_audit_event(
+            audit, sf,
+            event_type=AuditEventType.DISCOVERY_RESPONSE,
+            action="process_discovery",
+            detail={"input_tokens": 5000, "output_tokens": 2000, "model": "gpt-4"},
+        )
+
+        response = await ac.get("/api/admin/dashboard/token-usage")
+        data = response.json()
+        assert data["total_input_tokens"] == 6000
+        assert data["total_output_tokens"] == 2500
 
     async def test_token_usage_handles_missing_token_fields(self, client):
         """Events without token fields in detail are safely skipped."""

@@ -23,6 +23,7 @@ class AuditEventType(StrEnum):
     CONFIRMATION_REQUESTED = "confirmation_requested"
     CONFIRMATION_RESPONSE = "confirmation_response"
     AGENT_RESPONSE = "agent_response"
+    DISCOVERY_RESPONSE = "discovery_response"
     AUTH_LOGIN = "auth_login"
     AUTH_LOGOUT = "auth_logout"
     CATALOG_CHANGE = "catalog_change"

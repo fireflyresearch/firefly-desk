@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from flydesk.audit.models import AuditEventType
 from flydesk.catalog.discovery import (
     DiscoveredSystem,
     SystemDiscoveryEngine,
@@ -52,6 +53,21 @@ def _sample_system_dict(
         "tags": ["auto-discovered", category],
         "evidence": ["Found in KB document 'API Integration Guide'"],
     }
+
+
+def _make_mock_agent(response_text: str, input_tokens: int = 100, output_tokens: int = 50) -> AsyncMock:
+    """Create a mock FireflyAgent whose run() returns the given text."""
+    agent = AsyncMock()
+    agent._model_identifier = "test-model"
+    result = MagicMock()
+    result.output = response_text
+    usage = MagicMock()
+    usage.input_tokens = input_tokens
+    usage.output_tokens = output_tokens
+    usage.total_tokens = input_tokens + output_tokens
+    result.usage.return_value = usage
+    agent.run.return_value = result
+    return agent
 
 
 def _make_system(
@@ -412,3 +428,75 @@ class TestMergeSystems:
         assert stats["created"] == 0
         assert stats["skipped"] == 0
         mock_catalog_repo.create_system.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Fixture: on_progress
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def on_progress():
+    return AsyncMock()
+
+
+# ---------------------------------------------------------------------------
+# Tests: Cost tracking
+# ---------------------------------------------------------------------------
+
+
+class TestCostTracking:
+    """Tests for LLM cost tracking in system discovery."""
+
+    async def test_analyze_includes_cost_in_result(
+        self, engine, mock_agent_factory, on_progress
+    ):
+        """_analyze() includes token counts and cost in the result dict."""
+        response_text = _make_llm_response([_sample_system_dict()])
+        mock_agent = _make_mock_agent(response_text, input_tokens=500, output_tokens=200)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        result = await engine._analyze("job-cost-1", {"trigger": "test"}, on_progress)
+        assert result["status"] == "completed"
+        assert result["input_tokens"] == 500
+        assert result["output_tokens"] == 200
+        assert result["model"] == "test-model"
+
+    async def test_analyze_emits_audit_event(
+        self, mock_agent_factory, mock_catalog_repo, mock_knowledge_graph, on_progress
+    ):
+        """_analyze() logs a DISCOVERY_RESPONSE audit event when audit_logger is provided."""
+        audit_logger = AsyncMock()
+        audit_logger.log = AsyncMock(return_value="evt-1")
+        engine = SystemDiscoveryEngine(
+            agent_factory=mock_agent_factory,
+            catalog_repo=mock_catalog_repo,
+            knowledge_graph=mock_knowledge_graph,
+            audit_logger=audit_logger,
+        )
+
+        response_text = _make_llm_response([_sample_system_dict()])
+        mock_agent = _make_mock_agent(response_text, input_tokens=1000, output_tokens=500)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        await engine._analyze("job-audit-1", {"trigger": "test"}, on_progress)
+
+        audit_logger.log.assert_called_once()
+        event = audit_logger.log.call_args[0][0]
+        assert event.event_type == AuditEventType.DISCOVERY_RESPONSE
+        assert event.action == "system_discovery"
+        assert event.detail["job_id"] == "job-audit-1"
+        assert event.detail["input_tokens"] == 1000
+        assert event.detail["output_tokens"] == 500
+
+    async def test_no_audit_when_logger_not_provided(
+        self, engine, mock_agent_factory, on_progress
+    ):
+        """No audit event is logged when audit_logger is None."""
+        response_text = _make_llm_response([_sample_system_dict()])
+        mock_agent = _make_mock_agent(response_text)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        # engine fixture has no audit_logger — should not raise
+        result = await engine._analyze("job-no-audit", {"trigger": "test"}, on_progress)
+        assert result["status"] == "completed"

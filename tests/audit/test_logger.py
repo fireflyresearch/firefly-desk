@@ -87,11 +87,13 @@ class TestAuditEventModel:
             "confirmation_requested",
             "confirmation_response",
             "agent_response",
+            "discovery_response",
             "auth_login",
             "auth_logout",
             "catalog_change",
             "knowledge_update",
             "message_feedback",
+            "conversation_delete",
         }
         actual = {e.value for e in AuditEventType}
         assert actual == expected

@@ -416,7 +416,7 @@ async def get_token_usage(
             # SQLite and JSONB in Postgres we parse in Python for portability.
             stmt = (
                 select(AuditEventRow.detail)
-                .where(AuditEventRow.event_type == "agent_response")
+                .where(AuditEventRow.event_type.in_(["agent_response", "discovery_response"]))
                 .where(AuditEventRow.created_at >= cutoff)
             )
             result = await session.execute(stmt)

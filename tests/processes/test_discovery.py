@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from flydesk.audit.models import AuditEventType
 from flydesk.jobs.handlers import JobHandler, ProcessDiscoveryHandler
 from flydesk.models.base import Base
 from flydesk.processes.discovery import (
@@ -135,11 +136,17 @@ def _sample_process_dict(
     }
 
 
-def _make_mock_agent(response_text: str) -> AsyncMock:
+def _make_mock_agent(response_text: str, input_tokens: int = 100, output_tokens: int = 50) -> AsyncMock:
     """Create a mock FireflyAgent whose run() returns the given text."""
     agent = AsyncMock()
+    agent._model_identifier = "test-model"
     result = MagicMock()
     result.output = response_text
+    usage = MagicMock()
+    usage.input_tokens = input_tokens
+    usage.output_tokens = output_tokens
+    usage.total_tokens = input_tokens + output_tokens
+    result.usage.return_value = usage
     agent.run.return_value = result
     return agent
 
@@ -194,7 +201,7 @@ class TestLLMResponseParsing:
     def test_valid_json(self):
         """A well-formed JSON response is parsed into DiscoveryResult."""
         text = _make_llm_response([_sample_process_dict()])
-        result = ProcessDiscoveryEngine._parse_llm_response(text)
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(text)
         assert len(result.processes) == 1
         assert result.processes[0].name == "Order Fulfillment"
         assert result.processes[0].confidence == 0.85
@@ -205,30 +212,30 @@ class TestLLMResponseParsing:
         """JSON wrapped in markdown code fences is handled."""
         inner = _make_llm_response([_sample_process_dict()])
         text = f"```json\n{inner}\n```"
-        result = ProcessDiscoveryEngine._parse_llm_response(text)
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(text)
         assert len(result.processes) == 1
 
     def test_json_with_plain_code_block(self):
         """JSON wrapped in plain code fences (no language) is handled."""
         inner = _make_llm_response([_sample_process_dict()])
         text = f"```\n{inner}\n```"
-        result = ProcessDiscoveryEngine._parse_llm_response(text)
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(text)
         assert len(result.processes) == 1
 
     def test_malformed_json_returns_empty(self):
         """Malformed JSON returns an empty DiscoveryResult instead of raising."""
-        result = ProcessDiscoveryEngine._parse_llm_response("this is not json {{{")
+        result, _error = ProcessDiscoveryEngine._parse_llm_response("this is not json {{{")
         assert result.processes == []
 
     def test_valid_json_wrong_schema_returns_empty(self):
         """Valid JSON that doesn't match the schema returns empty result."""
-        result = ProcessDiscoveryEngine._parse_llm_response('{"foo": "bar"}')
+        result, _error = ProcessDiscoveryEngine._parse_llm_response('{"foo": "bar"}')
         # Pydantic will accept it with processes defaulting to []
         assert result.processes == []
 
     def test_empty_processes_list(self):
         """An empty processes list is valid."""
-        result = ProcessDiscoveryEngine._parse_llm_response('{"processes": []}')
+        result, _error = ProcessDiscoveryEngine._parse_llm_response('{"processes": []}')
         assert result.processes == []
 
     def test_multiple_processes_parsed(self):
@@ -237,7 +244,7 @@ class TestLLMResponseParsing:
             _sample_process_dict("Process A", 0.9, "hr"),
             _sample_process_dict("Process B", 0.7, "finance"),
         ]
-        result = ProcessDiscoveryEngine._parse_llm_response(_make_llm_response(procs))
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(_make_llm_response(procs))
         assert len(result.processes) == 2
         assert result.processes[0].name == "Process A"
         assert result.processes[1].name == "Process B"
@@ -245,7 +252,7 @@ class TestLLMResponseParsing:
     def test_whitespace_handling(self):
         """Leading/trailing whitespace is stripped before parsing."""
         text = f"   \n  {_make_llm_response([_sample_process_dict()])}  \n  "
-        result = ProcessDiscoveryEngine._parse_llm_response(text)
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(text)
         assert len(result.processes) == 1
 
     def test_step_defaults(self):
@@ -255,7 +262,7 @@ class TestLLMResponseParsing:
             "steps": [{"id": "s1", "name": "Step One"}],
             "dependencies": [],
         }
-        result = ProcessDiscoveryEngine._parse_llm_response(_make_llm_response([proc]))
+        result, _error = ProcessDiscoveryEngine._parse_llm_response(_make_llm_response([proc]))
         step = result.processes[0].steps[0]
         assert step.step_type == "action"
         assert step.system_id is None
@@ -577,40 +584,41 @@ class TestPromptRendering:
 class TestLLMInteraction:
     """Tests for ProcessDiscoveryEngine._call_llm()."""
 
-    async def test_no_llm_configured_returns_none(self, engine, mock_agent_factory):
+    async def test_no_llm_configured_returns_none(self, engine, mock_agent_factory, on_progress):
         """When no LLM provider is configured, _call_llm returns None."""
         mock_agent_factory.create_agent.return_value = None
-        result = await engine._call_llm("system prompt", "user prompt")
+        result, usage = await engine._call_llm("system prompt", "user prompt", on_progress)
         assert result is None
+        assert usage == {}
 
-    async def test_successful_llm_call(self, engine, mock_agent_factory):
+    async def test_successful_llm_call(self, engine, mock_agent_factory, on_progress):
         """A successful LLM call returns parsed DiscoveryResult."""
         response_text = _make_llm_response([_sample_process_dict()])
         mock_agent = _make_mock_agent(response_text)
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        result = await engine._call_llm("system prompt", "user prompt")
+        result, usage = await engine._call_llm("system prompt", "user prompt", on_progress)
         assert result is not None
         assert len(result.processes) == 1
         assert result.processes[0].name == "Order Fulfillment"
         mock_agent.run.assert_called_once_with("user prompt")
 
-    async def test_llm_call_exception_returns_empty(self, engine, mock_agent_factory):
+    async def test_llm_call_exception_returns_empty(self, engine, mock_agent_factory, on_progress):
         """An LLM call that throws returns an empty DiscoveryResult."""
         mock_agent = AsyncMock()
         mock_agent.run.side_effect = RuntimeError("API timeout")
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        result = await engine._call_llm("system prompt", "user prompt")
+        result, usage = await engine._call_llm("system prompt", "user prompt", on_progress)
         assert result is not None
         assert result.processes == []
 
-    async def test_llm_returns_malformed_json(self, engine, mock_agent_factory):
+    async def test_llm_returns_malformed_json(self, engine, mock_agent_factory, on_progress):
         """Malformed LLM output returns empty DiscoveryResult."""
         mock_agent = _make_mock_agent("I'm sorry, I cannot help with that.")
         mock_agent_factory.create_agent.return_value = mock_agent
 
-        result = await engine._call_llm("system prompt", "user prompt")
+        result, usage = await engine._call_llm("system prompt", "user prompt", on_progress)
         assert result is not None
         assert result.processes == []
 
@@ -804,13 +812,27 @@ class TestMergeStrategy:
 # ---------------------------------------------------------------------------
 
 
+def _add_minimal_context(mock_catalog_repo):
+    """Set up mock catalog with a single system so _analyze passes the empty-context check."""
+    system = MagicMock()
+    system.id = "sys-ctx"
+    system.name = "Context System"
+    system.description = "Provides context for pipeline tests"
+    system.base_url = "https://ctx.example.com"
+    system.status = "active"
+    system.tags = []
+    mock_catalog_repo.list_systems.return_value = ([system], 1)
+    mock_catalog_repo.list_endpoints.return_value = []
+
+
 class TestAnalyzePipeline:
     """Integration-level tests for the _analyze() pipeline."""
 
     async def test_full_pipeline_with_llm(
-        self, engine, mock_agent_factory, on_progress, process_repo
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress, process_repo
     ):
         """Full pipeline: gather context -> call LLM -> parse -> merge -> persist."""
+        _add_minimal_context(mock_catalog_repo)
         response_text = _make_llm_response([_sample_process_dict()])
         mock_agent = _make_mock_agent(response_text)
         mock_agent_factory.create_agent.return_value = mock_agent
@@ -835,9 +857,10 @@ class TestAnalyzePipeline:
         assert on_progress.call_count >= 5
 
     async def test_pipeline_no_llm_configured(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Pipeline gracefully handles no LLM configured."""
+        _add_minimal_context(mock_catalog_repo)
         mock_agent_factory.create_agent.return_value = None
 
         result = await engine._analyze("job-456", {"trigger": ""}, on_progress)
@@ -846,9 +869,10 @@ class TestAnalyzePipeline:
         assert result["processes_discovered"] == 0
 
     async def test_pipeline_llm_returns_empty(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Pipeline handles LLM returning no processes."""
+        _add_minimal_context(mock_catalog_repo)
         response_text = _make_llm_response([])
         mock_agent = _make_mock_agent(response_text)
         mock_agent_factory.create_agent.return_value = mock_agent
@@ -859,9 +883,10 @@ class TestAnalyzePipeline:
         assert result["processes_created"] == 0
 
     async def test_pipeline_llm_malformed_response(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Pipeline handles malformed LLM response gracefully."""
+        _add_minimal_context(mock_catalog_repo)
         mock_agent = _make_mock_agent("I cannot help with that request.")
         mock_agent_factory.create_agent.return_value = mock_agent
 
@@ -870,9 +895,10 @@ class TestAnalyzePipeline:
         assert result["processes_discovered"] == 0
 
     async def test_pipeline_multiple_processes(
-        self, engine, mock_agent_factory, on_progress, process_repo
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress, process_repo
     ):
         """Pipeline discovers and persists multiple processes."""
+        _add_minimal_context(mock_catalog_repo)
         procs = [
             _sample_process_dict("Process A", 0.9, "hr"),
             _sample_process_dict("Process B", 0.7, "finance"),
@@ -890,9 +916,10 @@ class TestAnalyzePipeline:
         assert len(stored) == 3
 
     async def test_pipeline_progress_callback(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Progress callback is invoked at each stage."""
+        _add_minimal_context(mock_catalog_repo)
         response_text = _make_llm_response([_sample_process_dict()])
         mock_agent = _make_mock_agent(response_text)
         mock_agent_factory.create_agent.return_value = mock_agent
@@ -922,9 +949,10 @@ class TestProcessDiscoveryHandler:
         assert isinstance(handler, JobHandler)
 
     async def test_handler_delegates_to_engine(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Handler.execute() delegates to engine._analyze()."""
+        _add_minimal_context(mock_catalog_repo)
         mock_agent_factory.create_agent.return_value = None
         handler = ProcessDiscoveryHandler(engine)
 
@@ -932,9 +960,10 @@ class TestProcessDiscoveryHandler:
         assert result["status"] == "skipped"
 
     async def test_handler_passes_payload(
-        self, engine, mock_agent_factory, on_progress
+        self, engine, mock_agent_factory, mock_catalog_repo, on_progress
     ):
         """Handler passes the payload through to the engine."""
+        _add_minimal_context(mock_catalog_repo)
         response_text = _make_llm_response([_sample_process_dict()])
         mock_agent = _make_mock_agent(response_text)
         mock_agent_factory.create_agent.return_value = mock_agent
@@ -944,6 +973,72 @@ class TestProcessDiscoveryHandler:
             "job-2", {"trigger": "Manual trigger"}, on_progress
         )
         assert result["trigger"] == "Manual trigger"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Cost tracking
+# ---------------------------------------------------------------------------
+
+
+class TestCostTracking:
+    """Tests for LLM cost tracking in process discovery."""
+
+    async def test_analyze_includes_cost_in_result(
+        self, engine, mock_agent_factory, on_progress
+    ):
+        """_analyze() includes token counts and cost in the result dict."""
+        _add_minimal_context(engine._catalog_repo)
+        response_text = _make_llm_response([_sample_process_dict()])
+        mock_agent = _make_mock_agent(response_text, input_tokens=500, output_tokens=200)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        result = await engine._analyze("job-cost-1", {"trigger": "test"}, on_progress)
+        assert result["status"] == "completed"
+        assert result["input_tokens"] == 500
+        assert result["output_tokens"] == 200
+        assert result["model"] == "test-model"
+
+    async def test_analyze_emits_audit_event(
+        self, mock_agent_factory, process_repo, mock_catalog_repo, mock_knowledge_graph, on_progress
+    ):
+        """_analyze() logs a DISCOVERY_RESPONSE audit event when audit_logger is provided."""
+        audit_logger = AsyncMock()
+        audit_logger.log = AsyncMock(return_value="evt-1")
+        engine = ProcessDiscoveryEngine(
+            agent_factory=mock_agent_factory,
+            process_repo=process_repo,
+            catalog_repo=mock_catalog_repo,
+            knowledge_graph=mock_knowledge_graph,
+            audit_logger=audit_logger,
+        )
+        _add_minimal_context(mock_catalog_repo)
+
+        response_text = _make_llm_response([_sample_process_dict()])
+        mock_agent = _make_mock_agent(response_text, input_tokens=1000, output_tokens=500)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        await engine._analyze("job-audit-1", {"trigger": "test"}, on_progress)
+
+        audit_logger.log.assert_called_once()
+        event = audit_logger.log.call_args[0][0]
+        assert event.event_type == AuditEventType.DISCOVERY_RESPONSE
+        assert event.action == "process_discovery"
+        assert event.detail["job_id"] == "job-audit-1"
+        assert event.detail["input_tokens"] == 1000
+        assert event.detail["output_tokens"] == 500
+
+    async def test_no_audit_when_logger_not_provided(
+        self, engine, mock_agent_factory, on_progress
+    ):
+        """No audit event is logged when audit_logger is None."""
+        _add_minimal_context(engine._catalog_repo)
+        response_text = _make_llm_response([_sample_process_dict()])
+        mock_agent = _make_mock_agent(response_text)
+        mock_agent_factory.create_agent.return_value = mock_agent
+
+        # engine fixture has no audit_logger — should not raise
+        result = await engine._analyze("job-no-audit", {"trigger": "test"}, on_progress)
+        assert result["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------

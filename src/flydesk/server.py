@@ -611,6 +611,7 @@ async def _init_agent(  # noqa: PLR0913
         process_repo=process_repo,
         catalog_repo=catalog_repo,
         knowledge_graph=knowledge_graph,
+        audit_logger=audit_logger,
     )
     job_runner.register_handler("process_discovery", ProcessDiscoveryHandler(discovery_engine))
     app.state.discovery_engine = discovery_engine
@@ -624,6 +625,7 @@ async def _init_agent(  # noqa: PLR0913
         agent_factory=agent_factory,
         catalog_repo=catalog_repo,
         knowledge_graph=knowledge_graph,
+        audit_logger=audit_logger,
     )
     job_runner.register_handler("system_discovery", SystemDiscoveryHandler(system_discovery_engine))
     app.state.system_discovery_engine = system_discovery_engine

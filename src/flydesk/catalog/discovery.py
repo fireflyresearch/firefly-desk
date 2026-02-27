@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
 from flydesk.jobs.handlers import ProgressCallback
@@ -133,17 +135,59 @@ class SystemDiscoveryEngine:
         catalog_repo: CatalogRepository,
         knowledge_graph: KnowledgeGraph,
         *,
+        audit_logger: AuditLogger | None = None,
         prompts_dir: Path | None = None,
     ) -> None:
         self._agent_factory = agent_factory
         self._catalog_repo = catalog_repo
         self._knowledge_graph = knowledge_graph
+        self._audit_logger = audit_logger
 
         templates_path = prompts_dir or _PROMPTS_DIR
         self._jinja_env = Environment(
             loader=FileSystemLoader(str(templates_path)),
             autoescape=False,
         )
+
+    # ------------------------------------------------------------------
+    # Usage extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_usage(result: object, agent: object) -> dict[str, Any]:
+        """Extract token usage and cost from an agent.run() result."""
+        try:
+            usage_fn = getattr(result, "usage", None)
+            usage = usage_fn() if callable(usage_fn) else None
+            if usage is None:
+                return {}
+
+            input_tokens = getattr(usage, "input_tokens", 0) or 0
+            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
+            model_name = getattr(agent, "_model_identifier", "unknown")
+
+            cost_usd = 0.0
+            try:
+                from fireflyframework_genai.config import get_config
+                from fireflyframework_genai.observability.cost import get_cost_calculator
+
+                cfg = get_config()
+                calculator = get_cost_calculator(cfg.cost_calculator)
+                cost_usd = calculator.estimate(model_name, input_tokens, output_tokens)
+            except Exception:
+                logger.debug("Cost estimation not available.", exc_info=True)
+
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "cost_usd": round(cost_usd, 6),
+                "model": model_name,
+            }
+        except Exception:
+            logger.debug("Failed to extract discovery usage.", exc_info=True)
+            return {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -224,7 +268,7 @@ class SystemDiscoveryEngine:
         )
 
         # 3. Call LLM
-        discovery_result = await self._call_llm(system_prompt, user_prompt)
+        discovery_result, usage_data = await self._call_llm(system_prompt, user_prompt)
         if discovery_result is None:
             await on_progress(100, "No LLM provider configured — discovery skipped")
             return {
@@ -265,12 +309,30 @@ class SystemDiscoveryEngine:
         merge_summary = ", ".join(merge_parts) if merge_parts else "no changes"
         await on_progress(95, f"Merge complete: {merge_summary}")
 
+        if self._audit_logger and usage_data:
+            try:
+                await self._audit_logger.log(AuditEvent(
+                    event_type=AuditEventType.DISCOVERY_RESPONSE,
+                    user_id="system",
+                    action="system_discovery",
+                    detail={
+                        "job_id": job_id,
+                        **usage_data,
+                    },
+                ))
+            except Exception:
+                logger.debug("Failed to log discovery audit event.", exc_info=True)
+
         result = {
             "status": "completed",
             "trigger": trigger,
             "systems_discovered": stats["discovered"],
             "systems_created": stats["created"],
             "systems_skipped": stats["skipped"],
+            "input_tokens": usage_data.get("input_tokens", 0),
+            "output_tokens": usage_data.get("output_tokens", 0),
+            "cost_usd": usage_data.get("cost_usd", 0.0),
+            "model": usage_data.get("model", "unknown"),
         }
         await on_progress(
             100,
@@ -410,10 +472,11 @@ class SystemDiscoveryEngine:
         self,
         system_prompt: str,
         user_prompt: str,
-    ) -> SystemDiscoveryResult | None:
+    ) -> tuple[SystemDiscoveryResult | None, dict[str, Any]]:
         """Call the LLM and parse the response into a ``SystemDiscoveryResult``.
 
-        Returns ``None`` if no LLM provider is configured.
+        Returns a tuple of (result, usage_data).
+        Result is ``None`` if no LLM provider is configured.
         Raises no exceptions -- returns an empty result on parse errors.
         """
         # System discovery generates large JSON responses -- use a higher token
@@ -424,16 +487,18 @@ class SystemDiscoveryEngine:
         )
         if agent is None:
             logger.warning("No LLM provider configured; system discovery skipped.")
-            return None
+            return None, {}
 
+        usage_data: dict[str, Any] = {}
         try:
             result = await agent.run(user_prompt)
+            usage_data = self._extract_usage(result, agent)
             output_text = str(result.output)
         except Exception:
             logger.exception("LLM call failed during system discovery.")
-            return SystemDiscoveryResult(systems=[])
+            return SystemDiscoveryResult(systems=[]), usage_data
 
-        return self._parse_llm_response(output_text)
+        return self._parse_llm_response(output_text), usage_data
 
     @staticmethod
     def _parse_llm_response(text: str) -> SystemDiscoveryResult:
