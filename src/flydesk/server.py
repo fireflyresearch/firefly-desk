@@ -159,13 +159,16 @@ async def _init_database(
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
-        # Backfill deleted_at column for existing databases (soft-delete hardening).
-        try:
-            await conn.execute(
-                text("ALTER TABLE conversations ADD COLUMN deleted_at DATETIME")
-            )
-        except Exception:
-            pass  # Column already exists
+        # Backfill columns for existing databases that predate schema additions.
+        _backfills = [
+            "ALTER TABLE conversations ADD COLUMN deleted_at DATETIME",
+            "ALTER TABLE conversation_folders ADD COLUMN icon VARCHAR(50) NOT NULL DEFAULT 'folder'",
+        ]
+        for sql in _backfills:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # Column already exists
 
     session_factory = create_session_factory(engine)
     return engine, session_factory
