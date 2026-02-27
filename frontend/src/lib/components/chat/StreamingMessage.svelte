@@ -21,7 +21,15 @@
 
 	let { content }: StreamingMessageProps = $props();
 
-	let hasContent = $derived(content.length > 0);
+	// Strip raw widget directives so they don't flash during streaming.
+	// Matches both complete blocks (:::widget{...}...:::) and incomplete
+	// ones that are still being streamed (:::widget{...} without closing :::).
+	const WIDGET_COMPLETE = /:::widget\{[^}]*\}[\s\S]*?:::/g;
+	const WIDGET_PARTIAL = /:::widget\{[^}]*\}[\s\S]*$/;
+	let cleanContent = $derived(
+		content.replace(WIDGET_COMPLETE, '').replace(WIDGET_PARTIAL, '').trim()
+	);
+	let hasContent = $derived(cleanContent.length > 0);
 </script>
 
 <div class="flex w-full justify-start px-4 py-1" transition:fly={{ y: 10, duration: 200 }}>
@@ -37,7 +45,7 @@
 					class="streaming-border border-l-2 pl-3 text-sm leading-relaxed"
 					in:fade={{ duration: 300 }}
 				>
-					<MarkdownContent content={content} /><span
+					<MarkdownContent content={cleanContent} /><span
 						class="streaming-cursor ml-0.5 inline-block h-4 w-[1.5px] translate-y-0.5 rounded-full bg-ember"
 					></span>
 				</div>

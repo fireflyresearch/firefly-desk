@@ -136,7 +136,8 @@ export function replaceStreamingContent(content: string): void {
 /**
  * Upsert a widget directive into the last streaming assistant message.
  * If a widget with the same `widget_id` already exists, its props are merged.
- * Otherwise the widget is appended.
+ * Also deduplicates by type + title to prevent the same widget appearing twice
+ * when the LLM outputs duplicate directives with different auto-generated IDs.
  */
 export function upsertWidget(widget: WidgetDirective): void {
 	messages.update((msgs) => {
@@ -144,6 +145,8 @@ export function upsertWidget(widget: WidgetDirective): void {
 		if (idx === -1) return msgs;
 		const updated = [...msgs];
 		const existingWidgets = [...updated[idx].widgets];
+
+		// Match by widget_id first
 		const widgetIdx = existingWidgets.findIndex((w) => w.widget_id === widget.widget_id);
 		if (widgetIdx >= 0) {
 			existingWidgets[widgetIdx] = {
@@ -151,7 +154,16 @@ export function upsertWidget(widget: WidgetDirective): void {
 				props: { ...existingWidgets[widgetIdx].props, ...widget.props }
 			};
 		} else {
-			existingWidgets.push(widget);
+			// Content-based dedup: skip if same type + same title already exists
+			const title = (widget.props as Record<string, unknown>).title;
+			const duplicate =
+				title &&
+				existingWidgets.some(
+					(w) => w.type === widget.type && (w.props as Record<string, unknown>).title === title
+				);
+			if (!duplicate) {
+				existingWidgets.push(widget);
+			}
 		}
 		updated[idx] = { ...updated[idx], widgets: existingWidgets };
 		return updated;
