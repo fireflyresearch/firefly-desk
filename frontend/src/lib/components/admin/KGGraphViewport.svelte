@@ -348,7 +348,20 @@
 	// Mount / cleanup
 	onMount(() => {
 		initGraph();
-		return () => destroyGraph();
+
+		// Watch for container resizes (e.g. sidebar slide transition, window resize)
+		const ro = new ResizeObserver(() => {
+			if (cy) {
+				cy.resize();
+				cy.fit(undefined, 40);
+			}
+		});
+		ro.observe(containerEl);
+
+		return () => {
+			ro.disconnect();
+			destroyGraph();
+		};
 	});
 </script>
 
