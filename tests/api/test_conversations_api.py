@@ -14,6 +14,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from flydesk.audit.logger import AuditLogger
 from flydesk.auth.models import UserSession
 from flydesk.conversation.repository import ConversationRepository
 from flydesk.models.base import Base
@@ -76,7 +77,7 @@ class _TestUserMiddleware:
 @pytest.fixture
 async def client():
     with patch.dict(os.environ, _TEST_ENV):
-        from flydesk.api.conversations import get_conversation_repo
+        from flydesk.api.conversations import get_audit_logger, get_conversation_repo
         from flydesk.server import create_app
 
         app = create_app()
@@ -88,7 +89,9 @@ async def client():
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         repo = ConversationRepository(session_factory)
+        audit = AuditLogger(session_factory)
         app.dependency_overrides[get_conversation_repo] = lambda: repo
+        app.dependency_overrides[get_audit_logger] = lambda: audit
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -104,7 +107,7 @@ async def isolation_client():
     header.  Used exclusively by the isolation test suite.
     """
     with patch.dict(os.environ, _TEST_ENV):
-        from flydesk.api.conversations import get_conversation_repo
+        from flydesk.api.conversations import get_audit_logger, get_conversation_repo
         from flydesk.server import create_app
 
         app = create_app()
@@ -115,7 +118,9 @@ async def isolation_client():
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         repo = ConversationRepository(session_factory)
+        audit = AuditLogger(session_factory)
         app.dependency_overrides[get_conversation_repo] = lambda: repo
+        app.dependency_overrides[get_audit_logger] = lambda: audit
 
         # Also store the repo in app.state so the chat ownership guard works
         app.state.conversation_repo = repo

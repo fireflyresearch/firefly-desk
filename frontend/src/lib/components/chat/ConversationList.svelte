@@ -41,7 +41,11 @@
 	let contextMenuPos = $state({ x: 0, y: 0 });
 	let collapsedSections = $state<Set<string>>(new Set(['archived']));
 	let deletingId = $state<string | null>(null);
+	let showDeleteConfirm = $state(false);
+	let pendingDeleteId = $state<string | null>(null);
 	let showFolderModal = $state(false);
+	let folderError = $state<string | null>(null);
+	let searchFocused = $state(false);
 
 	// Load data on mount
 	$effect(() => {
@@ -128,12 +132,14 @@
 	}
 
 	async function handleNew() {
-		await createNewConversation();
+		const newId = await createNewConversation();
+		goto(`/chat/${newId}`);
 	}
 
 	async function handleSelect(id: string) {
 		if (contextMenuId || deletingId === id) return;
 		await selectConversation(id);
+		goto(`/chat/${id}`);
 	}
 
 	function openContextMenu(id: string, x: number, y: number) {
@@ -214,33 +220,65 @@
 	}
 
 	async function handleNewFolder() {
+		folderError = null;
 		showFolderModal = true;
 	}
 
 	async function handleCreateFolder(name: string, icon: string) {
-		showFolderModal = false;
 		try {
 			await createFolder(name, icon);
 			await loadFolders();
-		} catch (error) {
-			console.error('[ConversationList] Create folder failed:', error);
+			showFolderModal = false;
+			folderError = null;
+		} catch (err) {
+			console.error('[ConversationList] Create folder failed:', err);
+			let message = 'Failed to create folder.';
+			if (err instanceof Error) {
+				// apiFetch throws "API {status} {statusText}: {body}" — extract the body
+				const jsonMatch = err.message.match(/:\s*(\{.*\})\s*$/);
+				if (jsonMatch) {
+					try {
+						const body = JSON.parse(jsonMatch[1]);
+						message = body.detail ?? body.message ?? err.message;
+					} catch {
+						message = err.message;
+					}
+				} else {
+					message = err.message;
+				}
+			}
+			folderError = message;
 		}
 	}
 
-	async function handleDelete() {
+	function requestDelete() {
 		if (!contextMenuId) return;
-		const id = contextMenuId;
+		pendingDeleteId = contextMenuId;
+		showDeleteConfirm = true;
+	}
+
+	async function confirmDelete() {
+		if (!pendingDeleteId) return;
+		const id = pendingDeleteId;
+		const wasActive = $activeConversationId === id;
+		showDeleteConfirm = false;
+		pendingDeleteId = null;
 		try {
 			await deleteConversation(id);
 			conversations.update((convs) => convs.filter((c) => c.id !== id));
-			if ($activeConversationId === id) {
-				$activeConversationId = null;
+			if (wasActive) {
 				clearMessages();
-				goto('/');
+				await goto('/');
+				$activeConversationId = null;
 			}
 		} catch (error) {
 			console.error('[ConversationList] Delete failed:', error);
 		}
+	}
+
+	function cancelDelete() {
+		showDeleteConfirm = false;
+		pendingDeleteId = null;
 	}
 
 	async function handleFolderRename(folderId: string, name: string) {
@@ -276,103 +314,114 @@
 
 <div class="flex h-full flex-col">
 	<!-- Header area -->
-	<div class="space-y-2.5 px-3 pb-3 pt-3">
-		<!-- New Conversation button -->
-		<button
-			type="button"
-			onclick={handleNew}
-			class="group/new flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-accent/90 active:scale-[0.98]"
-		>
-			<Plus size={16} class="transition-transform duration-200 group-hover/new:rotate-90" />
-			New Conversation
-		</button>
+	<div class="px-2 pb-2 pt-1.5">
+		<!-- Top row: search + action buttons -->
+		<div class="flex items-center gap-1.5">
+			<div
+				class="relative flex-1 transition-all duration-200"
+			>
+				<Search
+					size={13}
+					class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 transition-colors duration-150
+						{searchFocused ? 'text-accent' : 'text-text-secondary/50'}"
+				/>
+				<input
+					type="text"
+					bind:value={searchQuery}
+					onfocus={() => { searchFocused = true; }}
+					onblur={() => { searchFocused = false; }}
+					placeholder="Search conversations..."
+					class="w-full rounded-lg border py-1.5 pl-7 pr-2 text-[12.5px] text-text-primary placeholder:text-text-secondary/40 outline-none transition-all duration-150
+						{searchFocused
+							? 'border-accent/40 bg-surface ring-1 ring-accent/20'
+							: 'border-border/40 bg-surface-secondary/40 hover:border-border/60'}"
+				/>
+			</div>
 
-		<!-- Search input -->
-		<div class="relative">
-			<Search
-				size={14}
-				class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary/60"
-			/>
-			<input
-				type="text"
-				bind:value={searchQuery}
-				placeholder="Search..."
-				class="w-full rounded-lg border border-border/40 bg-surface/60 py-1.5 pl-8 pr-3 text-sm text-text-primary placeholder:text-text-secondary/40 outline-none transition-colors focus:border-accent/40 focus:bg-surface"
-			/>
+			<!-- New Folder button (icon only) -->
+			<button
+				type="button"
+				onclick={handleNewFolder}
+				class="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-text-secondary/50 transition-all duration-150 hover:bg-surface-hover/60 hover:text-text-primary"
+				aria-label="New folder"
+				title="New folder"
+			>
+				<FolderPlus size={14} />
+			</button>
+
+			<!-- New Conversation button (compact icon) -->
+			<button
+				type="button"
+				onclick={handleNew}
+				class="group/new flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-accent/[0.08] text-accent transition-all duration-150 hover:bg-accent/[0.15] active:scale-95"
+				aria-label="New conversation"
+				title="New conversation"
+			>
+				<Plus size={15} strokeWidth={2.5} class="transition-transform duration-200 group-hover/new:rotate-90" />
+			</button>
 		</div>
-
-		<!-- New Folder button -->
-		<button
-			type="button"
-			onclick={handleNewFolder}
-			class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-		>
-			<FolderPlus size={13} />
-			New Folder
-		</button>
 	</div>
 
-	<!-- Divider -->
-	<div class="mx-3 h-px bg-border/30"></div>
-
 	<!-- Conversation items -->
-	<div class="flex-1 overflow-y-auto pt-1">
+	<div class="flex-1 overflow-y-auto px-0.5 pb-2">
 		{#if filtered.length === 0 && $conversations.length === 0}
 			<!-- Empty state -->
-			<div class="flex flex-col items-center gap-3 px-4 py-12 text-center">
-				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-ember/10">
-					<Sparkles size={18} class="text-ember" />
-				</div>
-				<div>
-					<p class="text-sm font-medium text-text-primary">No conversations yet</p>
-					<p class="mt-1 text-xs text-text-secondary">
-						Start a conversation with Ember
-					</p>
-				</div>
+			<div class="flex flex-col items-center gap-2.5 px-6 py-14 text-center">
+				<Sparkles size={16} class="text-text-secondary/30" />
+				<p class="text-[12.5px] text-text-secondary/50">
+					Ask Ember to start a conversation
+				</p>
 			</div>
 		{:else if filtered.length === 0}
 			<!-- No search results -->
-			<div class="px-4 py-8 text-center text-xs text-text-secondary">
-				No conversations match "{searchQuery}"
+			<div class="flex flex-col items-center gap-2 px-6 py-12 text-center">
+				<Search size={16} class="text-text-secondary/30" />
+				<p class="text-[12px] text-text-secondary/60">
+					No results for "{searchQuery}"
+				</p>
 			</div>
 		{:else}
 			<!-- Pinned section -->
 			{#if pinnedConvos.length > 0}
-				<div class="mb-1">
+				<div class="mb-0.5">
 					<button
 						type="button"
 						onclick={() => toggleSection('pinned')}
-						class="flex w-full items-center gap-1.5 px-4 pb-1 pt-3"
+						class="group/section flex w-full items-center gap-1.5 px-3 pb-1 pt-3 transition-colors"
 					>
-						{#if collapsedSections.has('pinned')}
-							<ChevronRight size={12} class="text-text-secondary/50" />
-						{:else}
-							<ChevronDown size={12} class="text-text-secondary/50" />
-						{/if}
-						<Pin size={12} class="text-text-secondary/50" />
-						<span class="text-[10px] font-semibold uppercase tracking-widest text-text-secondary/50">
+						<span class="flex h-4 w-4 items-center justify-center text-text-secondary/40 transition-colors group-hover/section:text-text-secondary/60">
+							{#if collapsedSections.has('pinned')}
+								<ChevronRight size={11} />
+							{:else}
+								<ChevronDown size={11} />
+							{/if}
+						</span>
+						<Pin size={10} class="text-text-secondary/35" />
+						<span class="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-text-secondary/40">
 							Pinned
 						</span>
-						<span class="rounded-full bg-surface-secondary px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
+						<span class="ml-auto rounded-full bg-surface-hover/60 px-1.5 py-px text-[9px] font-medium tabular-nums text-text-secondary/50">
 							{pinnedConvos.length}
 						</span>
 					</button>
 					{#if !collapsedSections.has('pinned')}
-						{#each pinnedConvos as conversation (conversation.id)}
-							<ConversationItem
-								id={conversation.id}
-								title={conversation.title}
-								updatedAt={conversation.updatedAt}
-								isActive={$activeConversationId === conversation.id}
-								isPinned={true}
-								onSelect={handleSelect}
-								onContextMenu={openContextMenu}
-								onRename={handleRename}
-							/>
-						{/each}
+						<div class="space-y-px">
+							{#each pinnedConvos as conversation (conversation.id)}
+								<ConversationItem
+									id={conversation.id}
+									title={conversation.title}
+									updatedAt={conversation.updatedAt}
+									isActive={$activeConversationId === conversation.id}
+									isPinned={true}
+									onSelect={handleSelect}
+									onContextMenu={openContextMenu}
+									onRename={handleRename}
+								/>
+							{/each}
+						</div>
 					{/if}
 				</div>
-				<div class="mx-3 h-px bg-border/20"></div>
+				<div class="mx-3 my-1.5 h-px bg-border/15"></div>
 			{/if}
 
 			<!-- Folder sections -->
@@ -404,56 +453,20 @@
 			{/each}
 
 			{#if $folders.length > 0 && Object.keys(folderGroups).length > 0}
-				<div class="mx-3 h-px bg-border/20"></div>
+				<div class="mx-3 my-1.5 h-px bg-border/15"></div>
 			{/if}
 
 			<!-- Ungrouped conversations by date -->
 			{#each DATE_GROUPS as groupName}
 				{#if ungrouped[groupName]?.length}
-					<div class="px-4 pb-1 pt-3">
-						<span class="text-[10px] font-semibold uppercase tracking-widest text-text-secondary/50">
+					<div class="flex items-center gap-2 px-3 pb-1 pt-3">
+						<span class="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-text-secondary/40">
 							{groupName}
 						</span>
+						<div class="h-px flex-1 bg-border/10"></div>
 					</div>
-					{#each ungrouped[groupName] as conversation (conversation.id)}
-						<ConversationItem
-							id={conversation.id}
-							title={conversation.title}
-							updatedAt={conversation.updatedAt}
-							isActive={$activeConversationId === conversation.id}
-							isPinned={false}
-							onSelect={handleSelect}
-							onContextMenu={openContextMenu}
-							onRename={handleRename}
-						/>
-					{/each}
-				{/if}
-			{/each}
-
-			<!-- Archived section (collapsed by default) -->
-			{#if archivedConvos.length > 0}
-				<div class="mx-3 mt-2 h-px bg-border/20"></div>
-				<div class="mb-1">
-					<button
-						type="button"
-						onclick={() => toggleSection('archived')}
-						class="flex w-full items-center gap-1.5 px-4 pb-1 pt-3"
-					>
-						{#if collapsedSections.has('archived')}
-							<ChevronRight size={12} class="text-text-secondary/50" />
-						{:else}
-							<ChevronDown size={12} class="text-text-secondary/50" />
-						{/if}
-						<Archive size={12} class="text-text-secondary/50" />
-						<span class="text-[10px] font-semibold uppercase tracking-widest text-text-secondary/50">
-							Archived
-						</span>
-						<span class="rounded-full bg-surface-secondary px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
-							{archivedConvos.length}
-						</span>
-					</button>
-					{#if !collapsedSections.has('archived')}
-						{#each archivedConvos as conversation (conversation.id)}
+					<div class="space-y-px">
+						{#each ungrouped[groupName] as conversation (conversation.id)}
 							<ConversationItem
 								id={conversation.id}
 								title={conversation.title}
@@ -465,6 +478,49 @@
 								onRename={handleRename}
 							/>
 						{/each}
+					</div>
+				{/if}
+			{/each}
+
+			<!-- Archived section (collapsed by default) -->
+			{#if archivedConvos.length > 0}
+				<div class="mx-3 mt-3 mb-1.5 h-px bg-border/15"></div>
+				<div class="mb-1">
+					<button
+						type="button"
+						onclick={() => toggleSection('archived')}
+						class="group/section flex w-full items-center gap-1.5 px-3 pb-1 pt-2 transition-colors"
+					>
+						<span class="flex h-4 w-4 items-center justify-center text-text-secondary/40 transition-colors group-hover/section:text-text-secondary/60">
+							{#if collapsedSections.has('archived')}
+								<ChevronRight size={11} />
+							{:else}
+								<ChevronDown size={11} />
+							{/if}
+						</span>
+						<Archive size={10} class="text-text-secondary/35" />
+						<span class="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-text-secondary/40">
+							Archived
+						</span>
+						<span class="ml-auto rounded-full bg-surface-hover/60 px-1.5 py-px text-[9px] font-medium tabular-nums text-text-secondary/50">
+							{archivedConvos.length}
+						</span>
+					</button>
+					{#if !collapsedSections.has('archived')}
+						<div class="space-y-px">
+							{#each archivedConvos as conversation (conversation.id)}
+								<ConversationItem
+									id={conversation.id}
+									title={conversation.title}
+									updatedAt={conversation.updatedAt}
+									isActive={$activeConversationId === conversation.id}
+									isPinned={false}
+									onSelect={handleSelect}
+									onContextMenu={openContextMenu}
+									onRename={handleRename}
+								/>
+							{/each}
+						</div>
 					{/if}
 				</div>
 			{/if}
@@ -485,14 +541,51 @@
 			onMoveToFolder={handleMoveToFolder}
 			onNewFolder={handleNewFolder}
 			onArchive={handleArchive}
-			onDelete={handleDelete}
+			onDelete={requestDelete}
 			onClose={closeContextMenu}
 		/>
 	{/if}
 
+	{#if showDeleteConfirm}
+		<div
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			aria-labelledby="delete-dialog-title"
+			aria-describedby="delete-dialog-desc"
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+			onkeydown={(e) => { if (e.key === 'Escape') cancelDelete(); }}
+		>
+			<div class="w-full max-w-sm rounded-xl border border-border bg-surface-elevated p-5 shadow-xl">
+				<h3 id="delete-dialog-title" class="text-sm font-semibold text-text-primary">Delete Conversation</h3>
+				<p id="delete-dialog-desc" class="mt-2 text-[13px] text-text-secondary">
+					This conversation will be removed from your list.
+					Audit history and usage data will be preserved.
+				</p>
+				<div class="mt-4 flex justify-end gap-2">
+					<button
+						type="button"
+						onclick={cancelDelete}
+						class="btn-hover rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-all hover:bg-surface-hover"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onclick={confirmDelete}
+						class="btn-hover rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-danger/90"
+					>
+						Delete
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<FolderCreateModal
 		open={showFolderModal}
-		onClose={() => (showFolderModal = false)}
+		onClose={() => { showFolderModal = false; folderError = null; }}
 		onCreate={handleCreateFolder}
+		error={folderError}
 	/>
 </div>

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -55,16 +56,17 @@ class ConversationRepository:
             await session.commit()
 
     async def get_conversation(
-        self, conversation_id: str, user_id: str
+        self, conversation_id: str, user_id: str, *, include_deleted: bool = False
     ) -> Conversation | None:
         """Retrieve a conversation by ID and owner, or ``None`` if not found/owned."""
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(ConversationRow).where(
-                    ConversationRow.id == conversation_id,
-                    ConversationRow.user_id == user_id,
-                )
+            stmt = select(ConversationRow).where(
+                ConversationRow.id == conversation_id,
+                ConversationRow.user_id == user_id,
             )
+            if not include_deleted:
+                stmt = stmt.where(ConversationRow.status != "deleted")
+            result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if row is None:
                 return None
@@ -140,7 +142,7 @@ class ConversationRepository:
                     ConversationRow.id == conversation_id,
                     ConversationRow.user_id == user_id,
                 )
-                .values(status="deleted")
+                .values(status="deleted", deleted_at=datetime.now(timezone.utc))
             )
             await session.commit()
 
@@ -158,6 +160,15 @@ class ConversationRepository:
             )
             if owner_check.scalar_one_or_none() is None:
                 msg = f"Conversation {message.conversation_id} not found"
+                raise ValueError(msg)
+
+            status_check = await session.execute(
+                select(ConversationRow.status).where(
+                    ConversationRow.id == message.conversation_id
+                )
+            )
+            if status_check.scalar_one_or_none() == "deleted":
+                msg = f"Conversation {message.conversation_id} is deleted"
                 raise ValueError(msg)
 
             metadata = dict(message.metadata)
@@ -216,6 +227,7 @@ class ConversationRepository:
             message_count=message_count,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            deleted_at=row.deleted_at,
         )
 
     @staticmethod

@@ -28,6 +28,7 @@ class AuditEventType(StrEnum):
     CATALOG_CHANGE = "catalog_change"
     KNOWLEDGE_UPDATE = "knowledge_update"
     MESSAGE_FEEDBACK = "message_feedback"
+    CONVERSATION_DELETE = "conversation_delete"
 
 
 class AuditEvent(BaseModel):

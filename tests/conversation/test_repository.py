@@ -84,10 +84,27 @@ class TestConversationRepository:
     async def test_delete_conversation_soft_deletes(self, repo, sample_conversation):
         await repo.create_conversation(sample_conversation)
         await repo.delete_conversation("conv-1", "user-1")
-        # Conversation still exists with status "deleted"
-        result = await repo.get_conversation("conv-1", "user-1")
+        # Conversation still exists with status "deleted" when include_deleted=True
+        result = await repo.get_conversation("conv-1", "user-1", include_deleted=True)
         assert result is not None
         assert result.status == "deleted"
+        assert result.deleted_at is not None
+
+    async def test_deleted_conversation_not_returned_by_default(
+        self, repo, sample_conversation
+    ):
+        await repo.create_conversation(sample_conversation)
+        await repo.delete_conversation("conv-1", "user-1")
+        result = await repo.get_conversation("conv-1", "user-1")
+        assert result is None  # filtered by default
+
+    async def test_add_message_to_deleted_conversation_raises(
+        self, repo, sample_conversation, sample_message
+    ):
+        await repo.create_conversation(sample_conversation)
+        await repo.delete_conversation("conv-1", "user-1")
+        with pytest.raises(ValueError, match="is deleted"):
+            await repo.add_message(sample_message, "user-1")
 
     async def test_add_and_get_messages(self, repo, sample_conversation, sample_message):
         await repo.create_conversation(sample_conversation)
