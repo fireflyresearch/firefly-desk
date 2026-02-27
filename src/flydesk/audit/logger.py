@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -76,7 +77,12 @@ class AuditLogger:
         *,
         user_id: str | None = None,
         event_type: str | None = None,
+        risk_level: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        conversation_id: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> list[AuditEvent]:
         """Query audit events with optional filters."""
         async with self._session_factory() as session:
@@ -85,6 +91,28 @@ class AuditLogger:
                 stmt = stmt.where(AuditEventRow.user_id == user_id)
             if event_type:
                 stmt = stmt.where(AuditEventRow.event_type == event_type)
+            if risk_level:
+                stmt = stmt.where(AuditEventRow.risk_level == risk_level)
+            if conversation_id:
+                stmt = stmt.where(AuditEventRow.conversation_id == conversation_id)
+            if date_from:
+                try:
+                    dt_from = datetime.fromisoformat(date_from)
+                    if dt_from.tzinfo is None:
+                        dt_from = dt_from.replace(tzinfo=timezone.utc)
+                    stmt = stmt.where(AuditEventRow.created_at >= dt_from)
+                except (ValueError, TypeError):
+                    pass  # Ignore malformed date
+            if date_to:
+                try:
+                    dt_to = datetime.fromisoformat(date_to)
+                    if dt_to.tzinfo is None:
+                        dt_to = dt_to.replace(tzinfo=timezone.utc)
+                    stmt = stmt.where(AuditEventRow.created_at <= dt_to)
+                except (ValueError, TypeError):
+                    pass  # Ignore malformed date
+            if offset > 0:
+                stmt = stmt.offset(offset)
             stmt = stmt.limit(limit)
             result = await session.execute(stmt)
             return [self._row_to_event(r) for r in result.scalars().all()]

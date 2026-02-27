@@ -15,7 +15,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
-from flydesk.api.deps import get_auto_trigger, get_catalog_repo
+from flydesk.api.deps import get_audit_logger, get_auto_trigger, get_catalog_repo
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
 from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
 from flydesk.catalog.repository import CatalogRepository
@@ -29,6 +31,7 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 # Dependencies
 # ---------------------------------------------------------------------------
 
+AuditLog = Annotated[AuditLogger, Depends(get_audit_logger)]
 Repo = Annotated[CatalogRepository, Depends(get_catalog_repo)]
 Trigger = Annotated[AutoTriggerService | None, Depends(get_auto_trigger)]
 
@@ -40,12 +43,19 @@ Trigger = Annotated[AutoTriggerService | None, Depends(get_auto_trigger)]
 
 @router.post("/systems", status_code=201, dependencies=[CatalogWrite])
 async def create_system(
-    system: ExternalSystem, repo: Repo, trigger: Trigger
+    request: Request, system: ExternalSystem, repo: Repo, trigger: Trigger, audit: AuditLog,
 ) -> ExternalSystem:
     """Register a new external system."""
     await repo.create_system(system)
     if trigger is not None:
         await trigger.on_catalog_updated(system.id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "system", "operation": "create", "entity_id": system.id, "name": system.name},
+    ))
     return system
 
 
@@ -114,7 +124,8 @@ async def get_system(system_id: str, repo: Repo) -> ExternalSystem:
 
 @router.put("/systems/{system_id}", dependencies=[CatalogWrite])
 async def update_system(
-    system_id: str, system: ExternalSystem, repo: Repo, trigger: Trigger
+    request: Request, system_id: str, system: ExternalSystem, repo: Repo,
+    trigger: Trigger, audit: AuditLog,
 ) -> ExternalSystem:
     """Update an existing external system."""
     existing = await repo.get_system(system_id)
@@ -123,16 +134,30 @@ async def update_system(
     await repo.update_system(system)
     if trigger is not None:
         await trigger.on_catalog_updated(system.id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "system", "operation": "update", "entity_id": system_id, "name": system.name},
+    ))
     return system
 
 
 @router.delete("/systems/{system_id}", status_code=204, dependencies=[CatalogDelete])
-async def delete_system(system_id: str, repo: Repo) -> Response:
+async def delete_system(request: Request, system_id: str, repo: Repo, audit: AuditLog) -> Response:
     """Remove an external system."""
     existing = await repo.get_system(system_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
     await repo.delete_system(system_id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "system", "operation": "delete", "entity_id": system_id, "name": existing.name},
+    ))
     return Response(status_code=204)
 
 
@@ -183,7 +208,8 @@ async def update_system_status(
     "/systems/{system_id}/endpoints", status_code=201, dependencies=[CatalogWrite]
 )
 async def create_endpoint(
-    system_id: str, endpoint: ServiceEndpoint, repo: Repo, trigger: Trigger
+    request: Request, system_id: str, endpoint: ServiceEndpoint, repo: Repo,
+    trigger: Trigger, audit: AuditLog,
 ) -> ServiceEndpoint:
     """Add an endpoint to an existing system."""
     system = await repo.get_system(system_id)
@@ -192,6 +218,13 @@ async def create_endpoint(
     await repo.create_endpoint(endpoint)
     if trigger is not None:
         await trigger.on_catalog_updated(system_id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "endpoint", "operation": "create", "entity_id": endpoint.id, "name": endpoint.name},
+    ))
     return endpoint
 
 
@@ -217,7 +250,8 @@ async def get_endpoint(endpoint_id: str, repo: Repo) -> ServiceEndpoint:
 
 @router.put("/endpoints/{endpoint_id}", dependencies=[CatalogWrite])
 async def update_endpoint(
-    endpoint_id: str, endpoint: ServiceEndpoint, repo: Repo, trigger: Trigger
+    request: Request, endpoint_id: str, endpoint: ServiceEndpoint, repo: Repo,
+    trigger: Trigger, audit: AuditLog,
 ) -> ServiceEndpoint:
     """Update an existing service endpoint."""
     existing = await repo.get_endpoint(endpoint_id)
@@ -228,11 +262,18 @@ async def update_endpoint(
     await repo.update_endpoint(endpoint)
     if trigger is not None:
         await trigger.on_catalog_updated(endpoint.system_id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "endpoint", "operation": "update", "entity_id": endpoint_id, "name": endpoint.name},
+    ))
     return endpoint
 
 
 @router.delete("/endpoints/{endpoint_id}", status_code=204, dependencies=[CatalogDelete])
-async def delete_endpoint(endpoint_id: str, repo: Repo) -> Response:
+async def delete_endpoint(request: Request, endpoint_id: str, repo: Repo, audit: AuditLog) -> Response:
     """Remove a service endpoint."""
     existing = await repo.get_endpoint(endpoint_id)
     if existing is None:
@@ -240,6 +281,13 @@ async def delete_endpoint(endpoint_id: str, repo: Repo) -> Response:
             status_code=404, detail=f"Endpoint {endpoint_id} not found"
         )
     await repo.delete_endpoint(endpoint_id)
+    user_session = getattr(request.state, "user_session", None)
+    await audit.log(AuditEvent(
+        event_type=AuditEventType.CATALOG_CHANGE,
+        user_id=user_session.user_id if user_session else "anonymous",
+        action="catalog_change",
+        detail={"entity": "endpoint", "operation": "delete", "entity_id": endpoint_id, "name": existing.name},
+    ))
     return Response(status_code=204)
 
 

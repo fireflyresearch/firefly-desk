@@ -512,7 +512,7 @@
 	}
 </style>
 
-<div class="mx-auto flex max-w-7xl flex-col gap-5 p-6">
+<div class="mx-auto flex h-full max-w-7xl flex-col gap-5 overflow-y-auto p-6">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div>

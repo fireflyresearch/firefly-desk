@@ -205,7 +205,12 @@ class DeskAgent:
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
         adapted = self._adapt_tools(tools, session, conversation_id)
-        raw_text = await self._call_llm(message, system_prompt, conversation_id, tools=adapted)
+        usage_data: dict[str, Any] = {}
+        t0 = time.monotonic()
+        raw_text = await self._call_llm(
+            message, system_prompt, conversation_id, tools=adapted, usage_out=usage_data,
+        )
+        latency_ms = round((time.monotonic() - t0) * 1000)
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -222,6 +227,10 @@ class DeskAgent:
                 "message_length": len(message),
                 "response_length": len(raw_text),
                 "widget_count": len(parse_result.widgets),
+                "model": usage_data.get("model", "unknown"),
+                "input_tokens": usage_data.get("input_tokens", 0),
+                "output_tokens": usage_data.get("output_tokens", 0),
+                "latency_ms": latency_ms,
             },
         )
         await self._audit_logger.log(audit_event)
@@ -295,6 +304,7 @@ class DeskAgent:
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
         usage_data: dict[str, Any] = {}
+        t0 = time.monotonic()
         async for token in self._stream_llm(
             message, system_prompt, conversation_id, tools=adapted, usage_out=usage_data,
         ):
@@ -303,6 +313,7 @@ class DeskAgent:
                 event=SSEEventType.TOKEN,
                 data={"content": token},
             )
+        latency_ms = round((time.monotonic() - t0) * 1000)
 
         # Post-processing: parse widget directives from full response
         parse_result = self._widget_parser.parse(full_text)
@@ -329,7 +340,7 @@ class DeskAgent:
                 },
             )
 
-        # Audit logging
+        # Audit logging (after usage extraction so we can include model/tokens/cost)
         audit_event = AuditEvent(
             event_type=AuditEventType.AGENT_RESPONSE,
             user_id=session.user_id,
@@ -340,6 +351,11 @@ class DeskAgent:
                 "message_length": len(message),
                 "response_length": len(full_text),
                 "widget_count": len(parse_result.widgets),
+                "model": usage_data.get("model", "unknown"),
+                "input_tokens": usage_data.get("input_tokens", 0),
+                "output_tokens": usage_data.get("output_tokens", 0),
+                "latency_ms": latency_ms,
+                "cost_usd": usage_data.get("cost_usd", 0.0),
             },
         )
         await self._audit_logger.log(audit_event)
@@ -411,6 +427,7 @@ class DeskAgent:
 
         # Execute reasoning with retry for transient errors
         usage_data: dict[str, Any] = {}
+        t0 = time.monotonic()
         try:
             last_reasoning_exc: Exception | None = None
             result = None
@@ -491,6 +508,10 @@ class DeskAgent:
                     },
                 )
 
+            # Extract usage from reasoning result
+            usage_data = self._extract_result_usage(result, agent)
+            latency_ms = round((time.monotonic() - t0) * 1000)
+
             # Audit
             audit_event = AuditEvent(
                 event_type=AuditEventType.AGENT_RESPONSE,
@@ -501,12 +522,14 @@ class DeskAgent:
                     "turn_id": turn_id,
                     "pattern": result.trace.pattern_name,
                     "steps_taken": result.steps_taken,
+                    "model": usage_data.get("model", "unknown"),
+                    "input_tokens": usage_data.get("input_tokens", 0),
+                    "output_tokens": usage_data.get("output_tokens", 0),
+                    "latency_ms": latency_ms,
+                    "cost_usd": usage_data.get("cost_usd", 0.0),
                 },
             )
             await self._audit_logger.log(audit_event)
-
-            # Extract usage from reasoning result
-            usage_data = self._extract_result_usage(result, agent)
 
         except _BUDGET_EXCEEDED_ERROR as exc:
             _logger.warning("Budget exceeded during reasoning: %s", exc)
@@ -1207,6 +1230,7 @@ class DeskAgent:
         system_prompt: str,
         conversation_id: str | None = None,
         tools: list[object] | None = None,
+        usage_out: dict[str, Any] | None = None,
     ) -> str:
         """Call the LLM via FireflyAgent.
 
@@ -1215,6 +1239,8 @@ class DeskAgent:
             system_prompt: The assembled system prompt.
             conversation_id: Conversation ID for MemoryManager auto-injection.
             tools: Adapted genai tools for the FireflyAgent.
+            usage_out: Optional mutable dict that will be populated with token
+                usage data after the call completes.
         """
         if self._agent_factory is None:
             return self._echo_fallback(message)
@@ -1227,6 +1253,8 @@ class DeskAgent:
         for attempt in range(_LLM_MAX_RETRIES):
             try:
                 result = await agent.run(message, conversation_id=conversation_id)
+                if usage_out is not None:
+                    usage_out.update(self._extract_result_usage(result, agent))
                 return str(result.output)
             except _BUDGET_EXCEEDED_ERROR as exc:
                 _logger.warning("Budget exceeded during LLM call: %s", exc)

@@ -462,7 +462,7 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4 overflow-y-auto p-6">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div>

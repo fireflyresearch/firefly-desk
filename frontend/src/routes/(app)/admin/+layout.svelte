@@ -111,9 +111,9 @@
 		</nav>
 
 		<!-- Content area -->
-		<div class="min-h-0 flex-1 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-hidden">
 			{#key currentPath}
-				<div in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
+				<div class="h-full" in:fade={{ duration: 150, delay: 50 }} out:fade={{ duration: 100 }}>
 					{@render children()}
 				</div>
 			{/key}

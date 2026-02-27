@@ -403,7 +403,7 @@
 		'w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent';
 </script>
 
-<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
+<div class="flex h-full flex-col gap-4 overflow-y-auto" class:p-6={!embedded}>
 	<!-- Header -->
 	{#if !embedded}
 		<div class="flex items-center justify-between">

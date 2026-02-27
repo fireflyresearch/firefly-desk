@@ -14,7 +14,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
-from flydesk.api.deps import get_local_user_repo, get_oidc_client, get_oidc_repo
+from flydesk.api.deps import get_audit_logger, get_local_user_repo, get_oidc_client, get_oidc_repo
+from flydesk.audit.logger import AuditLogger
+from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.auth.oidc import OIDCClient, generate_pkce_pair
 from flydesk.auth.providers import get_provider as get_provider_profile
 from flydesk.auth.repository import OIDCProviderRepository
@@ -81,6 +83,7 @@ class LocalLoginResponse(BaseModel):
 # Dependencies
 # ---------------------------------------------------------------------------
 
+AuditLog = Annotated[AuditLogger, Depends(get_audit_logger)]
 OIDCRepo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 
 
@@ -285,6 +288,7 @@ async def auth_callback(
     request: Request,
     repo: OIDCRepo,
     response: Response,
+    audit: AuditLog,
 ) -> CallbackResponse:
     """Exchange an authorization code for tokens and set a session cookie.
 
@@ -363,6 +367,19 @@ async def auth_callback(
         path="/",
     )
 
+    # Audit: log successful SSO login
+    sso_email = user_info.get("email", "") or _extract_email_from_id_token(id_token) or "unknown"
+    client_ip = request.client.host if request.client else "unknown"
+    await audit.log(
+        AuditEvent(
+            event_type=AuditEventType.AUTH_LOGIN,
+            user_id=sso_email,
+            action="auth_login",
+            detail={"method": "sso", "ip": client_ip, "success": True},
+            ip_address=client_ip,
+        )
+    )
+
     return CallbackResponse(
         access_token=access_token,
         id_token=id_token,
@@ -373,8 +390,10 @@ async def auth_callback(
 
 @router.post("/login", response_model=LocalLoginResponse)
 async def local_login(
+    request: Request,
     body: LocalLoginRequest,
     response: Response,
+    audit: AuditLog,
     local_user_repo=Depends(get_local_user_repo),
 ) -> LocalLoginResponse:
     """Authenticate with a local username and password.
@@ -409,6 +428,18 @@ async def local_login(
         path="/",
     )
 
+    # Audit: log successful local login
+    client_ip = request.client.host if request.client else "unknown"
+    await audit.log(
+        AuditEvent(
+            event_type=AuditEventType.AUTH_LOGIN,
+            user_id=user.email or body.username,
+            action="auth_login",
+            detail={"method": "local", "ip": client_ip, "success": True},
+            ip_address=client_ip,
+        )
+    )
+
     return LocalLoginResponse(access_token=token)
 
 
@@ -416,6 +447,7 @@ async def local_login(
 async def logout(
     request: Request,
     response: Response,
+    audit: AuditLog,
     oidc_client_dep: OIDCClient | None = Depends(get_oidc_client),
 ) -> dict[str, str]:
     """Clear the session cookie and optionally revoke the token.
@@ -432,6 +464,20 @@ async def logout(
             logger.debug("Discovery failed during logout (non-fatal).", exc_info=True)
 
     response.delete_cookie(key="flydesk_token", path="/")
+
+    # Audit: log logout
+    user_session = getattr(request.state, "user_session", None)
+    user_id = user_session.user_id if user_session else "anonymous"
+    client_ip = request.client.host if request.client else "unknown"
+    await audit.log(
+        AuditEvent(
+            event_type=AuditEventType.AUTH_LOGOUT,
+            user_id=user_id,
+            action="auth_logout",
+            detail={"ip": client_ip},
+            ip_address=client_ip,
+        )
+    )
 
     result: dict[str, str] = {"status": "logged_out"}
     if end_session_url:

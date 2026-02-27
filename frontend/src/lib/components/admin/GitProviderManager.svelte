@@ -404,7 +404,7 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4" class:p-6={!embedded}>
+<div class="flex h-full flex-col gap-4 overflow-y-auto" class:p-6={!embedded}>
 	<!-- Header -->
 	{#if !embedded}
 		<div class="flex items-center justify-between">

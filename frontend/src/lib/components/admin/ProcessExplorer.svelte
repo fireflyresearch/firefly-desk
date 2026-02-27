@@ -1,9 +1,11 @@
 <!--
   ProcessExplorer.svelte - Process discovery management and visualization.
 
-  Split-layout admin view with a searchable/filterable process list sidebar on
-  the left and a SvelteFlow canvas + detail panel on the right. Allows admins
-  to browse discovered business processes, visualize step graphs, edit steps,
+  Toolbar + sidebar layout: a top toolbar with search, status filters,
+  auto-analyze toggle, discovery settings dropdown, and re-discover action;
+  a slim sidebar listing discovered processes with pagination; and a main
+  content area with a SvelteFlow canvas + step edit panel. Allows admins to
+  browse discovered business processes, visualize step graphs, edit steps,
   verify processes, trigger re-discovery jobs, and toggle auto-analysis.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
@@ -154,8 +156,9 @@
 	let loadingAutoAnalyze = $state(true);
 	let togglingAutoAnalyze = $state(false);
 
-	// Discovery settings panel
+	// Discovery settings panel (dropdown in toolbar)
 	let showDiscoverySettings = $state(false);
+	let discoverySettingsRef: HTMLDivElement | null = $state(null);
 	let workspaces = $state<WorkspaceInfo[]>([]);
 	let discoverySettings = $state<ProcessDiscoverySettings>({
 		workspace_ids: [],
@@ -671,36 +674,102 @@
 			hour12: false
 		});
 	}
+
+	// Click-outside handler for discovery settings dropdown
+	function handleClickOutside(event: MouseEvent) {
+		if (
+			showDiscoverySettings &&
+			discoverySettingsRef &&
+			!discoverySettingsRef.contains(event.target as Node)
+		) {
+			showDiscoverySettings = false;
+		}
+	}
+
+	$effect(() => {
+		if (showDiscoverySettings) {
+			document.addEventListener('mousedown', handleClickOutside);
+			return () => {
+				document.removeEventListener('mousedown', handleClickOutside);
+			};
+		}
+	});
 </script>
 
-<div class="flex h-full">
+<div class="flex h-full flex-col">
 	<!-- ================================================================= -->
-	<!-- Left sidebar: process list                                         -->
+	<!-- Top toolbar                                                        -->
 	<!-- ================================================================= -->
-	<div class="flex w-72 shrink-0 flex-col border-r border-border bg-surface-secondary">
-		<!-- Header -->
-		<div class="shrink-0 border-b border-border/50 px-4 py-3">
-			<h1 class="text-sm font-semibold text-text-primary">Processes</h1>
-			<p class="text-xs text-text-secondary">Discovered business processes</p>
+	<div class="flex h-12 shrink-0 items-center gap-3 border-b border-border/40 bg-surface px-4">
+		<!-- Title -->
+		<h1 class="text-sm font-semibold text-text-primary">Processes</h1>
+
+		<!-- Search (compact) -->
+		<div class="relative">
+			<Search
+				size={13}
+				class="absolute top-1/2 left-2.5 -translate-y-1/2 text-text-secondary"
+			/>
+			<input
+				type="text"
+				bind:value={searchQuery}
+				placeholder="Search processes..."
+				class="h-8 w-56 rounded-lg border border-border bg-surface py-1.5 pr-3 pl-8 text-sm text-text-primary outline-none focus:border-accent"
+			/>
 		</div>
 
-		<!-- Discovery Settings -->
-		<div class="shrink-0 border-b border-border/50">
+		<!-- Status filter pills (compact, inline) -->
+		<div class="flex items-center gap-1">
+			{#each statusOptions as option}
+				<button
+					type="button"
+					onclick={() => (statusFilter = option.value)}
+					class="flex-shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors
+						{statusFilter === option.value
+						? 'border-accent/30 bg-accent/10 text-accent'
+						: 'border-border text-text-secondary hover:bg-surface-hover'}"
+				>
+					{option.label}
+				</button>
+			{/each}
+		</div>
+
+		<!-- Spacer -->
+		<div class="flex-1"></div>
+
+		<!-- Auto-analyze toggle (small) -->
+		<div class="flex items-center gap-1.5">
+			<span class="text-xs text-text-secondary">Auto-analyze</span>
+			<button
+				type="button"
+				onclick={toggleAutoAnalyze}
+				disabled={loadingAutoAnalyze || togglingAutoAnalyze}
+				class="text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
+				title={autoAnalyze ? 'Auto-analyze is on' : 'Auto-analyze is off'}
+			>
+				{#if loadingAutoAnalyze || togglingAutoAnalyze}
+					<Loader2 size={16} class="animate-spin" />
+				{:else if autoAnalyze}
+					<ToggleRight size={20} class="text-accent" />
+				{:else}
+					<ToggleLeft size={20} />
+				{/if}
+			</button>
+		</div>
+
+		<!-- Discovery Settings button + dropdown -->
+		<div class="relative" bind:this={discoverySettingsRef}>
 			<button
 				type="button"
 				onclick={() => (showDiscoverySettings = !showDiscoverySettings)}
-				class="flex w-full items-center gap-2 px-4 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+				class="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary {showDiscoverySettings ? 'bg-surface-hover text-text-primary' : ''}"
+				title="Discovery Settings"
 			>
-				<Settings size={12} />
-				Discovery Settings
-				<ChevronRight
-					size={12}
-					class="ml-auto transition-transform {showDiscoverySettings ? 'rotate-90' : ''}"
-				/>
+				<Settings size={16} />
 			</button>
 
 			{#if showDiscoverySettings}
-				<div class="border-t border-border/30 px-4 py-3">
+				<div class="absolute top-full right-0 z-20 mt-1 w-80 rounded-lg border border-border bg-surface-elevated p-4 shadow-lg">
 					{#if loadingDiscoverySettings}
 						<div class="flex justify-center py-2">
 							<Loader2 size={14} class="animate-spin text-text-secondary" />
@@ -789,188 +858,140 @@
 			{/if}
 		</div>
 
-		<!-- Search -->
-		<div class="shrink-0 border-b border-border/50 px-3 py-2">
-			<div class="relative">
-				<Search
-					size={14}
-					class="absolute top-1/2 left-2.5 -translate-y-1/2 text-text-secondary"
-				/>
-				<input
-					type="text"
-					bind:value={searchQuery}
-					placeholder="Search processes..."
-					class="w-full rounded-md border border-border bg-surface py-1.5 pr-3 pl-8 text-xs text-text-primary outline-none focus:border-accent"
-				/>
-			</div>
-		</div>
-
-		<!-- Status filter -->
-		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 px-3 py-2">
-			<Filter size={12} class="flex-shrink-0 text-text-secondary" />
-			{#each statusOptions as option}
-				<button
-					type="button"
-					onclick={() => (statusFilter = option.value)}
-					class="flex-shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors
-						{statusFilter === option.value
-						? 'border-accent/30 bg-accent/10 text-accent'
-						: 'border-border text-text-secondary hover:bg-surface-hover'}"
-				>
-					{option.label}
-				</button>
-			{/each}
-		</div>
-
-		<!-- Process list -->
-		<div class="min-h-0 flex-1 overflow-y-auto">
-			{#if loading}
-				<div class="flex items-center justify-center py-12">
-					<Loader2 size={20} class="animate-spin text-text-secondary" />
-				</div>
-			{:else if filteredProcesses.length === 0}
-				<div class="px-4 py-8 text-center text-xs text-text-secondary">
-					{searchQuery || statusFilter !== 'all'
-						? 'No processes match your filters.'
-						: 'No processes discovered yet.'}
-				</div>
-			{:else}
-				<ul class="flex flex-col gap-0.5 p-2">
-					{#each paginatedProcesses as process}
-						{@const isSelected = selectedProcess?.id === process.id}
-						<li>
-							<button
-								type="button"
-								onclick={() => selectProcess(process)}
-								class="flex w-full flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors
-									{isSelected
-									? 'bg-accent/10 ring-1 ring-accent/30'
-									: 'hover:bg-surface-hover'}"
-							>
-								<div class="flex items-center gap-2">
-									<GitBranch
-										size={14}
-										class={isSelected ? 'text-accent' : 'text-text-secondary'}
-									/>
-									<span
-										class="flex-1 truncate text-xs font-medium {isSelected
-											? 'text-accent'
-											: 'text-text-primary'}"
-									>
-										{process.name}
-									</span>
-								</div>
-								<div class="flex items-center gap-1.5 pl-5">
-									<span
-										class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {statusBadge(
-											process.status
-										)}"
-									>
-										{process.status}
-									</span>
-									<span
-										class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {confidenceColor(
-											process.confidence
-										)}"
-									>
-										{Math.round(process.confidence * 100)}%
-									</span>
-									{#if process.category}
-										<span class="truncate text-[10px] text-text-secondary">
-											{process.category}
-										</span>
-									{/if}
-								</div>
-							</button>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
-
-		<!-- Pagination -->
-		{#if filteredProcesses.length > pageSize}
-			<div class="flex shrink-0 items-center justify-between border-t border-border/50 px-3 py-1.5">
-				<span class="text-[10px] text-text-secondary">
-					{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredProcesses.length)} of {filteredProcesses.length}
-				</span>
-				<div class="flex items-center gap-1">
-					<button
-						type="button"
-						disabled={currentPage <= 1}
-						onclick={() => currentPage--}
-						class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
-					>Prev</button>
-					<span class="text-[10px] text-text-secondary">{currentPage}/{totalPages}</span>
-					<button
-						type="button"
-						disabled={currentPage >= totalPages}
-						onclick={() => currentPage++}
-						class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
-					>Next</button>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Auto-analyze toggle and re-discover at bottom -->
-		<div class="shrink-0 border-t border-border/50 px-3 py-3">
-			<!-- Auto-analyze -->
-			<div class="mb-2 flex items-center justify-between">
-				<span class="text-xs text-text-secondary">Auto-analyze</span>
-				<button
-					type="button"
-					onclick={toggleAutoAnalyze}
-					disabled={loadingAutoAnalyze || togglingAutoAnalyze}
-					class="text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
-					title={autoAnalyze ? 'Auto-analyze is on' : 'Auto-analyze is off'}
-				>
-					{#if loadingAutoAnalyze || togglingAutoAnalyze}
-						<Loader2 size={18} class="animate-spin" />
-					{:else if autoAnalyze}
-						<ToggleRight size={22} class="text-accent" />
-					{:else}
-						<ToggleLeft size={22} />
-					{/if}
-				</button>
-			</div>
-
-			<!-- Re-discover button -->
+		<!-- Re-discover button (compact) + progress indicator -->
+		<div class="flex items-center gap-2">
 			<button
 				type="button"
 				onclick={triggerRediscover}
 				disabled={isDiscovering}
-				class="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+				class="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
 			>
 				{#if isDiscovering}
 					<Loader2 size={14} class="animate-spin" />
 					Discovering...
 				{:else}
 					<RefreshCw size={14} />
-					Re-discover Processes
+					Re-discover
 				{/if}
 			</button>
 
-			<!-- Job progress indicator -->
 			{#if isDiscovering}
-				<div class="mt-2">
-					{#if discoveryProgressMessage}
-						<p class="mb-1 truncate text-[10px] text-text-secondary">{discoveryProgressMessage}</p>
-					{/if}
-					<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface">
+				<div class="flex items-center gap-2">
+					<div class="h-1.5 w-24 overflow-hidden rounded-full bg-surface-secondary">
 						<div
 							class="h-full rounded-full bg-accent transition-all duration-500"
 							style="width: {discoveryJobProgress}%"
 						></div>
 					</div>
+					{#if discoveryProgressMessage}
+						<span class="max-w-40 truncate text-[10px] text-text-secondary">{discoveryProgressMessage}</span>
+					{/if}
 				</div>
 			{/if}
 		</div>
 	</div>
 
 	<!-- ================================================================= -->
-	<!-- Right main area                                                    -->
+	<!-- Body: sidebar + main content                                       -->
 	<!-- ================================================================= -->
-	<div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+	<div class="flex min-h-0 flex-1">
+		<!-- Process list sidebar (slim) -->
+		<div class="flex w-64 shrink-0 flex-col border-r border-border bg-surface-secondary">
+			<!-- Process list -->
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				{#if loading}
+					<div class="flex items-center justify-center py-12">
+						<Loader2 size={20} class="animate-spin text-text-secondary" />
+					</div>
+				{:else if filteredProcesses.length === 0}
+					<div class="px-4 py-8 text-center text-xs text-text-secondary">
+						{searchQuery || statusFilter !== 'all'
+							? 'No processes match your filters.'
+							: 'No processes discovered yet.'}
+					</div>
+				{:else}
+					<ul class="flex flex-col gap-0.5 p-2">
+						{#each paginatedProcesses as process}
+							{@const isSelected = selectedProcess?.id === process.id}
+							<li>
+								<button
+									type="button"
+									onclick={() => selectProcess(process)}
+									class="flex w-full flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors
+										{isSelected
+										? 'bg-accent/10 ring-1 ring-accent/30'
+										: 'hover:bg-surface-hover'}"
+								>
+									<div class="flex items-center gap-2">
+										<GitBranch
+											size={14}
+											class={isSelected ? 'text-accent' : 'text-text-secondary'}
+										/>
+										<span
+											class="flex-1 truncate text-xs font-medium {isSelected
+												? 'text-accent'
+												: 'text-text-primary'}"
+										>
+											{process.name}
+										</span>
+									</div>
+									<div class="flex items-center gap-1.5 pl-5">
+										<span
+											class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {statusBadge(
+												process.status
+											)}"
+										>
+											{process.status}
+										</span>
+										<span
+											class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {confidenceColor(
+												process.confidence
+											)}"
+										>
+											{Math.round(process.confidence * 100)}%
+										</span>
+										{#if process.category}
+											<span class="truncate text-[10px] text-text-secondary">
+												{process.category}
+											</span>
+										{/if}
+									</div>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+
+			<!-- Pagination -->
+			{#if filteredProcesses.length > pageSize}
+				<div class="flex shrink-0 items-center justify-between border-t border-border/50 px-3 py-1.5">
+					<span class="text-[10px] text-text-secondary">
+						{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredProcesses.length)} of {filteredProcesses.length}
+					</span>
+					<div class="flex items-center gap-1">
+						<button
+							type="button"
+							disabled={currentPage <= 1}
+							onclick={() => currentPage--}
+							class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+						>Prev</button>
+						<span class="text-[10px] text-text-secondary">{currentPage}/{totalPages}</span>
+						<button
+							type="button"
+							disabled={currentPage >= totalPages}
+							onclick={() => currentPage++}
+							class="rounded px-1.5 py-0.5 text-[10px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-40"
+						>Next</button>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<!-- ================================================================= -->
+		<!-- Main content area                                                  -->
+		<!-- ================================================================= -->
+		<div class="flex min-w-0 flex-1 flex-col overflow-hidden">
 		<!-- Error banner -->
 		{#if error}
 			<div
@@ -1097,7 +1118,7 @@
 			<div class="flex flex-1 flex-col items-center justify-center gap-3 text-text-secondary">
 				<GitBranch size={48} strokeWidth={1} class="opacity-30" />
 				<p class="text-sm">Select a process to view its steps and dependencies</p>
-				<p class="text-xs">Or trigger a new discovery job from the sidebar</p>
+				<p class="text-xs">Or trigger a new discovery job from the toolbar</p>
 			</div>
 		{:else if loadingDetail}
 			<div class="flex flex-1 items-center justify-center">
@@ -1405,5 +1426,6 @@
 				{/if}
 			</div>
 		{/if}
+		</div>
 	</div>
 </div>

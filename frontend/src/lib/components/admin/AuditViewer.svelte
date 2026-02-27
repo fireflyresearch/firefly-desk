@@ -63,7 +63,8 @@
 		'auth_login',
 		'auth_logout',
 		'catalog_change',
-		'knowledge_update'
+		'knowledge_update',
+		'message_feedback'
 	];
 
 	// -----------------------------------------------------------------------
@@ -171,6 +172,7 @@
 		if (type.includes('confirmation')) return 'bg-danger/10 text-danger';
 		if (type === 'catalog_change') return 'bg-accent/10 text-accent';
 		if (type === 'knowledge_update') return 'bg-success/10 text-success';
+		if (type === 'message_feedback') return 'bg-purple-500/10 text-purple-400';
 		return 'bg-text-secondary/10 text-text-secondary';
 	}
 
@@ -220,36 +222,38 @@
 		switch (event.event_type) {
 			case 'tool_call':
 				return [
-					['Tool', String(d.tool ?? '--')],
-					['Parameters', d.params ? JSON.stringify(d.params) : '--'],
-					['Result', d.result ? JSON.stringify(d.result) : '--']
+					['Tool', String(d.tool_name ?? d.tool ?? '--')],
+					['Call ID', String(d.call_id ?? '--')],
+					['Arguments', d.arguments ? JSON.stringify(d.arguments) : (d.params ? JSON.stringify(d.params) : '--')]
 				];
 			case 'tool_result':
-				return [
-					['Tool', String(d.tool ?? '--')],
-					['Status', String(d.status ?? '--')],
+				return ([
+					['Tool', String(d.tool_name ?? d.tool ?? '--')],
+					['Success', d.success !== undefined ? String(d.success) : '--'],
+					['Status Code', d.status_code ? String(d.status_code) : (d.status ? String(d.status) : '--')],
 					['Duration', d.duration_ms ? `${d.duration_ms}ms` : '--'],
-					['Result', d.result ? JSON.stringify(d.result) : '--']
-				];
+					['Error', d.error ? String(d.error) : '']
+				] as [string, string][]).filter(([, v]) => v !== '');
 			case 'auth_login':
 				return [
 					['Method', String(d.method ?? '--')],
 					['IP Address', String(d.ip ?? '--')],
-					['User Agent', String(d.user_agent ?? '--')],
 					['Success', String(d.success ?? '--')]
 				];
 			case 'auth_logout':
 				return [
-					['Method', String(d.method ?? '--')],
-					['Reason', String(d.reason ?? '--')]
+					['IP Address', String(d.ip ?? '--')]
 				];
 			case 'agent_response':
-				return [
+				return ([
 					['Model', String(d.model ?? '--')],
-					['Input Tokens', String(d.input_tokens ?? '--')],
-					['Output Tokens', String(d.output_tokens ?? '--')],
-					['Latency', d.latency_ms ? `${d.latency_ms}ms` : '--']
-				];
+					['Input Tokens', d.input_tokens ? Number(d.input_tokens).toLocaleString() : '--'],
+					['Output Tokens', d.output_tokens ? Number(d.output_tokens).toLocaleString() : '--'],
+					['Latency', d.latency_ms ? `${Number(d.latency_ms).toLocaleString()}ms` : '--'],
+					['Cost', d.cost_usd ? `$${Number(d.cost_usd).toFixed(4)}` : ''],
+					['Message Length', d.message_length ? Number(d.message_length).toLocaleString() : ''],
+					['Response Length', d.response_length ? Number(d.response_length).toLocaleString() : '']
+				] as [string, string][]).filter(([, v]) => v !== '');
 			case 'confirmation_requested':
 			case 'confirmation_response':
 				return [
@@ -258,17 +262,25 @@
 					['Message', String(d.message ?? '--')]
 				];
 			case 'catalog_change':
-				return [
+				return ([
 					['Entity', String(d.entity ?? '--')],
 					['Operation', String(d.operation ?? '--')],
-					['Entity ID', String(d.entity_id ?? '--')]
-				];
+					['Entity ID', String(d.entity_id ?? '--')],
+					['Name', d.name ? String(d.name) : '']
+				] as [string, string][]).filter(([, v]) => v !== '');
 			case 'knowledge_update':
 				return [
 					['Source', String(d.source ?? '--')],
 					['Operation', String(d.operation ?? '--')],
 					['Items', String(d.items_count ?? '--')]
 				];
+			case 'message_feedback':
+				return ([
+					['Message ID', String(d.message_id ?? '--')],
+					['Rating', String(d.rating ?? '--')],
+					['Categories', Array.isArray(d.categories) ? d.categories.join(', ') : '--'],
+					['Comment', d.comment ? String(d.comment) : '']
+				] as [string, string][]).filter(([, v]) => v !== '');
 			default:
 				return Object.entries(d).map(([k, v]) => [
 					k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -282,7 +294,7 @@
 	}
 </script>
 
-<div class="flex h-full flex-col gap-4 p-6">
+<div class="flex h-full flex-col gap-4 overflow-y-auto p-6">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div>
@@ -561,10 +573,10 @@
 															<span><span class="font-medium text-text-secondary">Risk:</span> <span class="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium {riskLevelColor(expandedDetail.risk_level)}">{expandedDetail.risk_level}</span></span>
 														{/if}
 													</div>
-													{#if expandedDetail.detail.parameters || expandedDetail.detail.params}
+													{#if expandedDetail.detail.arguments || expandedDetail.detail.parameters || expandedDetail.detail.params}
 														<div class="mt-2">
 															<span class="text-[11px] font-medium text-text-secondary">Parameters:</span>
-															<pre class="mt-1 whitespace-pre-wrap break-all rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] text-text-primary">{JSON.stringify(expandedDetail.detail.parameters ?? expandedDetail.detail.params, null, 2)}</pre>
+															<pre class="mt-1 whitespace-pre-wrap break-all rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] text-text-primary">{JSON.stringify(expandedDetail.detail.arguments ?? expandedDetail.detail.parameters ?? expandedDetail.detail.params, null, 2)}</pre>
 														</div>
 													{/if}
 												</div>
