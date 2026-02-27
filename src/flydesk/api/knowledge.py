@@ -594,6 +594,20 @@ async def get_graph_stats(graph: Graph) -> GraphStatsResponse:
     return GraphStatsResponse(**stats)
 
 
+@router.get("/graph/relations", dependencies=[KnowledgeRead])
+async def list_relations(
+    graph: Graph,
+    limit: int = Query(default=1000, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+) -> list[RelationResponse]:
+    """List all knowledge graph relations."""
+    relations = await graph.list_relations(limit=limit, offset=offset)
+    return [
+        RelationResponse(**asdict(r), label=_relation_label(r.relation_type))
+        for r in relations
+    ]
+
+
 @router.post("/graph/recompute", dependencies=[KnowledgeWrite])
 async def trigger_kg_recompute(request: Request) -> dict:
     """Trigger a background knowledge graph recompute job.

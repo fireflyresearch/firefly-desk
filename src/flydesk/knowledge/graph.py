@@ -199,6 +199,23 @@ class KnowledgeGraph:
             result = await session.execute(stmt)
             return [self._row_to_entity(r) for r in result.scalars().all()]
 
+    async def list_relations(
+        self,
+        *,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[Relation]:
+        """List all relations, ordered by source_id."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(RelationRow)
+                .order_by(RelationRow.source_id)
+                .offset(offset)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [self._row_to_relation(r) for r in result.scalars().all()]
+
     async def delete_entity(self, entity_id: str) -> bool:
         """Delete an entity and all its relations. Returns True if entity existed."""
         async with self._session_factory() as session:
