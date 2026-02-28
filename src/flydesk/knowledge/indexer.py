@@ -11,9 +11,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from typing import Any, Protocol
+
+_logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -56,6 +59,8 @@ class KnowledgeIndexer:
         chunk_overlap: int = 50,
         chunking_mode: str = "auto",
         vector_store: Any | None = None,
+        auto_kg_extract: bool = False,
+        kg_extractor: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
@@ -63,6 +68,8 @@ class KnowledgeIndexer:
         self._chunk_overlap = chunk_overlap
         self._chunking_mode: str = chunking_mode
         self._vector_store = vector_store
+        self._auto_kg_extract = auto_kg_extract
+        self._kg_extractor = kg_extractor
 
     async def index_document(self, document: KnowledgeDocument) -> list[DocumentChunk]:
         """Index a document: store it, chunk it, embed chunks, persist chunks."""
@@ -121,6 +128,17 @@ class KnowledgeIndexer:
                     )
                     session.add(row)
                 await session.commit()
+
+        # Auto-trigger KG extraction (non-fatal)
+        if self._auto_kg_extract and self._kg_extractor:
+            try:
+                await self._kg_extractor.extract_from_document(
+                    document.content, document.title,
+                )
+            except Exception:
+                _logger.debug(
+                    "Auto KG extraction failed for %s", document.id,
+                )
 
         return chunks
 

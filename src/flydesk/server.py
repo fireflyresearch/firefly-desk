@@ -412,6 +412,7 @@ async def _init_knowledge(
         chunk_overlap=chunk_overlap,
         chunking_mode=chunking_mode,
         vector_store=vector_store,
+        auto_kg_extract=auto_kg_extract,
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
@@ -660,6 +661,10 @@ async def _init_agent(  # noqa: PLR0913
     job_runner.register_handler("kg_recompute", KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor))
     job_runner.register_handler("kg_extract_single", KGExtractSingleHandler(catalog_repo, knowledge_graph, kg_extractor))
     app.state.kg_extractor = kg_extractor
+
+    # Wire KG extractor into the indexer for auto-extraction after indexing
+    if auto_kg_extract:
+        indexer._kg_extractor = kg_extractor
 
     # Document analyser
     from flydesk.knowledge.analyzer import DocumentAnalyzer
