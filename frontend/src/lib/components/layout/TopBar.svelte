@@ -7,11 +7,15 @@
 		User,
 		Shield,
 		LogOut,
-		Palette
+		Palette,
+		Bell
 	} from 'lucide-svelte';
 	import Logo from '$lib/components/layout/Logo.svelte';
+	import NotificationPanel from '$lib/components/notifications/NotificationPanel.svelte';
 	import { resolvedTheme, setTheme } from '$lib/stores/theme';
 	import { currentUser, isAdmin } from '$lib/stores/user.js';
+	import { fetchNotifications } from '$lib/services/notifications.js';
+	import { onMount } from 'svelte';
 
 	interface TopBarProps {
 		title?: string;
@@ -28,6 +32,17 @@
 	}: TopBarProps = $props();
 
 	let dropdownOpen = $state(false);
+	let notificationPanelOpen = $state(false);
+	let unreadCount = $state(0);
+
+	onMount(async () => {
+		try {
+			const items = await fetchNotifications();
+			unreadCount = items.length;
+		} catch {
+			// Silently ignore – badge just won't show
+		}
+	});
 
 	/** Resolved display name -- prefer currentUser store, fall back to prop. */
 	let displayName = $derived($currentUser?.displayName ?? userName);
@@ -53,10 +68,21 @@
 		dropdownOpen = false;
 	}
 
+	function toggleNotificationPanel() {
+		notificationPanelOpen = !notificationPanelOpen;
+	}
+
+	function closeNotificationPanel() {
+		notificationPanelOpen = false;
+	}
+
 	function handleWindowClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
 		if (!target.closest('[data-user-dropdown]')) {
 			dropdownOpen = false;
+		}
+		if (!target.closest('[data-notification-panel]')) {
+			notificationPanelOpen = false;
 		}
 	}
 </script>
@@ -115,6 +141,27 @@
 				<Moon size={16} />
 			{/if}
 		</button>
+
+		<!-- Notifications bell -->
+		<div class="relative" data-notification-panel>
+			<button
+				type="button"
+				onclick={toggleNotificationPanel}
+				class="btn-hover relative flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
+				aria-label="Notifications"
+				aria-expanded={notificationPanelOpen}
+			>
+				<Bell size={16} />
+				{#if unreadCount > 0}
+					<span
+						class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500"
+						aria-label="{unreadCount} unread notifications"
+					></span>
+				{/if}
+			</button>
+
+			<NotificationPanel open={notificationPanelOpen} onclose={closeNotificationPanel} />
+		</div>
 
 		<!-- User avatar with dropdown -->
 		<div class="relative ml-1" data-user-dropdown>
