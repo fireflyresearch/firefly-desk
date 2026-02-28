@@ -360,11 +360,10 @@ async def _init_knowledge(
     config: DeskConfig,
     session_factory: async_sessionmaker[AsyncSession],
     settings_repo: Any,
-    llm_repo: Any,
-    http_client: Any,
 ) -> dict[str, Any]:
     """Wire embedding provider, knowledge indexer, and vector store."""
-    from flydesk.knowledge.embeddings import LLMEmbeddingProvider
+    from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
+    from flydesk.knowledge.embedding_factory import create_embedder, parse_embedding_config
     from flydesk.knowledge.indexer import KnowledgeIndexer
     from flydesk.knowledge.stores import create_vector_store
 
@@ -377,14 +376,18 @@ async def _init_knowledge(
         or config.embedding_dimensions
     )
 
-    embedding_provider = LLMEmbeddingProvider(
-        http_client=http_client,
-        embedding_model=embed_model,
+    provider_name, model_name = parse_embedding_config(embed_model)
+    api_key = embed_key or None
+    base_url = embed_url or None
+
+    genai_embedder = create_embedder(
+        provider_name,
+        model_name,
         dimensions=embed_dims,
-        llm_repo=llm_repo,
-        api_key=embed_key or None,
-        base_url=embed_url or None,
+        api_key=api_key,
+        base_url=base_url,
     )
+    embedding_provider = GenAIEmbeddingAdapter(genai_embedder)
 
     knowledge_settings = await settings_repo.get_all_app_settings(category="knowledge")
     chunk_size = int(knowledge_settings.get("chunk_size", str(config.chunk_size)))
@@ -1016,8 +1019,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     knowledge = await _init_knowledge(
         app, config, session_factory,
         settings_repo=repos["settings_repo"],
-        llm_repo=repos["llm_repo"],
-        http_client=http_client,
     )
     if knowledge["vector_store"] is not None:
         ctx.closables.append(knowledge["vector_store"])

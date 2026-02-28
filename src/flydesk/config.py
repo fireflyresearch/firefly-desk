@@ -129,7 +129,7 @@ class DeskConfig(BaseSettings):
     cost_guard_enabled: bool = False
     cost_guard_max_per_message: float = 1.0  # USD per call
     cost_guard_max_per_day: float = 50.0  # USD cumulative daily budget
-    prompt_cache_enabled: bool = False
+    prompt_cache_enabled: bool = True
     prompt_cache_ttl: int = 300  # seconds
     circuit_breaker_enabled: bool = False
     circuit_breaker_failure_threshold: int = 5
@@ -144,7 +144,7 @@ class DeskConfig(BaseSettings):
     email_enabled: bool = False
     email_provider: str = "resend"  # "resend" | "ses"
     email_api_key: str = ""
-    email_from_address: str = "ember@flydesk.ai"
+    email_from_address: str = ""
     email_ses_region: str = "us-east-1"
 
     @property

@@ -90,7 +90,7 @@ class TestDeskConfig:
     # -- Middleware config fields --
 
     def test_middleware_defaults(self):
-        """Middleware config fields have sensible defaults (all disabled)."""
+        """Middleware config fields have sensible defaults."""
         with patch.dict(os.environ, {
             "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
         }):
@@ -99,8 +99,8 @@ class TestDeskConfig:
             assert cfg.cost_guard_enabled is False
             assert cfg.cost_guard_max_per_message == 1.0
             assert cfg.cost_guard_max_per_day == 50.0
-            # PromptCache
-            assert cfg.prompt_cache_enabled is False
+            # PromptCache (enabled by default)
+            assert cfg.prompt_cache_enabled is True
             assert cfg.prompt_cache_ttl == 300
             # CircuitBreaker
             assert cfg.circuit_breaker_enabled is False

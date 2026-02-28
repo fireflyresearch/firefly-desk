@@ -356,7 +356,7 @@ class TestBuildMiddleware:
 
     def test_all_disabled_returns_empty(self, llm_repo, _make_config):
         """All middleware disabled returns empty list."""
-        cfg = _make_config()
+        cfg = _make_config(prompt_cache_enabled="false")
         factory = DeskAgentFactory(llm_repo, config=cfg)
         assert factory._build_middleware() == []
 
@@ -425,7 +425,8 @@ class TestBuildMiddleware:
         await factory.create_agent("system prompt")
         call_kwargs = mock_agent_cls.call_args
         assert call_kwargs.kwargs["middleware"] is not None
-        assert len(call_kwargs.kwargs["middleware"]) == 1
+        # cost_guard + prompt_cache (enabled by default)
+        assert len(call_kwargs.kwargs["middleware"]) == 2
 
     @patch("flydesk.agent.genai_bridge.FireflyAgent")
     async def test_create_agent_no_middleware_when_disabled(
@@ -433,7 +434,7 @@ class TestBuildMiddleware:
     ):
         """create_agent() should pass middleware=None when all disabled."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        cfg = _make_config()
+        cfg = _make_config(prompt_cache_enabled="false")
         factory = DeskAgentFactory(llm_repo, config=cfg)
         provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
         llm_repo.get_default_provider.return_value = provider
