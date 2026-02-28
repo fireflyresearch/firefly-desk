@@ -111,3 +111,69 @@ class TestGetEmailSettingsDefaultSignature:
         await get_email_settings(mock_repo)
 
         mock_repo.set_email_settings.assert_not_awaited()
+
+
+class TestGetDefaultSignature:
+    """Verify the standalone default-signature endpoint."""
+
+    async def test_returns_generated_signature(self, mock_repo):
+        """Endpoint should return a generated HTML signature from current settings."""
+        from flydesk.api.email_settings import get_default_signature
+
+        mock_repo.get_email_settings = AsyncMock(
+            return_value=EmailSettings(
+                from_display_name="Ember",
+                from_address="ember@flydesk.ai",
+            )
+        )
+
+        result = await get_default_signature(mock_repo)
+
+        assert "signature_html" in result
+        assert "Ember" in result["signature_html"]
+        assert "ember@flydesk.ai" in result["signature_html"]
+        assert "<table" in result["signature_html"]
+
+    async def test_uses_current_display_name(self, mock_repo):
+        """Signature should reflect the current from_display_name."""
+        from flydesk.api.email_settings import get_default_signature
+
+        mock_repo.get_email_settings = AsyncMock(
+            return_value=EmailSettings(
+                from_display_name="Sparky",
+                from_address="sparky@example.com",
+            )
+        )
+
+        result = await get_default_signature(mock_repo)
+
+        assert "Sparky" in result["signature_html"]
+        assert "sparky@example.com" in result["signature_html"]
+
+    async def test_falls_back_to_ember_when_name_empty(self, mock_repo):
+        """When from_display_name is empty, should fall back to 'Ember'."""
+        from flydesk.api.email_settings import get_default_signature
+
+        mock_repo.get_email_settings = AsyncMock(
+            return_value=EmailSettings(
+                from_display_name="",
+                from_address="support@example.com",
+            )
+        )
+
+        result = await get_default_signature(mock_repo)
+
+        assert "Ember" in result["signature_html"]
+
+    async def test_does_not_persist(self, mock_repo):
+        """The endpoint should not write anything back to the repo."""
+        from flydesk.api.email_settings import get_default_signature
+
+        mock_repo.get_email_settings = AsyncMock(
+            return_value=EmailSettings()
+        )
+        mock_repo.set_email_settings = AsyncMock()
+
+        await get_default_signature(mock_repo)
+
+        mock_repo.set_email_settings.assert_not_awaited()

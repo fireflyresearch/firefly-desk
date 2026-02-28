@@ -54,6 +54,26 @@ async def get_email_settings(repo: SettingsRepo) -> dict:
     return data
 
 
+@router.get("/default-signature", dependencies=[AdminSettings])
+async def get_default_signature(repo: SettingsRepo) -> dict:
+    """Return the auto-generated default Ember signature.
+
+    Used by the frontend "Reset to Default" button so the admin can
+    revert their custom signature back to the branded default.  The
+    signature is generated on the fly from the current email identity
+    settings (display name / from address) but is **not** persisted.
+    """
+    settings = await repo.get_email_settings()
+
+    from flydesk.email.signature import build_default_signature
+
+    signature_html = build_default_signature(
+        agent_name=settings.from_display_name or "Ember",
+        from_address=settings.from_address,
+    )
+    return {"signature_html": signature_html}
+
+
 @router.put("", dependencies=[AdminSettings])
 async def update_email_settings(
     body: EmailSettings,
