@@ -30,9 +30,28 @@ SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
 @router.get("", dependencies=[AdminSettings])
 async def get_email_settings(repo: SettingsRepo) -> dict:
-    """Get current email channel settings."""
+    """Get current email channel settings.
+
+    When ``signature_html`` is empty (first setup), the response includes a
+    generated default Ember signature so the admin has something ready to
+    customise.  The default is **not** persisted -- it only lives in the
+    response.  A ``signature_is_default`` flag tells the frontend whether the
+    returned signature was auto-generated.
+    """
     settings = await repo.get_email_settings()
-    return settings.model_dump()
+    data = settings.model_dump()
+
+    signature_is_default = not settings.signature_html
+    if signature_is_default:
+        from flydesk.email.signature import build_default_signature
+
+        data["signature_html"] = build_default_signature(
+            agent_name=settings.from_display_name or "Ember",
+            from_address=settings.from_address,
+        )
+
+    data["signature_is_default"] = signature_is_default
+    return data
 
 
 @router.put("", dependencies=[AdminSettings])
