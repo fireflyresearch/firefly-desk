@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from flydesk.channels.models import AgentResponse, InboundMessage, Notification
 from flydesk.email.channel_adapter import EmailChannelAdapter
 
@@ -176,6 +178,8 @@ class TestSend:
         )
         settings_repo = AsyncMock()
         settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
             from_address="ember@flydesk.ai",
             from_display_name="Ember",
             signature_html="<p>-- Ember</p>",
@@ -219,6 +223,8 @@ class TestSend:
         )
         settings_repo = AsyncMock()
         settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
             from_address="ember@flydesk.ai",
             from_display_name="Ember",
             signature_html="<p>-- Ember, your assistant</p>",
@@ -248,14 +254,18 @@ class TestSend:
 
     async def test_send_without_reply_metadata_raises(self):
         """send() raises KeyError when no reply metadata exists for the conversation."""
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
+        )
+
         adapter = EmailChannelAdapter(
             email_port=AsyncMock(),
             identity_resolver=AsyncMock(),
             thread_tracker=AsyncMock(),
-            settings_repo=AsyncMock(),
+            settings_repo=settings_repo,
         )
-
-        import pytest
 
         with pytest.raises(KeyError):
             await adapter.send("unknown-conv", AgentResponse(content="Hi"))
@@ -268,6 +278,8 @@ class TestSend:
         )
         settings_repo = AsyncMock()
         settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
             from_address="ember@flydesk.ai",
             from_display_name="Ember",
             signature_html="",
@@ -333,6 +345,37 @@ class TestSendNotification:
         assert sent.to == ["user@example.com"]
         assert sent.subject == "Workflow completed"
         assert "export is ready" in sent.html_body
+
+
+    async def test_send_notification_unresolvable_user_does_not_send(self):
+        """send_notification() gracefully no-ops when user_id cannot be resolved."""
+        email_port = AsyncMock()
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            from_address="ember@flydesk.ai",
+            from_display_name="Ember",
+            signature_html="",
+            include_sign_off=False,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve_by_user_id = AsyncMock(return_value=None)
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=AsyncMock(),
+            settings_repo=settings_repo,
+        )
+
+        notification = Notification(
+            title="Test",
+            summary="This should not be sent.",
+        )
+        # Should not raise
+        await adapter.send_notification("nonexistent-user", notification)
+
+        # Should not have attempted to send an email
+        email_port.send.assert_not_called()
 
 
 class TestChannelType:

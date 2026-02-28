@@ -63,6 +63,16 @@ class EmailThreadTracker:
         await self._record_message(conversation_id, message_id, message_id, subject, participants)
         return conversation_id, True
 
+    async def record_outbound(self, conversation_id: str, message_id: str) -> None:
+        """Record an outbound message ID so future replies can be threaded."""
+        await self._record_message(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            thread_root_id=None,
+            subject="",
+            participants=None,
+        )
+
     async def _find_by_message_id(self, message_id: str) -> EmailThreadRow | None:
         async with self._session_factory() as session:
             stmt = select(EmailThreadRow).where(EmailThreadRow.email_message_id == message_id)

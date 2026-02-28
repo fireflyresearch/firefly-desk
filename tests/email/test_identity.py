@@ -77,3 +77,30 @@ class TestEmailIdentityResolver:
         result = await resolver.resolve("alice@example.com")
         assert result is not None
         assert result.user_id == "user-2"
+
+    async def test_resolve_by_user_id_unknown_returns_none(self, session_factory):
+        resolver = EmailIdentityResolver(session_factory)
+        result = await resolver.resolve_by_user_id("nonexistent-id")
+        assert result is None
+
+    async def test_resolve_by_user_id_known_user(self, session_factory):
+        from flydesk.models.local_user import LocalUserRow
+
+        async with session_factory() as session:
+            user = LocalUserRow(
+                id="user-3",
+                username="bob",
+                email="bob@example.com",
+                display_name="Bob",
+                password_hash="hashed",
+                role="admin",
+            )
+            session.add(user)
+            await session.commit()
+
+        resolver = EmailIdentityResolver(session_factory)
+        result = await resolver.resolve_by_user_id("user-3")
+        assert result is not None
+        assert result.user_id == "user-3"
+        assert result.email == "bob@example.com"
+        assert result.display_name == "Bob"

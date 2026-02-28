@@ -119,6 +119,29 @@ class TestEmailThreadTracker:
         assert is_new_3 is False
         assert conv_id_1 == conv_id_2 == conv_id_3
 
+    async def test_record_outbound_enables_future_threading(self, tracker):
+        """record_outbound() stores message ID so inbound replies can find the thread."""
+        # Create an initial inbound conversation.
+        conv_id, _ = await tracker.resolve_conversation(
+            message_id="<inbound-1@example.com>",
+            in_reply_to=None,
+            references=[],
+            subject="Hello",
+        )
+
+        # Record an outbound reply.
+        await tracker.record_outbound(conv_id, "<outbound-1@provider>")
+
+        # A new inbound that replies to the outbound message should match.
+        conv_id_2, is_new = await tracker.resolve_conversation(
+            message_id="<inbound-2@example.com>",
+            in_reply_to="<outbound-1@provider>",
+            references=["<inbound-1@example.com>", "<outbound-1@provider>"],
+            subject="Re: Hello",
+        )
+        assert is_new is False
+        assert conv_id_2 == conv_id
+
     async def test_participants_stored(self, tracker, session_factory):
         """Participants are persisted in the email_threads row."""
         from flydesk.models.email_thread import EmailThreadRow

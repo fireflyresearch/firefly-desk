@@ -53,3 +53,22 @@ class EmailIdentityResolver:
                 email=row.email,
                 display_name=getattr(row, "display_name", None),
             )
+
+    async def resolve_by_user_id(self, user_id: str) -> ResolvedIdentity | None:
+        """Look up a user by their internal user ID.
+
+        Returns None if no matching user is found.
+        """
+        from flydesk.models.local_user import LocalUserRow
+
+        async with self._session_factory() as session:
+            stmt = select(LocalUserRow).where(LocalUserRow.id == user_id)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            return ResolvedIdentity(
+                user_id=row.id,
+                email=row.email,
+                display_name=getattr(row, "display_name", None),
+            )

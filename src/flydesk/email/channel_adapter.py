@@ -148,8 +148,27 @@ class EmailChannelAdapter:
         the given *conversation_id* (i.e. ``receive()`` was never called
         for this conversation).
         """
-        reply_meta = self._pending_replies[conversation_id]
         settings = await self._settings_repo.get_email_settings()
+
+        # Bail out early if the email channel is disabled.
+        if not settings.enabled:
+            logger.info(
+                "Email channel disabled; skipping send for conversation %s",
+                conversation_id,
+            )
+            return
+
+        reply_meta = self._pending_replies.pop(conversation_id)
+
+        # Handle cc_mode.
+        if settings.cc_mode == "silent":
+            logger.info(
+                "cc_mode is 'silent'; skipping reply for conversation %s",
+                conversation_id,
+            )
+            return
+
+        cc = reply_meta.get("cc", []) if settings.cc_mode == "respond_all" else []
 
         # Simple HTML wrapping (Task 2 replaces this with full markdown->HTML).
         html_body = f"<p>{message.content}</p>"
@@ -162,7 +181,7 @@ class EmailChannelAdapter:
             from_address=settings.from_address,
             from_name=settings.from_display_name,
             to=reply_meta["to"],
-            cc=reply_meta.get("cc", []),
+            cc=cc,
             subject=reply_meta["subject"],
             html_body=html_body,
             text_body=message.content,
