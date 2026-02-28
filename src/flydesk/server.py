@@ -93,6 +93,7 @@ from flydesk.api.knowledge import router as knowledge_router
 from flydesk.api.llm_providers import router as llm_providers_router
 from flydesk.api.llm_status import router as llm_status_router
 from flydesk.api.memory import router as memory_router
+from flydesk.api.notifications import router as notifications_router
 from flydesk.api.oidc_providers import router as oidc_providers_router
 from flydesk.api.openapi_import import router as openapi_import_router
 from flydesk.api.processes import router as processes_router
@@ -1101,5 +1102,6 @@ def create_app() -> FastAPI:
     app.include_router(email_inbound_router)
     app.include_router(email_settings_router)
     app.include_router(webhooks_router)
+    app.include_router(notifications_router)
 
     return app

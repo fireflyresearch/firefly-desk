@@ -21,6 +21,7 @@ from flydesk.models.file_upload import FileUploadRow
 from flydesk.models.git_provider import GitProviderRow
 from flydesk.models.job import JobRow
 from flydesk.models.knowledge import EntityRow, RelationRow
+from flydesk.models.notification_dismissal import NotificationDismissalRow
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 from flydesk.models.local_user import LocalUserRow
 from flydesk.models.process import BusinessProcessRow, ProcessDependencyRow, ProcessStepRow
@@ -57,6 +58,7 @@ __all__ = [
     "LLMProviderRow",
     "LocalUserRow",
     "MessageRow",
+    "NotificationDismissalRow",
     "OIDCProviderRow",
     "ProcessDependencyRow",
     "ProcessStepRow",
