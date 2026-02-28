@@ -380,46 +380,43 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
     before the user has any permissions or stored configuration.
     No authentication is required.
     """
-    import httpx
-
-    model_str = f"{body.provider}:{body.model}"
     dimensions = body.dimensions or DeskConfig.model_fields["embedding_dimensions"].default
 
     try:
-        from flydesk.knowledge.embeddings import LLMEmbeddingProvider
+        from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
+        from flydesk.knowledge.embedding_factory import create_embedder
 
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
-            provider = LLMEmbeddingProvider(
-                http_client=http_client,
-                embedding_model=model_str,
+        provider = GenAIEmbeddingAdapter(
+            create_embedder(
+                body.provider,
+                body.model,
                 dimensions=dimensions,
-                llm_repo=None,  # type: ignore[arg-type]
                 api_key=body.api_key or None,
                 base_url=body.base_url or None,
-                raise_on_error=True,
             )
+        )
 
-            start = time.monotonic()
-            vectors = await provider.embed(["Hello, world!"])
-            elapsed_ms = (time.monotonic() - start) * 1000
+        start = time.monotonic()
+        vectors = await provider.embed(["Hello, world!"])
+        elapsed_ms = (time.monotonic() - start) * 1000
 
-            vec = vectors[0]
-            if all(v == 0.0 for v in vec):
-                hint = "the API key is missing or invalid"
-                if not body.api_key and body.provider != "ollama":
-                    hint = "no API key was provided"
-                return TestEmbeddingResult(
-                    success=False,
-                    dimensions=0,
-                    duration_ms=elapsed_ms,
-                    error=f"Embedding returned zero vectors. Check that {hint} for the selected provider.",
-                )
-
+        vec = vectors[0]
+        if all(v == 0.0 for v in vec):
+            hint = "the API key is missing or invalid"
+            if not body.api_key and body.provider != "ollama":
+                hint = "no API key was provided"
             return TestEmbeddingResult(
-                success=True,
-                dimensions=len(vec),
-                duration_ms=round(elapsed_ms, 1),
+                success=False,
+                dimensions=0,
+                duration_ms=elapsed_ms,
+                error=f"Embedding returned zero vectors. Check that {hint} for the selected provider.",
             )
+
+        return TestEmbeddingResult(
+            success=True,
+            dimensions=len(vec),
+            duration_ms=round(elapsed_ms, 1),
+        )
     except Exception as exc:
         logger.error("Embedding test failed: %s", exc, exc_info=True)
         return TestEmbeddingResult(

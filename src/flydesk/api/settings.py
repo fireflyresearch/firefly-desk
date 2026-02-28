@@ -403,31 +403,17 @@ async def test_embedding(request: Request, repo: Repo) -> EmbeddingTestResult:
     provider_name, model_name = parts
 
     try:
-        from flydesk.knowledge.embeddings import LLMEmbeddingProvider
-        from flydesk.llm.repository import LLMProviderRepository
+        from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
+        from flydesk.knowledge.embedding_factory import create_embedder
 
-        http_client = getattr(request.app.state, "http_client", None)
-        session_factory = getattr(request.app.state, "session_factory", None)
-
-        if not http_client or not session_factory:
-            return EmbeddingTestResult(
-                success=False,
-                provider=provider_name,
-                model=model_name,
+        test_provider = GenAIEmbeddingAdapter(
+            create_embedder(
+                provider_name,
+                model_name,
                 dimensions=dimensions,
-                error="Server not fully initialized.",
+                api_key=api_key or None,
+                base_url=base_url or None,
             )
-
-        encryption_key = config.credential_encryption_key if config else ""
-        llm_repo = LLMProviderRepository(session_factory, encryption_key)
-
-        test_provider = LLMEmbeddingProvider(
-            http_client=http_client,
-            embedding_model=model_str,
-            dimensions=dimensions,
-            llm_repo=llm_repo,
-            api_key=api_key or None,
-            base_url=base_url or None,
         )
 
         vectors = await test_provider.embed(["Hello, this is a test embedding."])
@@ -465,7 +451,8 @@ async def test_embedding(request: Request, repo: Repo) -> EmbeddingTestResult:
 async def _reinitialize_embedding_provider(app: object, repo: SettingsRepository) -> None:
     """Reinitialize the live embedding provider from updated DB settings."""
     try:
-        from flydesk.knowledge.embeddings import LLMEmbeddingProvider
+        from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
+        from flydesk.knowledge.embedding_factory import create_embedder, parse_embedding_config
 
         settings = await repo.get_all_app_settings(category="embedding")
         config = getattr(app, "state", None)
@@ -492,23 +479,16 @@ async def _reinitialize_embedding_provider(app: object, repo: SettingsRepository
             )
         )
 
-        http_client = getattr(config, "http_client", None)
-        session_factory = getattr(config, "session_factory", None)
-        if not http_client or not session_factory:
-            return
+        provider_name, model_name = parse_embedding_config(model_str)
 
-        encryption_key = app_config.credential_encryption_key if app_config else ""
-        from flydesk.llm.repository import LLMProviderRepository
-
-        llm_repo = LLMProviderRepository(session_factory, encryption_key)
-
-        new_provider = LLMEmbeddingProvider(
-            http_client=http_client,
-            embedding_model=model_str,
-            dimensions=dimensions,
-            llm_repo=llm_repo,
-            api_key=api_key or None,
-            base_url=base_url or None,
+        new_provider = GenAIEmbeddingAdapter(
+            create_embedder(
+                provider_name,
+                model_name,
+                dimensions=dimensions,
+                api_key=api_key or None,
+                base_url=base_url or None,
+            )
         )
 
         # Hot-swap the provider in the indexer and retriever via desk_agent
