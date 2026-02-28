@@ -38,7 +38,9 @@
 		Lock,
 		Settings,
 		Mail,
-		Activity
+		Activity,
+		Webhook,
+		Radio
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -88,6 +90,8 @@
 			icon: Settings,
 			items: [
 				{ href: '/admin/jobs', label: 'Jobs', icon: Activity },
+				{ href: '/admin/callbacks', label: 'Callbacks', icon: Webhook },
+				{ href: '/admin/dev-tools', label: 'Dev Tools', icon: Radio },
 				{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 				{ href: '/admin/exports', label: 'Exports', icon: Download },
 				{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },

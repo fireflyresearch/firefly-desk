@@ -1481,14 +1481,14 @@
 								</ol>
 							{/if}
 						</div>
-						<!-- Cross-link to Webhooks tunnel -->
+						<!-- Cross-link to Dev Tools tunnel -->
 						<div class="mt-3 flex items-center gap-2 rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-2">
 							<Globe size={12} class="text-accent" />
 							<span class="text-[11px] text-text-secondary">
 								Need a tunnel for local development?
 							</span>
-							<a href="/admin/webhooks" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
-								Set up in Webhooks
+							<a href="/admin/dev-tools" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+								Set up in Dev Tools
 								<ArrowUpRight size={10} />
 							</a>
 						</div>
