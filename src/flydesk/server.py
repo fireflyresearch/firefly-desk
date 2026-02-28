@@ -38,6 +38,7 @@ from flydesk.api.credentials import router as credentials_router
 from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.dashboard import router as dashboard_router
 from flydesk.api.document_sources import router as document_sources_router
+from flydesk.api.email_inbound import router as email_inbound_router
 from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
@@ -1059,5 +1060,6 @@ def create_app() -> FastAPI:
     app.include_router(workspace_router)
     app.include_router(document_sources_router)
     app.include_router(cloud_import_router)
+    app.include_router(email_inbound_router)
 
     return app
