@@ -20,6 +20,9 @@ from httpx import ASGITransport, AsyncClient
 from flydesk.channels.models import AgentResponse, InboundMessage
 from flydesk.settings.models import EmailSettings
 
+# DeskAgent's response type (distinct from channels.models.AgentResponse)
+from flydesk.agent.response import AgentResponse as DeskAgentResponse
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,7 +76,29 @@ def mock_settings_repo():
 
 
 @pytest.fixture
-async def client(mock_adapter, mock_settings_repo):
+def mock_desk_agent():
+    """Return an AsyncMock that mimics DeskAgent."""
+    agent = AsyncMock()
+    agent.run = AsyncMock(return_value=DeskAgentResponse(
+        text="I can help you with that.",
+        turn_id="turn-1",
+        conversation_id="conv-001",
+    ))
+    return agent
+
+
+@pytest.fixture
+def mock_conversation_repo():
+    """Return an AsyncMock that mimics ConversationRepository."""
+    repo = AsyncMock()
+    repo.get_conversation = AsyncMock(return_value=None)  # new conversation by default
+    repo.create_conversation = AsyncMock()
+    repo.add_message = AsyncMock()
+    return repo
+
+
+@pytest.fixture
+async def client(mock_adapter, mock_settings_repo, mock_desk_agent, mock_conversation_repo):
     """AsyncClient with mocked adapter and settings repo dependencies.
 
     The inbound email webhook is intended for external providers, so we
@@ -95,6 +120,10 @@ async def client(mock_adapter, mock_settings_repo):
 
         app.dependency_overrides[get_email_channel_adapter] = lambda: mock_adapter
         app.dependency_overrides[get_settings_repo] = lambda: mock_settings_repo
+
+        # Set DeskAgent and ConversationRepository on app state
+        app.state.desk_agent = mock_desk_agent
+        app.state.conversation_repo = mock_conversation_repo
 
         # Bypass auth middleware by injecting a user session.
         from flydesk.auth.models import UserSession
@@ -209,9 +238,9 @@ class TestAutoReplyDisabled:
 
 class TestSuccessfulProcessing:
     async def test_full_pipeline_returns_processed(
-        self, client, mock_adapter, mock_settings_repo
+        self, client, mock_adapter, mock_settings_repo, mock_desk_agent
     ):
-        """Full pipeline: receive -> auto-reply -> send -> 'processed'."""
+        """Full pipeline: receive -> agent reply -> send -> 'processed'."""
         response = await client.post(
             "/api/email/inbound/resend",
             json={"from": "user@example.com", "subject": "Help me"},
@@ -225,12 +254,15 @@ class TestSuccessfulProcessing:
         mock_adapter.receive.assert_awaited_once()
         mock_adapter.send.assert_awaited_once()
 
+        # DeskAgent was invoked.
+        mock_desk_agent.run.assert_awaited_once()
+
         # Verify send was called with the correct conversation_id and an AgentResponse.
         call_args = mock_adapter.send.call_args
         assert call_args[0][0] == "conv-001"
         agent_resp = call_args[0][1]
         assert isinstance(agent_resp, AgentResponse)
-        assert "received your message" in agent_resp.content
+        assert agent_resp.content == "I can help you with that."
 
     async def test_ses_provider_accepted(self, client, mock_adapter):
         """SES provider should also work end-to-end."""
@@ -252,15 +284,94 @@ class TestSuccessfulProcessing:
         assert call_args["provider"] == "resend"
         assert call_args["payload"] == payload
 
-    async def test_auto_reply_response_metadata(
+    async def test_agent_reply_response_metadata(
         self, client, mock_adapter, mock_settings_repo
     ):
-        """The auto-reply AgentResponse should have appropriate metadata."""
+        """The agent reply AgentResponse should have appropriate metadata."""
         await client.post(
             "/api/email/inbound/resend",
             json={"from": "user@example.com"},
         )
 
         agent_resp = mock_adapter.send.call_args[0][1]
-        assert agent_resp.metadata.get("source") == "auto_reply"
+        assert agent_resp.metadata.get("source") == "agent"
         assert agent_resp.metadata.get("channel") == "email"
+
+    async def test_agent_creates_conversation_when_new(
+        self, client, mock_adapter, mock_conversation_repo
+    ):
+        """When no existing conversation, the endpoint creates one and persists messages."""
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "New request"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "processed"
+
+        # Conversation was created since get_conversation returned None.
+        mock_conversation_repo.create_conversation.assert_awaited_once()
+
+        # Two messages persisted: user message + assistant reply.
+        assert mock_conversation_repo.add_message.await_count == 2
+
+    async def test_existing_conversation_not_recreated(
+        self, client, mock_adapter, mock_conversation_repo
+    ):
+        """When a conversation already exists, it should not be recreated."""
+        from flydesk.conversation.models import Conversation
+
+        mock_conversation_repo.get_conversation.return_value = Conversation(
+            id="conv-001",
+            title="Existing conversation",
+            user_id="user-1",
+            metadata={"channel": "email"},
+        )
+
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "Follow-up"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "processed"
+
+        # create_conversation should NOT have been called.
+        mock_conversation_repo.create_conversation.assert_not_awaited()
+
+        # Messages still persisted.
+        assert mock_conversation_repo.add_message.await_count == 2
+
+    async def test_agent_error_returns_error_status(
+        self, client, mock_adapter, mock_desk_agent
+    ):
+        """When DeskAgent.run raises, return error status."""
+        mock_desk_agent.run.side_effect = RuntimeError("LLM timeout")
+
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "Help"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "error"
+        assert data["reason"] == "agent_error"
+
+        # Adapter send should NOT have been called since agent failed.
+        mock_adapter.send.assert_not_awaited()
+
+    async def test_agent_not_configured_returns_error(self, client, mock_adapter):
+        """When desk_agent is not on app.state, return error."""
+        # Remove desk_agent from app state
+        transport = client._transport
+        app = transport.app
+        app.state.desk_agent = None
+
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "Help"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "error"
+        assert data["reason"] == "agent_not_configured"
+
+        mock_adapter.send.assert_not_awaited()
