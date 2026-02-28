@@ -11,14 +11,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.knowledge import EntityRow, RelationRow
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -55,10 +58,15 @@ class EntityGraph:
 
 
 class KnowledgeGraph:
-    """Entity/relation knowledge graph with text-based search."""
+    """Entity/relation knowledge graph with text-based and semantic search."""
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        embedding_provider: Any | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._embedding_provider = embedding_provider
 
     async def upsert_entity(self, entity: Entity) -> None:
         """Insert or update an entity. On update, increment mention_count."""
@@ -69,6 +77,7 @@ class KnowledgeGraph:
                 existing.properties = self._to_json(entity.properties)
                 existing.confidence = entity.confidence
                 existing.mention_count = existing.mention_count + 1
+                row = existing
             else:
                 row = EntityRow(
                     id=entity.id,
@@ -80,6 +89,17 @@ class KnowledgeGraph:
                     mention_count=entity.mention_count,
                 )
                 session.add(row)
+
+            # Generate embedding if provider available
+            if self._embedding_provider:
+                try:
+                    embed_text = f"{entity.name} ({entity.entity_type}): {entity.properties}"
+                    embeddings = await self._embedding_provider.embed([embed_text])
+                    if embeddings and embeddings[0]:
+                        row.embedding = self._serialize_embedding(embeddings[0])
+                except Exception:
+                    _logger.debug("Failed to embed entity %s", entity.id)
+
             await session.commit()
 
     async def get_entity(self, entity_id: str) -> Entity | None:
@@ -106,10 +126,25 @@ class KnowledgeGraph:
     async def find_relevant_entities(
         self, query: str, *, limit: int = 5
     ) -> list[Entity]:
+        """Find entities semantically or by name (case-insensitive LIKE fallback)."""
+        if self._embedding_provider:
+            try:
+                query_embeddings = await self._embedding_provider.embed([query])
+                if query_embeddings and query_embeddings[0]:
+                    results = await self._find_by_embedding(query_embeddings[0], limit)
+                    if results:
+                        return results
+            except Exception:
+                _logger.debug("Semantic entity search failed, falling back to LIKE")
+
+        # Fallback to existing LIKE-based search
+        return await self._find_by_like(query, limit)
+
+    async def _find_by_like(
+        self, query: str, limit: int
+    ) -> list[Entity]:
         """Find entities whose name contains the query string (case-insensitive)."""
         async with self._session_factory() as session:
-            # Simple LIKE-based search for SQLite compatibility
-            # In production with PostgreSQL, use tsvector/GIN index
             stmt = (
                 select(EntityRow)
                 .where(EntityRow.name.ilike(f"%{query}%"))
@@ -118,6 +153,40 @@ class KnowledgeGraph:
             )
             result = await session.execute(stmt)
             return [self._row_to_entity(r) for r in result.scalars().all()]
+
+    async def _find_by_embedding(
+        self, embedding: list[float], limit: int
+    ) -> list[Entity]:
+        """Find entities by cosine distance using pgvector."""
+        async with self._session_factory() as session:
+            embedding_str = "[" + ",".join(str(v) for v in embedding) + "]"
+            query = text("""
+                SELECT id, entity_type, name, properties, source_system,
+                       confidence, mention_count
+                FROM kg_entities
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> :embedding
+                LIMIT :limit
+            """)
+            result = await session.execute(
+                query, {"embedding": embedding_str, "limit": limit}
+            )
+            return [
+                self._row_to_entity_from_raw(row) for row in result.fetchall()
+            ]
+
+    @classmethod
+    def _row_to_entity_from_raw(cls, row: Any) -> Entity:
+        """Convert a raw SQL row tuple to an Entity."""
+        return Entity(
+            id=row[0],
+            entity_type=row[1],
+            name=row[2],
+            properties=cls._from_json(row[3]),
+            source_system=row[4],
+            confidence=row[5],
+            mention_count=row[6],
+        )
 
     async def get_entity_neighborhood(
         self, entity_id: str, *, depth: int = 1
@@ -284,6 +353,16 @@ class KnowledgeGraph:
         if isinstance(value, str):
             return json.loads(value)
         return value
+
+    @staticmethod
+    def _serialize_embedding(embedding: list[float]) -> Any:
+        """Serialize embedding for storage.
+
+        pgvector accepts lists natively; SQLite needs a JSON string.
+        We always return a JSON string here which works for both backends
+        (pgvector will cast it automatically).
+        """
+        return json.dumps(embedding)
 
     @classmethod
     def _row_to_entity(cls, row: EntityRow) -> Entity:

@@ -519,7 +519,7 @@ async def _init_agent(  # noqa: PLR0913
     from flydesk.tools.factory import ToolFactory
     from flydesk.widgets.parser import WidgetParser
 
-    knowledge_graph = KnowledgeGraph(session_factory)
+    knowledge_graph = KnowledgeGraph(session_factory, embedding_provider=embedding_provider)
     retriever = KnowledgeRetriever(session_factory, embedding_provider, vector_store=vector_store)
     context_enricher = ContextEnricher(
         knowledge_graph=knowledge_graph,

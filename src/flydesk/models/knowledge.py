@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,6 +21,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from flydesk.models.base import Base
 
 _JSON = JSONB().with_variant(Text, "sqlite")
+
+# pgvector Vector type for PostgreSQL; falls back to Text (JSON) for SQLite.
+_VECTOR = Vector(1536).with_variant(Text, "sqlite")
 
 
 def _utcnow() -> datetime:
@@ -36,6 +40,7 @@ class EntityRow(Base):
     source_system: Mapped[str | None] = mapped_column(String(255), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     mention_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    embedding = mapped_column(_VECTOR, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
