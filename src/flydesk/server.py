@@ -1090,6 +1090,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    # Stop ngrok tunnel if active
+    tunnel_manager = getattr(app.state, "tunnel_manager", None)
+    if tunnel_manager is not None:
+        tunnel_manager.stop()
+
     search_provider = getattr(app.state, "search_provider", None)
     if search_provider and hasattr(search_provider, "aclose"):
         await search_provider.aclose()

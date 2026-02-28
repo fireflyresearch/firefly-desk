@@ -6,6 +6,7 @@
 -->
 <script>
 	import EmailSettings from '$lib/components/admin/EmailSettings.svelte';
+	import { currentUser } from '$lib/stores/user.js';
 </script>
 
-<EmailSettings />
+<EmailSettings devMode={$currentUser?.devMode} />

@@ -26,10 +26,12 @@
 		CircleUser,
 		SlidersHorizontal,
 		Eye,
-		Code
+		Code,
+		Sparkles
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
+	import EmailSetupWizard from './EmailSetupWizard.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -108,6 +110,16 @@
 	];
 
 	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	interface Props {
+		devMode?: boolean;
+	}
+
+	let { devMode = false }: Props = $props();
+
+	// -----------------------------------------------------------------------
 	// State
 	// -----------------------------------------------------------------------
 
@@ -115,6 +127,7 @@
 	let saving = $state(false);
 	let error = $state('');
 	let successMsg = $state('');
+	let showWizard = $state(false);
 
 	let testEmail = $state('');
 	let testSending = $state(false);
@@ -167,6 +180,11 @@
 			]);
 			form = { ...EMAIL_DEFAULTS, ...settings };
 			status = st;
+
+			// Auto-open wizard on first visit when email is not configured
+			if (!st.configured && !showWizard) {
+				showWizard = true;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load email settings';
 		} finally {
@@ -254,11 +272,21 @@
 <div class="flex h-full flex-col overflow-hidden">
 	<!-- Header -->
 	<div class="shrink-0 px-6 pt-6 pb-4">
-		<div class="mb-4">
-			<h1 class="text-lg font-semibold text-text-primary">Email Settings</h1>
-			<p class="text-sm text-text-secondary">
-				Configure the email channel, provider, identity, and behaviour
-			</p>
+		<div class="mb-4 flex items-start justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Email Settings</h1>
+				<p class="text-sm text-text-secondary">
+					Configure the email channel, provider, identity, and behaviour
+				</p>
+			</div>
+			<button
+				type="button"
+				onclick={() => (showWizard = true)}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			>
+				<Sparkles size={14} />
+				Setup Wizard
+			</button>
 		</div>
 
 		<!-- Tab bar -->
@@ -915,3 +943,13 @@
 		</div>
 	{/if}
 </div>
+
+<EmailSetupWizard
+	open={showWizard}
+	{devMode}
+	onClose={() => (showWizard = false)}
+	onSaved={() => {
+		showWizard = false;
+		loadSettings();
+	}}
+/>

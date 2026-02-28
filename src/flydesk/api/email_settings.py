@@ -10,13 +10,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from flydesk.api.deps import get_settings_repo
+from flydesk.config import get_config
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.models import EmailSettings
 from flydesk.settings.repository import SettingsRepository
@@ -141,3 +143,90 @@ async def get_email_status(repo: SettingsRepo) -> dict:
         "from_address": settings.from_address,
         "configured": bool(settings.provider_api_key or settings.provider_region),
     }
+
+
+# ---------------------------------------------------------------------------
+# Validate credentials (wizard flow — validates without saving)
+# ---------------------------------------------------------------------------
+
+
+class ValidateCredentialsRequest(BaseModel):
+    provider: str
+    api_key: str = ""
+    region: str = ""
+
+
+@router.post("/validate-credentials", dependencies=[AdminSettings])
+async def validate_credentials(body: ValidateCredentialsRequest) -> dict:
+    """Validate email provider credentials inline without persisting.
+
+    Used by the setup wizard to let admins verify their API key before
+    committing to a full save.
+    """
+    if body.provider == "resend":
+        if not body.api_key:
+            return {"success": False, "error": "API key is required for Resend"}
+
+        from flydesk.email.adapters.resend_adapter import ResendEmailAdapter
+
+        adapter = ResendEmailAdapter(api_key=body.api_key)
+        result = await adapter.validate()
+        return {
+            "success": result.success,
+            "error": result.error,
+            "details": result.metadata,
+        }
+    elif body.provider == "ses":
+        return {"success": False, "error": "SES validation not yet implemented"}
+    else:
+        return {"success": False, "error": f"Unknown provider: {body.provider}"}
+
+
+# ---------------------------------------------------------------------------
+# Dev tunnel management (dev_mode only)
+# ---------------------------------------------------------------------------
+
+
+def _get_tunnel_manager(request: Request):
+    """Lazy-init a TunnelManager singleton on app.state."""
+    from flydesk.email.tunnel import TunnelManager
+
+    if not hasattr(request.app.state, "tunnel_manager"):
+        request.app.state.tunnel_manager = TunnelManager()
+    return request.app.state.tunnel_manager
+
+
+@router.get("/tunnel/status", dependencies=[AdminSettings])
+async def tunnel_status(request: Request) -> dict:
+    """Return tunnel availability and active state."""
+    config = get_config()
+    if not config.dev_mode:
+        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
+
+    manager = _get_tunnel_manager(request)
+    info = manager.status()
+    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
+
+
+@router.post("/tunnel/start", dependencies=[AdminSettings])
+async def tunnel_start(request: Request) -> dict:
+    """Start an ngrok tunnel (dev_mode only)."""
+    config = get_config()
+    if not config.dev_mode:
+        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
+
+    manager = _get_tunnel_manager(request)
+    info = await asyncio.to_thread(manager.start, 8000)
+    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
+
+
+@router.post("/tunnel/stop", dependencies=[AdminSettings])
+async def tunnel_stop(request: Request) -> dict:
+    """Stop the active ngrok tunnel (dev_mode only)."""
+    config = get_config()
+    if not config.dev_mode:
+        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
+
+    manager = _get_tunnel_manager(request)
+    info = await asyncio.to_thread(manager.stop)
+    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
