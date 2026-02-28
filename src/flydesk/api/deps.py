@@ -55,6 +55,7 @@ from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
     from flydesk.catalog.ports import CredentialStore
+    from flydesk.channels.router import ChannelRouter
     from flydesk.email.channel_adapter import EmailChannelAdapter
     from flydesk.knowledge.analyzer import DocumentAnalyzer
     from flydesk.knowledge.ports import KnowledgeDocumentStore
@@ -85,6 +86,17 @@ def get_catalog_repo() -> CatalogRepository:
     """
     raise NotImplementedError(
         "get_catalog_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_channel_router() -> ChannelRouter:
+    """Provide the :class:`ChannelRouter` instance.
+
+    In production this is wired via the lifespan after channel adapters
+    are registered.  In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_channel_router must be overridden via app.dependency_overrides"
     )
 
 

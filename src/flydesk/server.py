@@ -45,12 +45,14 @@ from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
     get_catalog_repo,
+    get_channel_router,
     get_content_extractor,
     get_conversation_repo,
     get_credential_store,
     get_custom_tool_repo,
     get_document_analyzer,
     get_document_source_repo,
+    get_email_channel_adapter,
     get_export_repo,
     get_export_service,
     get_export_storage,
@@ -305,7 +307,11 @@ def _init_file_system(
     app.dependency_overrides[get_export_service] = lambda: export_service
     app.dependency_overrides[get_export_storage] = lambda: file_storage
 
-    return {"file_repo": file_repo, "file_storage": file_storage}
+    return {
+        "file_repo": file_repo,
+        "file_storage": file_storage,
+        "content_extractor": content_extractor,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +897,81 @@ async def _init_workflows(
 
 
 # ---------------------------------------------------------------------------
+# Email channel
+# ---------------------------------------------------------------------------
+
+
+async def _init_email_channel(
+    app: FastAPI,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    settings_repo: Any,
+    file_repo: Any,
+    file_storage: Any,
+    content_extractor: Any,
+) -> None:
+    """Create and register the email channel adapter if email is enabled.
+
+    Reads email settings from the database.  When the channel is disabled the
+    function logs an informational message and returns without registering
+    anything -- the rest of the application continues to work normally.
+    """
+    from flydesk.channels.router import ChannelRouter
+    from flydesk.email.channel_adapter import EmailChannelAdapter
+    from flydesk.email.identity import EmailIdentityResolver
+    from flydesk.email.threading import EmailThreadTracker
+
+    # Read persisted email settings to decide whether to enable.
+    email_settings = await settings_repo.get_email_settings()
+
+    # Always create a ChannelRouter even if no channels are enabled yet,
+    # so other code can safely depend on it.
+    router = ChannelRouter()
+
+    if not email_settings.enabled:
+        logger.info("Email channel is disabled; skipping adapter registration.")
+        app.state.channel_router = router
+        app.dependency_overrides[get_channel_router] = lambda: router
+        return
+
+    # Build the email transport adapter based on configured provider.
+    provider = email_settings.provider.lower()
+    if provider == "ses":
+        from flydesk.email.adapters.ses_adapter import SESEmailAdapter
+
+        email_port = SESEmailAdapter(
+            region=email_settings.provider_region or "us-east-1",
+        )
+    else:
+        # Default to Resend.
+        from flydesk.email.adapters.resend_adapter import ResendEmailAdapter
+
+        email_port = ResendEmailAdapter(api_key=email_settings.provider_api_key)
+
+    identity_resolver = EmailIdentityResolver(session_factory)
+    thread_tracker = EmailThreadTracker(session_factory)
+
+    adapter = EmailChannelAdapter(
+        email_port=email_port,
+        identity_resolver=identity_resolver,
+        thread_tracker=thread_tracker,
+        settings_repo=settings_repo,
+        file_repo=file_repo,
+        file_storage=file_storage,
+        content_extractor=content_extractor,
+    )
+
+    router.register("email", adapter)
+
+    app.state.channel_router = router
+    app.state.email_channel_adapter = adapter
+    app.dependency_overrides[get_channel_router] = lambda: router
+    app.dependency_overrides[get_email_channel_adapter] = lambda: adapter
+
+    logger.info("Email channel registered (provider=%s).", provider)
+
+
+# ---------------------------------------------------------------------------
 # Lifespan orchestrator
 # ---------------------------------------------------------------------------
 
@@ -971,20 +1052,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     workflows = await _init_workflows(app, session_factory)
     ctx.closables.append(workflows["workflow_scheduler"])
 
-    # 10. Auth / OIDC
+    # 10. Email channel (conditionally enabled)
+    await _init_email_channel(
+        app,
+        session_factory,
+        settings_repo=repos["settings_repo"],
+        file_repo=files["file_repo"],
+        file_storage=files["file_storage"],
+        content_extractor=files["content_extractor"],
+    )
+
+    # 11. Auth / OIDC
     _init_auth(app, config, session_factory)
 
-    # 11. Store shared state
+    # 12. Store shared state
     app.dependency_overrides[get_session_factory] = lambda: session_factory
     app.state.config = config
     app.state.session_factory = session_factory
     app.state.conversation_repo = repos["conversation_repo"]
     app.state.started_at = datetime.now(timezone.utc)
 
-    # 12. Ensure default workspace exists
+    # 13. Ensure default workspace exists
     default_ws_id = await _ensure_default_workspace(session_factory)
 
-    # 13. Auto-index platform docs (assigned to default workspace)
+    # 14. Auto-index platform docs (assigned to default workspace)
     await _seed_platform_docs(
         config, knowledge["indexer"], repos["catalog_repo"],
         default_workspace_ids=[default_ws_id],
