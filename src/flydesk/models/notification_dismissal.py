@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flydesk.models.base import Base
@@ -30,6 +30,7 @@ class NotificationDismissalRow(Base):
     """
 
     __tablename__ = "notification_dismissals"
+    __table_args__ = (UniqueConstraint("notification_id", name="uq_notification_dismissals_nid"),)
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     notification_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

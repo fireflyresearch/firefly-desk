@@ -432,6 +432,14 @@ class TestAttachmentProcessing:
         # file_ids should be in metadata
         assert len(msg.metadata.get("file_ids", [])) == 1
 
+        # Verify FileUpload field values
+        created_upload = file_repo.create.call_args[0][0]
+        assert created_upload.filename == "invoice.pdf"
+        assert created_upload.user_id == "user-1"
+        assert created_upload.conversation_id == "conv-2"
+        assert created_upload.content_type == "application/pdf"
+        assert created_upload.extracted_text == "Extracted invoice text"
+
     async def test_receive_skips_attachments_with_url_only(self):
         """Attachments with only a URL (no content bytes) are skipped."""
         email_port = AsyncMock()

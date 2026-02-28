@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -23,12 +24,16 @@ from flydesk.api.deps import get_job_repo, get_session_factory, get_workflow_rep
 from flydesk.jobs.models import Job
 from flydesk.jobs.repository import JobRepository
 from flydesk.models.notification_dismissal import NotificationDismissalRow
+from flydesk.rbac.guards import require_permission
 from flydesk.workflows.models import Workflow
 from flydesk.workflows.repository import WorkflowRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+
+# Permission guard
+NotificationsRead = require_permission("jobs:read")
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -75,12 +80,17 @@ def _workflow_to_notification(wf: Workflow) -> dict:
 
 async def _get_dismissed_ids(
     session_factory: async_sessionmaker[AsyncSession],
+    candidate_ids: set[str],
 ) -> set[str]:
-    """Return the set of dismissed notification IDs."""
+    """Return the set of dismissed notification IDs from *candidate_ids*."""
+    if not candidate_ids:
+        return set()
     async with session_factory() as session:
-        stmt = select(NotificationDismissalRow.notification_id)
+        stmt = select(NotificationDismissalRow.notification_id).where(
+            NotificationDismissalRow.notification_id.in_(candidate_ids)
+        )
         result = await session.execute(stmt)
-        return {row for row in result.scalars().all()}
+        return set(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +98,7 @@ async def _get_dismissed_ids(
 # ---------------------------------------------------------------------------
 
 
-@router.get("")
+@router.get("", dependencies=[NotificationsRead])
 async def list_notifications(
     job_repo: JobRepo,
     wf_repo: WorkflowRepo,
@@ -100,12 +110,15 @@ async def list_notifications(
     Results are ordered by ``created_at DESC`` and capped at *limit*.
     Dismissed notifications are excluded.
     """
-    # Fetch jobs and workflows in parallel-ish (both are async)
-    jobs = await job_repo.list(limit=limit)
-    workflows = await wf_repo.list(limit=limit)
+    # Fetch jobs and workflows in parallel
+    jobs, workflows = await asyncio.gather(
+        job_repo.list(limit=limit),
+        wf_repo.list(limit=limit),
+    )
 
-    # Get dismissed IDs
-    dismissed = await _get_dismissed_ids(session_factory)
+    # Collect candidate IDs and get dismissed set
+    candidate_ids = {j.id for j in jobs} | {wf.id for wf in workflows}
+    dismissed = await _get_dismissed_ids(session_factory, candidate_ids)
 
     # Convert to notifications
     notifications: list[dict] = []
@@ -128,7 +141,7 @@ async def list_notifications(
     return {"notifications": notifications}
 
 
-@router.patch("/{notification_id}/dismiss")
+@router.patch("/{notification_id}/dismiss", dependencies=[NotificationsRead])
 async def dismiss_notification(
     notification_id: str,
     job_repo: JobRepo,
@@ -138,7 +151,8 @@ async def dismiss_notification(
     """Mark a notification as dismissed so it no longer appears in the list.
 
     Returns 404 if the notification ID does not correspond to an existing
-    job or workflow.
+    job or workflow.  Dismissing an already-dismissed notification is a
+    no-op (idempotent).
     """
     # Verify the notification exists (either as a job or a workflow)
     job = await job_repo.get(notification_id)
@@ -146,6 +160,11 @@ async def dismiss_notification(
 
     if job is None and workflow is None:
         raise HTTPException(status_code=404, detail="Notification not found")
+
+    # Check if already dismissed
+    already = await _get_dismissed_ids(session_factory, {notification_id})
+    if notification_id in already:
+        return {"dismissed": True, "notification_id": notification_id}
 
     # Persist the dismissal
     async with session_factory() as session:

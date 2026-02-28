@@ -184,9 +184,6 @@ class EmailChannelAdapter:
 
         Returns a list of generated file upload IDs.
         """
-        assert self._file_repo is not None  # noqa: S101 -- guarded by caller
-        assert self._file_storage is not None  # noqa: S101
-
         file_ids: list[str] = []
 
         for att in attachments:
@@ -226,9 +223,8 @@ class EmailChannelAdapter:
                 user_id=user_id,
                 filename=att.filename,
                 content_type=att.content_type,
-                file_size=att.size,
+                file_size=len(att.content),
                 storage_path=storage_path,
-                storage_backend="local",
                 extracted_text=extracted_text,
                 metadata={"source": "email"},
             )
