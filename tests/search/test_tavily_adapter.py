@@ -95,6 +95,33 @@ def test_tavily_registered_in_factory():
     assert "tavily" in SearchProviderFactory.available_providers()
 
 
+def test_default_api_url():
+    adapter = TavilyAdapter(api_key="tvly-test-key")
+    assert adapter._api_url == "https://api.tavily.com"
+
+
+def test_custom_api_url():
+    adapter = TavilyAdapter(api_key="tvly-test-key", api_url="https://tavily.proxy.internal/")
+    assert adapter._api_url == "https://tavily.proxy.internal"
+
+
+@pytest.mark.asyncio
+async def test_search_uses_configured_api_url():
+    adapter = TavilyAdapter(api_key="tvly-test-key", api_url="https://custom.tavily.test")
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"results": []}
+    mock_response.raise_for_status.return_value = None
+
+    with patch.object(adapter, "_client") as mock_client:
+        mock_client.post = AsyncMock(return_value=mock_response)
+        await adapter.search("test query")
+
+    mock_client.post.assert_called_once()
+    call_args = mock_client.post.call_args
+    assert call_args[0][0] == "https://custom.tavily.test/search"
+
+
 @pytest.mark.asyncio
 async def test_aclose(adapter):
     await adapter.aclose()

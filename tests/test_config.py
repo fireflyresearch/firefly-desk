@@ -129,3 +129,25 @@ class TestDeskConfig:
             assert cfg.circuit_breaker_enabled is True
             assert cfg.circuit_breaker_failure_threshold == 10
             assert cfg.circuit_breaker_recovery_timeout == 120
+
+    # -- External API Base URL fields --
+
+    def test_api_url_defaults(self):
+        """External API base URL fields have sensible defaults."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
+        }):
+            cfg = DeskConfig()
+            assert cfg.sendgrid_api_base == "https://api.sendgrid.com"
+            assert cfg.tavily_api_url == "https://api.tavily.com"
+
+    def test_api_urls_from_env(self):
+        """External API base URLs can be overridden via environment variables."""
+        with patch.dict(os.environ, {
+            "FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db",
+            "FLYDESK_SENDGRID_API_BASE": "https://sendgrid.proxy.internal",
+            "FLYDESK_TAVILY_API_URL": "https://tavily.proxy.internal",
+        }):
+            cfg = DeskConfig()
+            assert cfg.sendgrid_api_base == "https://sendgrid.proxy.internal"
+            assert cfg.tavily_api_url == "https://tavily.proxy.internal"

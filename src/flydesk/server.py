@@ -574,7 +574,11 @@ async def _init_agent(  # noqa: PLR0913
             search_max = int(search_settings.get("search_max_results", "5"))
             search_provider = SearchProviderFactory.create(
                 search_provider_name,
-                {"api_key": search_api_key, "max_results": search_max},
+                {
+                    "api_key": search_api_key,
+                    "max_results": search_max,
+                    "api_url": config.tavily_api_url,
+                },
             )
             logger.info("Search provider initialized: %s", search_provider_name)
     except Exception:
@@ -919,6 +923,7 @@ async def _init_email_channel(
     app: FastAPI,
     session_factory: async_sessionmaker[AsyncSession],
     *,
+    config: DeskConfig,
     settings_repo: Any,
     file_repo: Any,
     file_storage: Any,
@@ -960,7 +965,10 @@ async def _init_email_channel(
     elif provider == "sendgrid":
         from flydesk.email.adapters.sendgrid_adapter import SendGridEmailAdapter
 
-        email_port = SendGridEmailAdapter(api_key=email_settings.provider_api_key)
+        email_port = SendGridEmailAdapter(
+            api_key=email_settings.provider_api_key,
+            api_base=config.sendgrid_api_base,
+        )
     else:
         # Default to Resend.
         from flydesk.email.adapters.resend_adapter import ResendEmailAdapter
@@ -1074,6 +1082,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await _init_email_channel(
         app,
         session_factory,
+        config=config,
         settings_repo=repos["settings_repo"],
         file_repo=files["file_repo"],
         file_storage=files["file_storage"],

@@ -18,14 +18,21 @@ from flydesk.search.provider import SearchProviderFactory, SearchResult
 
 logger = logging.getLogger(__name__)
 
-_TAVILY_API_URL = "https://api.tavily.com/search"
+_DEFAULT_TAVILY_API_URL = "https://api.tavily.com"
 
 
 class TavilyAdapter:
     """Search provider using the Tavily search API."""
 
-    def __init__(self, api_key: str, *, max_results: int = 5) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        api_url: str = _DEFAULT_TAVILY_API_URL,
+        max_results: int = 5,
+    ) -> None:
         self._api_key = api_key
+        self._api_url = api_url.rstrip("/")
         self._max_results = max_results
         self._client = httpx.AsyncClient(timeout=30.0)
 
@@ -53,7 +60,7 @@ class TavilyAdapter:
             "include_raw_content": include_raw_content,
         }
         try:
-            response = await self._client.post(_TAVILY_API_URL, json=payload)
+            response = await self._client.post(f"{self._api_url}/search", json=payload)
             response.raise_for_status()
         except Exception:
             logger.warning("Tavily search failed for query: %s", query, exc_info=True)

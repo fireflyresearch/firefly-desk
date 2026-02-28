@@ -155,6 +155,10 @@ class DeskConfig(BaseSettings):
     email_from_address: str = ""
     email_ses_region: str = "us-east-1"
 
+    # -- External API Base URLs --
+    sendgrid_api_base: str = "https://api.sendgrid.com"
+    tavily_api_url: str = "https://api.tavily.com"
+
     @property
     def effective_jwt_secret(self) -> str:
         """Return the JWT signing secret, generating one if not configured.
