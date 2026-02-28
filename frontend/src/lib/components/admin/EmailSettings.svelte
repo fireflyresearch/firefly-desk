@@ -24,9 +24,12 @@
 		Settings,
 		Signature,
 		CircleUser,
-		SlidersHorizontal
+		SlidersHorizontal,
+		Eye,
+		Code
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -123,6 +126,10 @@
 	// Form state -- matches EmailSettings backend model
 	let form = $state<EmailSettingsData>({ ...EMAIL_DEFAULTS });
 
+	// Signature tab: Visual / Source view toggle
+	let signatureView = $state<'visual' | 'source'>('visual');
+	let resettingSignature = $state(false);
+
 	// -----------------------------------------------------------------------
 	// Derived
 	// -----------------------------------------------------------------------
@@ -188,6 +195,22 @@
 
 	function resetToDefaults() {
 		form = { ...EMAIL_DEFAULTS };
+	}
+
+	// -----------------------------------------------------------------------
+	// Reset signature to server default
+	// -----------------------------------------------------------------------
+
+	async function resetSignatureToDefault() {
+		resettingSignature = true;
+		try {
+			const res = await apiJson<{ signature_html: string }>('/settings/email/default-signature');
+			form.signature_html = res.signature_html;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load default signature';
+		} finally {
+			resettingSignature = false;
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -471,34 +494,91 @@
 				<!-- =========================================================== -->
 				{#if activeTab === 'signature'}
 					<section class="rounded-lg border border-border bg-surface p-5">
-						<h2 class="mb-4 text-sm font-semibold text-text-primary">Signature</h2>
+						<div class="mb-4 flex items-center justify-between">
+							<h2 class="text-sm font-semibold text-text-primary">HTML Signature</h2>
+
+							<div class="flex items-center gap-2">
+								<!-- Reset to Default -->
+								<button
+									type="button"
+									onclick={resetSignatureToDefault}
+									disabled={resettingSignature}
+									class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+								>
+									{#if resettingSignature}
+										<Loader2 size={12} class="animate-spin" />
+									{:else}
+										<RotateCcw size={12} />
+									{/if}
+									Reset to Default
+								</button>
+
+								<!-- Visual / Source toggle -->
+								<div class="flex rounded-md border border-border">
+									<button
+										type="button"
+										onclick={() => signatureView = 'visual'}
+										class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors {signatureView === 'visual' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'} rounded-l-md"
+									>
+										<Eye size={12} />
+										Visual
+									</button>
+									<button
+										type="button"
+										onclick={() => signatureView = 'source'}
+										class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors {signatureView === 'source' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'} rounded-r-md"
+									>
+										<Code size={12} />
+										Source
+									</button>
+								</div>
+							</div>
+						</div>
 
 						<div class="flex flex-col gap-4">
-							<label class="flex flex-col gap-1">
-								<span class="text-xs font-medium text-text-secondary">HTML Signature</span>
-								<textarea
-									bind:value={form.signature_html}
-									placeholder="<p>Best regards,<br>Ember - AI Assistant</p>"
-									rows={4}
-									class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors focus:border-accent font-mono"
-								></textarea>
-								<span class="text-xs text-text-secondary">
-									HTML markup appended to outgoing emails. Supports standard HTML tags.
-								</span>
-							</label>
+							{#if signatureView === 'visual'}
+								<div class="flex flex-col gap-1">
+									<RichEditor
+										value={form.signature_html}
+										placeholder="Compose your email signature..."
+										minHeight="180px"
+										mode="full"
+										onchange={(markdown) => { form.signature_html = markdown; }}
+									/>
+									<span class="text-xs text-text-secondary">
+										Rich text signature appended to outgoing emails.
+									</span>
+								</div>
+							{:else}
+								<div class="flex flex-col gap-1">
+									<textarea
+										bind:value={form.signature_html}
+										placeholder="<p>Best regards,<br>Ember - AI Assistant</p>"
+										rows={8}
+										class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors focus:border-accent font-mono"
+									></textarea>
+									<span class="text-xs text-text-secondary">
+										Raw HTML markup appended to outgoing emails. Supports standard HTML tags.
+									</span>
+								</div>
+							{/if}
+						</div>
+					</section>
 
-							<label class="flex flex-col gap-1">
-								<span class="text-xs font-medium text-text-secondary">Plain Text Signature</span>
-								<textarea
-									bind:value={form.signature_text}
-									placeholder="Best regards,&#10;Ember - AI Assistant"
-									rows={3}
-									class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors focus:border-accent"
-								></textarea>
-								<span class="text-xs text-text-secondary">
-									Fallback for plain text emails. If empty, the HTML signature will be stripped of tags.
-								</span>
-							</label>
+					<!-- Plain Text Fallback -->
+					<section class="rounded-lg border border-border bg-surface p-5">
+						<h2 class="mb-4 text-sm font-semibold text-text-primary">Plain Text Fallback</h2>
+
+						<div class="flex flex-col gap-1">
+							<textarea
+								bind:value={form.signature_text}
+								placeholder="Best regards,&#10;Ember - AI Assistant"
+								rows={3}
+								class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors focus:border-accent"
+							></textarea>
+							<span class="text-xs text-text-secondary">
+								Fallback for plain text emails. If empty, the HTML signature will be stripped of tags.
+							</span>
 						</div>
 					</section>
 				{/if}
