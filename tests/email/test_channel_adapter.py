@@ -378,6 +378,271 @@ class TestSendNotification:
         email_port.send.assert_not_called()
 
 
+class TestAttachmentProcessing:
+    async def test_receive_processes_attachments_into_file_uploads(self):
+        """Attachments from email are saved as FileUpload records and returned as file_ids."""
+        email_port = AsyncMock()
+        attachment = MagicMock(
+            filename="invoice.pdf",
+            content_type="application/pdf",
+            size=1024,
+            content=b"fake-pdf-bytes",
+            url=None,
+        )
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Invoice",
+            text_body="See attached",
+            html_body=None,
+            message_id="<msg-2@example.com>",
+            in_reply_to=None,
+            references=[],
+            attachments=[attachment],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-2", True)
+        file_repo = AsyncMock()
+        file_storage = AsyncMock()
+        file_storage.store.return_value = "/uploads/some-uuid.pdf"
+        content_extractor = AsyncMock()
+        content_extractor.extract.return_value = "Extracted invoice text"
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+            file_repo=file_repo,
+            file_storage=file_storage,
+            content_extractor=content_extractor,
+        )
+
+        msg = await adapter.receive({"provider": "resend", "payload": {}})
+        # Should have saved the attachment
+        file_repo.create.assert_called_once()
+        file_storage.store.assert_called_once()
+        # file_ids should be in metadata
+        assert len(msg.metadata.get("file_ids", [])) == 1
+
+    async def test_receive_skips_attachments_with_url_only(self):
+        """Attachments with only a URL (no content bytes) are skipped."""
+        email_port = AsyncMock()
+        attachment = MagicMock(
+            filename="remote.pdf",
+            content_type="application/pdf",
+            size=2048,
+            content=None,
+            url="https://example.com/remote.pdf",
+        )
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Remote file",
+            text_body="See link",
+            html_body=None,
+            message_id="<msg-3@example.com>",
+            in_reply_to=None,
+            references=[],
+            attachments=[attachment],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-3", True)
+        file_repo = AsyncMock()
+        file_storage = AsyncMock()
+        content_extractor = AsyncMock()
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+            file_repo=file_repo,
+            file_storage=file_storage,
+            content_extractor=content_extractor,
+        )
+
+        msg = await adapter.receive({"provider": "resend", "payload": {}})
+        file_storage.store.assert_not_called()
+        file_repo.create.assert_not_called()
+        assert msg.metadata.get("file_ids", []) == []
+
+    async def test_receive_skips_text_extraction_for_images(self):
+        """Image attachments are stored but not text-extracted."""
+        email_port = AsyncMock()
+        attachment = MagicMock(
+            filename="photo.png",
+            content_type="image/png",
+            size=5000,
+            content=b"fake-png-bytes",
+            url=None,
+        )
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Photo",
+            text_body="See image",
+            html_body=None,
+            message_id="<msg-4@example.com>",
+            in_reply_to=None,
+            references=[],
+            attachments=[attachment],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-4", True)
+        file_repo = AsyncMock()
+        file_storage = AsyncMock()
+        file_storage.store.return_value = "/uploads/some-uuid.png"
+        content_extractor = AsyncMock()
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+            file_repo=file_repo,
+            file_storage=file_storage,
+            content_extractor=content_extractor,
+        )
+
+        msg = await adapter.receive({"provider": "resend", "payload": {}})
+        file_storage.store.assert_called_once()
+        content_extractor.extract.assert_not_called()
+        assert len(msg.metadata.get("file_ids", [])) == 1
+
+    async def test_receive_processes_multiple_attachments(self):
+        """Multiple attachments are all processed and their IDs collected."""
+        email_port = AsyncMock()
+        att1 = MagicMock(
+            filename="doc.pdf",
+            content_type="application/pdf",
+            size=1024,
+            content=b"pdf-bytes",
+            url=None,
+        )
+        att2 = MagicMock(
+            filename="photo.jpg",
+            content_type="image/jpeg",
+            size=2048,
+            content=b"jpg-bytes",
+            url=None,
+        )
+        att3 = MagicMock(
+            filename="remote.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size=3072,
+            content=None,
+            url="https://example.com/remote.docx",
+        )
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Multi",
+            text_body="Multiple files",
+            html_body=None,
+            message_id="<msg-5@example.com>",
+            in_reply_to=None,
+            references=[],
+            attachments=[att1, att2, att3],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-5", True)
+        file_repo = AsyncMock()
+        file_storage = AsyncMock()
+        file_storage.store.return_value = "/uploads/stored-file"
+        content_extractor = AsyncMock()
+        content_extractor.extract.return_value = "Extracted text"
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+            file_repo=file_repo,
+            file_storage=file_storage,
+            content_extractor=content_extractor,
+        )
+
+        msg = await adapter.receive({"provider": "resend", "payload": {}})
+        # att1 (pdf) + att2 (image) stored, att3 (url-only) skipped
+        assert file_storage.store.call_count == 2
+        assert file_repo.create.call_count == 2
+        # content_extractor called only for pdf, not for image
+        content_extractor.extract.assert_called_once()
+        assert len(msg.metadata.get("file_ids", [])) == 2
+
+    async def test_receive_works_without_file_dependencies(self):
+        """When file_repo/file_storage are not provided, attachments are not processed."""
+        email_port = AsyncMock()
+        attachment = MagicMock(
+            filename="doc.pdf",
+            content_type="application/pdf",
+            size=1024,
+            content=b"pdf-bytes",
+            url=None,
+        )
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Test",
+            text_body="Body",
+            html_body=None,
+            message_id="<msg-6@example.com>",
+            in_reply_to=None,
+            references=[],
+            attachments=[attachment],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-6", True)
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+        )
+
+        msg = await adapter.receive({"provider": "resend", "payload": {}})
+        # Should still return a valid message, just without file_ids
+        assert isinstance(msg, InboundMessage)
+        assert "file_ids" not in msg.metadata
+
+
 class TestChannelType:
     def test_channel_type_is_email(self):
         """Adapter has channel_type = 'email'."""

@@ -12,16 +12,21 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from typing import TYPE_CHECKING
 
 from flydesk.channels.models import Attachment, InboundMessage
-from flydesk.email.models import OutboundEmail
+from flydesk.email.models import EmailAttachment, OutboundEmail
+from flydesk.files.models import FileUpload
 
 if TYPE_CHECKING:
     from flydesk.channels.models import AgentResponse, Notification
     from flydesk.email.identity import EmailIdentityResolver
     from flydesk.email.port import EmailPort
     from flydesk.email.threading import EmailThreadTracker
+    from flydesk.files.extractor import ContentExtractor
+    from flydesk.files.repository import FileUploadRepository
+    from flydesk.files.storage import FileStorageProvider
     from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -49,11 +54,17 @@ class EmailChannelAdapter:
         identity_resolver: EmailIdentityResolver,
         thread_tracker: EmailThreadTracker,
         settings_repo: SettingsRepository,
+        file_repo: FileUploadRepository | None = None,
+        file_storage: FileStorageProvider | None = None,
+        content_extractor: ContentExtractor | None = None,
     ) -> None:
         self._email_port = email_port
         self._identity_resolver = identity_resolver
         self._thread_tracker = thread_tracker
         self._settings_repo = settings_repo
+        self._file_repo = file_repo
+        self._file_storage = file_storage
+        self._content_extractor = content_extractor
 
         # Maps conversation_id -> reply metadata (populated by receive(),
         # consumed by send()).
@@ -121,21 +132,110 @@ class EmailChannelAdapter:
             for att in inbound.attachments
         ]
 
+        # Process attachments into FileUpload records when dependencies
+        # are available.
+        metadata: dict = {
+            "subject": inbound.subject,
+            "cc": list(inbound.cc),
+            "from_name": inbound.from_name,
+            "message_id": inbound.message_id,
+        }
+
+        if inbound.attachments and self._file_repo and self._file_storage:
+            file_ids = await self._process_attachments(
+                attachments=inbound.attachments,
+                user_id=identity.user_id,
+                conversation_id=conversation_id,
+            )
+            if file_ids:
+                metadata["file_ids"] = file_ids
+
         return InboundMessage(
             channel="email",
             user_id=identity.user_id,
             conversation_id=conversation_id,
             content=inbound.text_body,
             attachments=attachments,
-            metadata={
-                "subject": inbound.subject,
-                "cc": list(inbound.cc),
-                "from_name": inbound.from_name,
-                "message_id": inbound.message_id,
-            },
+            metadata=metadata,
             reply_to_message_id=inbound.in_reply_to,
             received_at=inbound.received_at,
         )
+
+    # ------------------------------------------------------------------
+    # Attachment processing
+    # ------------------------------------------------------------------
+
+    async def _process_attachments(
+        self,
+        *,
+        attachments: list[EmailAttachment],
+        user_id: str,
+        conversation_id: str | None,
+    ) -> list[str]:
+        """Store email attachments as :class:`FileUpload` records.
+
+        For each attachment with inline content:
+        1. Store bytes via :attr:`_file_storage`.
+        2. Extract text for non-image types via :attr:`_content_extractor`.
+        3. Persist a :class:`FileUpload` record via :attr:`_file_repo`.
+
+        Attachments that have only a URL (no ``content``) are skipped --
+        remote URL fetching is not implemented yet.
+
+        Returns a list of generated file upload IDs.
+        """
+        assert self._file_repo is not None  # noqa: S101 -- guarded by caller
+        assert self._file_storage is not None  # noqa: S101
+
+        file_ids: list[str] = []
+
+        for att in attachments:
+            # Skip attachments without inline content.
+            if att.content is None:
+                logger.debug(
+                    "Skipping attachment %r: no inline content (url=%s)",
+                    att.filename,
+                    att.url,
+                )
+                continue
+
+            # 1. Store the file bytes.
+            storage_path = await self._file_storage.store(
+                att.filename, att.content, att.content_type
+            )
+
+            # 2. Extract text for non-image types.
+            extracted_text: str | None = None
+            if self._content_extractor and not att.content_type.startswith("image/"):
+                try:
+                    extracted_text = await self._content_extractor.extract(
+                        att.filename, att.content, att.content_type
+                    )
+                except Exception:
+                    logger.warning(
+                        "Text extraction failed for attachment %r",
+                        att.filename,
+                        exc_info=True,
+                    )
+
+            # 3. Persist the FileUpload record.
+            file_id = str(uuid.uuid4())
+            upload = FileUpload(
+                id=file_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                filename=att.filename,
+                content_type=att.content_type,
+                file_size=att.size,
+                storage_path=storage_path,
+                storage_backend="local",
+                extracted_text=extracted_text,
+                metadata={"source": "email"},
+            )
+            await self._file_repo.create(upload)
+            file_ids.append(file_id)
+
+        return file_ids
 
     # ------------------------------------------------------------------
     # ChannelPort.send
