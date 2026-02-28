@@ -7,8 +7,9 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 
 """Verify AgentEventSink protocol."""
-import asyncio
 from typing import Any
+
+import pytest
 
 from flydesk.domain.events import AgentEventSink
 
@@ -28,9 +29,8 @@ def test_fake_sink_satisfies_protocol():
     assert isinstance(sink, AgentEventSink)
 
 
-def test_emit_records_events():
+@pytest.mark.asyncio
+async def test_emit_records_events():
     sink = FakeEventSink()
-    asyncio.get_event_loop().run_until_complete(
-        sink.emit("token", {"text": "hello"})
-    )
+    await sink.emit("token", {"text": "hello"})
     assert sink.events == [("token", {"text": "hello"})]
