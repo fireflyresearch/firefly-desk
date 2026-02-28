@@ -56,8 +56,8 @@ class TestEmailIdentityResolver:
         assert result.display_name == "Jane Doe"
         assert result.is_external is False
 
-    async def test_resolve_is_case_sensitive(self, session_factory):
-        """Email lookup is exact match (case-sensitive by default in SQLite)."""
+    async def test_resolve_is_case_insensitive(self, session_factory):
+        """Email lookup is case-insensitive per RFC 5321."""
         from flydesk.models.local_user import LocalUserRow
 
         async with session_factory() as session:
@@ -73,10 +73,17 @@ class TestEmailIdentityResolver:
             await session.commit()
 
         resolver = EmailIdentityResolver(session_factory)
+
         # Exact match works
         result = await resolver.resolve("alice@example.com")
         assert result is not None
         assert result.user_id == "user-2"
+
+        # Mixed-case match works
+        result = await resolver.resolve("Alice@Example.COM")
+        assert result is not None
+        assert result.user_id == "user-2"
+        assert result.email == "alice@example.com"
 
     async def test_resolve_by_user_id_unknown_returns_none(self, session_factory):
         resolver = EmailIdentityResolver(session_factory)

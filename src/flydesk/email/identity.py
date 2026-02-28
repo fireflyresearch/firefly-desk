@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,9 @@ class EmailIdentityResolver:
         from flydesk.models.local_user import LocalUserRow
 
         async with self._session_factory() as session:
-            stmt = select(LocalUserRow).where(LocalUserRow.email == email_address)
+            stmt = select(LocalUserRow).where(
+                func.lower(LocalUserRow.email) == email_address.lower()
+            )
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if row is None:
