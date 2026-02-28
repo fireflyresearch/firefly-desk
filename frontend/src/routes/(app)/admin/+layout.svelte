@@ -17,6 +17,7 @@
 		Database,
 		Key,
 		BookOpen,
+		Network,
 		FileText,
 		Bot,
 		Users,
@@ -35,7 +36,8 @@
 		ChevronDown,
 		Cpu,
 		Lock,
-		Settings
+		Settings,
+		Mail
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -52,7 +54,7 @@
 			icon: Database,
 			items: [
 				{ href: '/admin/workspaces', label: 'Workspaces', icon: FolderOpen },
-				{ href: '/admin/catalog', label: 'Catalog', icon: Database },
+				{ href: '/admin/catalog', label: 'System Catalog', icon: Network },
 				{ href: '/admin/knowledge', label: 'Knowledge Base', icon: BookOpen },
 				{ href: '/admin/processes', label: 'Processes', icon: GitBranch },
 			],
@@ -63,6 +65,7 @@
 			icon: Cpu,
 			items: [
 				{ href: '/admin/agent', label: 'Agent', icon: Bot },
+				{ href: '/admin/email', label: 'Email', icon: Mail },
 				{ href: '/admin/llm-providers', label: 'LLM Providers', icon: Cpu },
 				{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 				{ href: '/admin/tools', label: 'Tools', icon: Wrench },
