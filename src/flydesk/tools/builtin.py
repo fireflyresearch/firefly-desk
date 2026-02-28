@@ -1050,9 +1050,9 @@ class BuiltinToolExecutor:
         if self._settings_repo is None or self._email_port is None:
             return {"success": False, "error": "Email is not configured on this instance."}
 
-        to = arguments.get("to", "").strip()
-        subject = arguments.get("subject", "").strip()
-        body_md = arguments.get("body", "").strip()
+        to = (arguments.get("to") or "").strip()
+        subject = (arguments.get("subject") or "").strip()
+        body_md = (arguments.get("body") or "").strip()
 
         if not to:
             return {"success": False, "error": "'to' is required."}
@@ -1081,8 +1081,9 @@ class BuiltinToolExecutor:
 
         html_body = formatter.format_response(body_md, signature_html=signature_html)
 
-        cc_list = [a.strip() for a in arguments.get("cc", "").split(",") if a.strip()] if arguments.get("cc") else []
-        reply_to = arguments.get("reply_to", "").strip() or settings.reply_to or None
+        cc_raw = arguments.get("cc") or ""
+        cc_list = [a.strip() for a in cc_raw.split(",") if a.strip()]
+        reply_to = (arguments.get("reply_to") or "").strip() or settings.reply_to or None
 
         email = OutboundEmail(
             from_address=settings.from_address,
