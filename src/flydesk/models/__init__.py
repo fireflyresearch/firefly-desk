@@ -30,6 +30,7 @@ from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.models.user_role import UserRoleRow
 from flydesk.models.user_memory import UserMemoryRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
+from flydesk.models.workflow import WorkflowRow, WorkflowStepRow, WorkflowWebhookRow  # noqa: F401
 from flydesk.models.workspace import WorkspaceRoleRow, WorkspaceRow, WorkspaceUserRow
 
 __all__ = [
@@ -64,6 +65,9 @@ __all__ = [
     "UserMemoryRow",
     "UserRoleRow",
     "UserSettingRow",
+    "WorkflowRow",
+    "WorkflowStepRow",
+    "WorkflowWebhookRow",
     "WorkspaceRoleRow",
     "WorkspaceRow",
     "WorkspaceUserRow",
