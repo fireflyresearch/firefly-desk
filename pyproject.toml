@@ -30,6 +30,7 @@ dependencies = [
     "reportlab>=4.0",
     "PyPDF2>=3.0",
     "markdown>=3.5",
+    "resend>=2.23.0",
 ]
 
 [project.scripts]

@@ -1,7 +1,7 @@
 <!--
   KGGraphViewport.svelte - Cytoscape.js knowledge graph renderer.
 
-  Renders entities as typed/colored nodes with fcose force-directed layout.
+  Renders entities as typed/colored nodes with force-directed layout.
   Supports click-to-select, hover-highlight neighbors, zoom/pan, and fit-to-view.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
@@ -33,12 +33,18 @@
 	}: Props = $props();
 
 	let containerEl: HTMLDivElement;
+
+	// IMPORTANT: cy is a plain variable, NOT $state. This prevents the $effect
+	// from firing when cy is first assigned during onMount, which would wipe the
+	// graph via cy.json() before the initial layout finishes rendering.
 	let cy: any = null;
+	let _layoutName = 'cose';
+
 	let status = $state<'loading' | 'ready' | 'empty' | 'error'>('loading');
 	let errorMsg = $state('');
 
 	// -----------------------------------------------------------------------
-	// Node shape mapping — each entity type gets a distinct shape
+	// Node shape mapping
 	// -----------------------------------------------------------------------
 
 	const typeShapes: Record<string, string> = {
@@ -167,38 +173,22 @@
 			},
 			{
 				selector: '.highlighted',
-				style: {
-					'border-width': 2,
-					'border-opacity': 0.8,
-					'font-weight': 700,
-					'z-index': 10
-				}
+				style: { 'border-width': 2, 'border-opacity': 0.8, 'font-weight': 700, 'z-index': 10 }
 			},
 			{
 				selector: '.dimmed',
-				style: {
-					opacity: 0.2
-				}
+				style: { opacity: 0.2 }
 			},
 			{
 				selector: 'edge.highlighted',
-				style: {
-					width: 2.5,
-					'line-color': '#475569',
-					'target-arrow-color': '#64748b',
-					'z-index': 10,
-					opacity: 1
-				}
+				style: { width: 2.5, 'line-color': '#475569', 'target-arrow-color': '#64748b', 'z-index': 10, opacity: 1 }
 			},
 			{
 				selector: 'edge.dimmed',
-				style: {
-					opacity: 0.08
-				}
+				style: { opacity: 0.08 }
 			}
 		];
 
-		// Per-type node styles (color + shape)
 		const allTypes = new Set(entities.map((e) => (e.type ?? 'unknown').toLowerCase()));
 		const typeStyles = [...allTypes].map((type) => ({
 			selector: `node[type = "${type}"]`,
@@ -213,88 +203,8 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Graph lifecycle
+	// Graph lifecycle — single initialization path via onMount
 	// -----------------------------------------------------------------------
-
-	async function initGraph() {
-		if (!containerEl) return;
-
-		status = 'loading';
-		errorMsg = '';
-
-		try {
-			const [cytoscapeMod, fcoseMod] = await Promise.all([
-				import('cytoscape'),
-				import('cytoscape-fcose')
-			]);
-			const cytoscape = cytoscapeMod.default;
-			const fcose = fcoseMod.default;
-
-			cytoscape.use(fcose);
-
-			const elements = toCytoscapeElements();
-			if (elements.length === 0) {
-				status = 'empty';
-				return;
-			}
-
-			cy = cytoscape({
-				container: containerEl,
-				elements,
-				style: buildStylesheet() as any,
-				layout: {
-					name: 'fcose',
-					animate: true,
-					animationDuration: 800,
-					randomize: true,
-					quality: 'default',
-					nodeSeparation: 80,
-					idealEdgeLength: 120,
-					nodeRepulsion: 6000,
-					gravity: 0.25,
-					gravityRange: 3.8
-				} as any,
-				minZoom: 0.15,
-				maxZoom: 5,
-				wheelSensitivity: 0.3,
-				boxSelectionEnabled: false,
-				selectionType: 'single'
-			});
-
-			// Click node -> select
-			cy.on('tap', 'node', (evt: any) => {
-				const entity = evt.target.data('entity');
-				if (entity) onNodeSelect(entity);
-			});
-
-			// Click background -> deselect
-			cy.on('tap', (evt: any) => {
-				if (evt.target === cy) {
-					cy.elements().removeClass('highlighted dimmed');
-				}
-			});
-
-			// Hover -> highlight neighbors
-			cy.on('mouseover', 'node', (evt: any) => {
-				const node = evt.target;
-				const neighborhood = node.closedNeighborhood();
-				cy.elements().addClass('dimmed');
-				neighborhood.removeClass('dimmed').addClass('highlighted');
-				containerEl.style.cursor = 'pointer';
-			});
-
-			cy.on('mouseout', 'node', () => {
-				cy.elements().removeClass('highlighted dimmed');
-				containerEl.style.cursor = 'default';
-			});
-
-			status = 'ready';
-		} catch (err) {
-			console.error('[KGGraphViewport] Init failed:', err);
-			errorMsg = err instanceof Error ? err.message : String(err);
-			status = 'error';
-		}
-	}
 
 	function destroyGraph() {
 		if (cy) {
@@ -307,13 +217,138 @@
 		if (cy) cy.fit(undefined, 40);
 	}
 
+	onMount(() => {
+		// Use requestAnimationFrame to ensure the container has painted dimensions
+		const raf = requestAnimationFrame(async () => {
+			const rect = containerEl.getBoundingClientRect();
+
+			if (rect.width === 0 || rect.height === 0) {
+				errorMsg = `Container has zero dimensions (${Math.round(rect.width)}x${Math.round(rect.height)}). Check parent layout.`;
+				status = 'error';
+				return;
+			}
+
+			// Set explicit pixel dimensions on the container. Cytoscape reads
+			// clientWidth/clientHeight internally, which can return 0 for
+			// absolutely-positioned elements in certain flex layouts even though
+			// getBoundingClientRect() returns correct values.
+			containerEl.style.width = `${rect.width}px`;
+			containerEl.style.height = `${rect.height}px`;
+
+			const elements = toCytoscapeElements();
+			if (elements.length === 0) {
+				status = 'empty';
+				return;
+			}
+
+			try {
+				// Import cytoscape
+				const cytoscapeMod = await import('cytoscape');
+				const cytoscape = cytoscapeMod.default;
+
+				// Import and register fcose
+				let layoutName = 'cose'; // fallback to built-in
+				try {
+					const fcoseMod = await import('cytoscape-fcose');
+					const fcose = fcoseMod.default ?? fcoseMod;
+					if (typeof fcose === 'function') {
+						cytoscape.use(fcose);
+						layoutName = 'fcose';
+					}
+				} catch (fcoseErr) {
+					console.warn('[KGGraphViewport] fcose unavailable, using cose:', fcoseErr);
+				}
+				_layoutName = layoutName;
+
+				// Create cytoscape with synchronous layout (animate: false).
+				// This avoids ALL timing/event-ordering issues.
+				const instance = cytoscape({
+					container: containerEl,
+					elements,
+					style: buildStylesheet() as any,
+					layout: {
+						name: layoutName,
+						animate: false,
+						randomize: true,
+						quality: 'default',
+						nodeSeparation: 80,
+						idealEdgeLength: 120,
+						nodeRepulsion: layoutName === 'fcose' ? 6000 : 4500,
+						gravity: 0.25,
+						gravityRange: 3.8
+					} as any,
+					minZoom: 0.15,
+					maxZoom: 5,
+					wheelSensitivity: 0.3,
+					boxSelectionEnabled: false,
+					selectionType: 'single'
+				});
+
+				// Layout is done synchronously — fit immediately
+				instance.resize();
+				instance.fit(undefined, 40);
+
+				// Event handlers
+				instance.on('tap', 'node', (evt: any) => {
+					const entity = evt.target.data('entity');
+					if (entity) onNodeSelect(entity);
+				});
+
+				instance.on('tap', (evt: any) => {
+					if (evt.target === instance) {
+						instance.elements().removeClass('highlighted dimmed');
+					}
+				});
+
+				instance.on('mouseover', 'node', (evt: any) => {
+					const node = evt.target;
+					const neighborhood = node.closedNeighborhood();
+					instance.elements().addClass('dimmed');
+					neighborhood.removeClass('dimmed').addClass('highlighted');
+					containerEl.style.cursor = 'pointer';
+				});
+
+				instance.on('mouseout', 'node', () => {
+					instance.elements().removeClass('highlighted dimmed');
+					containerEl.style.cursor = 'default';
+				});
+
+				cy = instance;
+				status = 'ready';
+
+			} catch (err) {
+				console.error('[KGGraphViewport] Init failed:', err);
+				errorMsg = err instanceof Error ? err.message : String(err);
+				status = 'error';
+			}
+		});
+
+		// ResizeObserver — update explicit dimensions and tell cytoscape to resize
+		const ro = new ResizeObserver(() => {
+			const r = containerEl.getBoundingClientRect();
+			containerEl.style.width = `${r.width}px`;
+			containerEl.style.height = `${r.height}px`;
+			if (cy) {
+				cy.resize();
+				cy.fit(undefined, 40);
+			}
+		});
+		ro.observe(containerEl);
+
+		return () => {
+			cancelAnimationFrame(raf);
+			ro.disconnect();
+			destroyGraph();
+		};
+	});
+
 	// -----------------------------------------------------------------------
-	// Reactive updates
+	// Reactive updates — only fires when filters change, NOT on init.
+	// cy is a plain variable so it is NOT tracked as a dependency.
 	// -----------------------------------------------------------------------
 
-	// Rebuild graph when filtered data changes
 	$effect(() => {
-		// Track dependencies
+		// Track filter changes
 		void filteredEntities;
 		void filteredRelations;
 
@@ -321,14 +356,14 @@
 			cy.json({ elements: toCytoscapeElements() });
 			cy.style(buildStylesheet());
 			const layout = cy.layout({
-				name: 'fcose',
+				name: _layoutName,
 				animate: true,
 				animationDuration: 600,
 				randomize: false,
 				quality: 'default',
 				nodeSeparation: 80,
 				idealEdgeLength: 120,
-				nodeRepulsion: 6000,
+				nodeRepulsion: _layoutName === 'fcose' ? 6000 : 4500,
 				gravity: 0.25
 			} as any);
 			layout.run();
@@ -343,25 +378,6 @@
 		cy.nodes().unselect();
 		const node = cy.getElementById(selectedId);
 		if (node.length > 0) node.select();
-	});
-
-	// Mount / cleanup
-	onMount(() => {
-		initGraph();
-
-		// Watch for container resizes (e.g. sidebar slide transition, window resize)
-		const ro = new ResizeObserver(() => {
-			if (cy) {
-				cy.resize();
-				cy.fit(undefined, 40);
-			}
-		});
-		ro.observe(containerEl);
-
-		return () => {
-			ro.disconnect();
-			destroyGraph();
-		};
 	});
 </script>
 
@@ -399,7 +415,7 @@
 	<div class="absolute bottom-3 right-3 flex items-center gap-1.5">
 		{#if status === 'ready'}
 			<span class="rounded bg-surface/80 px-1.5 py-0.5 text-[10px] text-text-secondary/50 backdrop-blur-sm">
-				Cytoscape
+				{filteredEntities.length} nodes
 			</span>
 		{/if}
 		<button

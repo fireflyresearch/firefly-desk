@@ -43,6 +43,7 @@ class Permission(StrEnum):
     ADMIN_LLM = "admin:llm"
     ADMIN_DASHBOARD = "admin:dashboard"
     ADMIN_GIT_PROVIDERS = "admin:git_providers"
+    EMAIL_SEND = "email:send"
 
 
 BUILTIN_ROLES: list[Role] = [
@@ -71,6 +72,7 @@ BUILTIN_ROLES: list[Role] = [
             "jobs:cancel",
             "processes:read",
             "processes:write",
+            "email:send",
         ],
         is_builtin=True,
     ),

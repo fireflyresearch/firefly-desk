@@ -160,10 +160,10 @@ Relationships connect entities with named, directional edges. For example, "Paym
 
 ### Graph Exploration
 
-The Admin Console includes a Knowledge Graph Explorer that visualizes entities and their relationships as an interactive graph powered by SvelteFlow. Administrators can:
+The Admin Console includes a Knowledge Graph Explorer that visualizes entities and their relationships as an interactive graph powered by Cytoscape.js with an fcose force-directed layout. Administrators can:
 
-- Browse all entities and their connections visually in a pannable, zoomable canvas
-- Drag nodes to rearrange the layout and explore the graph structure
+- Browse all entities and their connections visually in a pannable, zoomable canvas with hover-to-highlight neighbors
+- View typed, color-coded nodes with distinct shapes per entity type
 - Click on entities to view their properties, type, and related documents
 - Understand how concepts in the knowledge base relate to each other
 - Identify gaps in the knowledge graph where relationships are missing

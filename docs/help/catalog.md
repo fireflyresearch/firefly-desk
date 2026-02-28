@@ -2,9 +2,9 @@
 type: tutorial
 ---
 
-# Catalog
+# System Catalog
 
-The Catalog is the registry of external systems and API endpoints that the AI agent can call on behalf of users. It defines what integrations are available, how to authenticate, and what operations are permitted.
+The System Catalog is the registry of external systems and API endpoints that the AI agent can call on behalf of users. It defines what integrations are available, how to authenticate, and what operations are permitted.
 
 ## External Systems
 

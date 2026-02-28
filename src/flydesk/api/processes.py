@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -19,6 +20,7 @@ from pydantic import BaseModel
 from flydesk.api.deps import get_process_repo
 from flydesk.processes.models import (
     BusinessProcess,
+    ProcessDependency,
     ProcessStatus,
     ProcessStep,
 )
@@ -63,6 +65,14 @@ class StepUpdate(BaseModel):
     order: int = 0
     inputs: list[str] = []
     outputs: list[str] = []
+
+
+class DependencyCreate(BaseModel):
+    """Body for adding a dependency edge between two steps."""
+
+    source_step_id: str
+    target_step_id: str
+    condition: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +175,74 @@ async def list_processes(
         offset=offset,
     )
     return [_process_summary(p) for p in processes]
+
+
+# ---------------------------------------------------------------------------
+# Step & dependency management (registered before /{process_id} catch-all)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{process_id}/steps", dependencies=[ProcessWrite], status_code=201)
+async def create_step(process_id: str, body: StepUpdate, repo: ProcessRepo) -> dict:
+    """Create a new step within a process."""
+    step = ProcessStep(
+        id=str(uuid.uuid4()),
+        name=body.name,
+        description=body.description,
+        step_type=body.step_type,
+        system_id=body.system_id,
+        endpoint_id=body.endpoint_id,
+        order=body.order,
+        inputs=body.inputs,
+        outputs=body.outputs,
+    )
+    result = await repo.update_step(process_id, step)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Process not found")
+    return _step_to_dict(result)
+
+
+@router.delete("/{process_id}/steps/{step_id}", dependencies=[ProcessWrite], status_code=204)
+async def delete_step(process_id: str, step_id: str, repo: ProcessRepo) -> Response:
+    """Delete a step and cascade-remove its dependencies."""
+    deleted = await repo.delete_step(process_id, step_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return Response(status_code=204)
+
+
+@router.post("/{process_id}/dependencies", dependencies=[ProcessWrite], status_code=201)
+async def add_dependency(
+    process_id: str, body: DependencyCreate, repo: ProcessRepo
+) -> dict:
+    """Add a dependency edge between two steps."""
+    dep = ProcessDependency(
+        source_step_id=body.source_step_id,
+        target_step_id=body.target_step_id,
+        condition=body.condition,
+    )
+    result = await repo.add_dependency(process_id, dep)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Process not found")
+    return {
+        "source_step_id": result.source_step_id,
+        "target_step_id": result.target_step_id,
+        "condition": result.condition,
+    }
+
+
+@router.delete("/{process_id}/dependencies", dependencies=[ProcessWrite], status_code=204)
+async def remove_dependency(
+    process_id: str,
+    repo: ProcessRepo,
+    source_step_id: str = Query(..., description="Source step ID"),
+    target_step_id: str = Query(..., description="Target step ID"),
+) -> Response:
+    """Remove a dependency edge between two steps."""
+    removed = await repo.remove_dependency(process_id, source_step_id, target_step_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Dependency not found")
+    return Response(status_code=204)
 
 
 @router.get("/{process_id}", dependencies=[ProcessRead])

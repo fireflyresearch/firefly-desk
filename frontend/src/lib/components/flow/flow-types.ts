@@ -15,7 +15,7 @@ import type { Node, Edge } from '@xyflow/svelte';
 // ---------------------------------------------------------------------------
 
 /** Supported custom node types rendered by FlowNode. */
-export type FlowNodeType = 'entity' | 'process-step' | 'system' | 'document';
+export type FlowNodeType = 'entity' | 'process-step' | 'system' | 'document' | 'start-end';
 
 // ---------------------------------------------------------------------------
 // Node data payloads

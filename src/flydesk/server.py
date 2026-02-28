@@ -580,7 +580,9 @@ async def _init_agent(  # noqa: PLR0913
         memory_repo=memory_repo,
         tool_executor=tool_executor,
         search_provider=search_provider,
+        settings_repo=settings_repo,
     )
+    app.state.builtin_executor = builtin_executor
     app.state.search_provider = search_provider
 
     from flydesk.tools.document_tools import DocumentToolExecutor
@@ -1061,6 +1063,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         file_storage=files["file_storage"],
         content_extractor=files["content_extractor"],
     )
+
+    # Wire email port into the builtin executor so the agent can send emails.
+    email_adapter = getattr(app.state, "email_channel_adapter", None)
+    if email_adapter is not None:
+        app.state.builtin_executor.set_email_port(email_adapter._email_port)
 
     # 11. Auth / OIDC
     _init_auth(app, config, session_factory)

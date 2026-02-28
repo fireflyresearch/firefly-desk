@@ -61,3 +61,4 @@ class SendResult:
     success: bool
     provider_message_id: str | None = None
     error: str | None = None
+    metadata: dict | None = None

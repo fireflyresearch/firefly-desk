@@ -425,6 +425,31 @@ def _call_websocket_endpoint_tool() -> ToolDefinition:
     )
 
 
+def _send_email_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__send_email",
+        name="send_email",
+        description=(
+            "Compose and send an email on behalf of the organisation. "
+            "The email is sent from the configured sender address and "
+            "includes the organisation's email signature automatically. "
+            "Use when: the user explicitly asks you to send an email, or "
+            "a workflow requires sending an email notification."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/email/send",
+        parameters={
+            "to": {"type": "string", "description": "Recipient email address", "required": True},
+            "subject": {"type": "string", "description": "Email subject line", "required": True},
+            "body": {"type": "string", "description": "Email body in Markdown format", "required": True},
+            "cc": {"type": "string", "description": "Comma-separated CC addresses", "required": False},
+            "reply_to": {"type": "string", "description": "Reply-to address (overrides default)", "required": False},
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -498,6 +523,10 @@ class BuiltinToolRegistry:
             tools.append(document_create_tool())
             tools.append(document_modify_tool())
 
+        # Email send tool (require email:send or *)
+        if has_all or "email:send" in user_permissions:
+            tools.append(_send_email_tool())
+
         # Transform tools (always available — no permission requirement)
         from flydesk.tools.transform_tools import (
             filter_rows_tool,
@@ -536,6 +565,7 @@ class BuiltinToolExecutor:
         memory_repo: Any | None = None,
         tool_executor: ToolExecutor | None = None,
         search_provider: Any | None = None,
+        settings_repo: Any | None = None,
     ) -> None:
         self._catalog_repo = catalog_repo
         self._audit_logger = audit_logger
@@ -544,6 +574,8 @@ class BuiltinToolExecutor:
         self._memory_repo = memory_repo
         self._tool_executor = tool_executor
         self._search_provider = search_provider
+        self._settings_repo = settings_repo
+        self._email_port: Any | None = None
         self._user_id: str | None = None
         self._doc_executor: DocumentToolExecutor | None = None
         self._auto_trigger: AutoTriggerService | None = None
@@ -565,6 +597,10 @@ class BuiltinToolExecutor:
     def set_auto_trigger(self, auto_trigger: AutoTriggerService) -> None:
         """Attach an :class:`AutoTriggerService` for catalog change notifications."""
         self._auto_trigger = auto_trigger
+
+    def set_email_port(self, email_port: Any) -> None:
+        """Attach an email transport adapter for the ``send_email`` tool."""
+        self._email_port = email_port
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a built-in tool and return a result dict."""
@@ -594,6 +630,7 @@ class BuiltinToolExecutor:
             "call_grpc_endpoint": self._call_grpc,
             "call_websocket": self._call_websocket,
             "web_search": self._web_search,
+            "send_email": self._send_email,
         }
 
         handler = handlers.get(tool_name)
@@ -1002,6 +1039,75 @@ class BuiltinToolExecutor:
                 for r in results
             ],
             "count": len(results),
+        }
+
+    # ------------------------------------------------------------------
+    # Email handler
+    # ------------------------------------------------------------------
+
+    async def _send_email(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Compose and send an email via the configured email transport."""
+        if self._settings_repo is None or self._email_port is None:
+            return {"success": False, "error": "Email is not configured on this instance."}
+
+        to = arguments.get("to", "").strip()
+        subject = arguments.get("subject", "").strip()
+        body_md = arguments.get("body", "").strip()
+
+        if not to:
+            return {"success": False, "error": "'to' is required."}
+        if not subject:
+            return {"success": False, "error": "'subject' is required."}
+        if not body_md:
+            return {"success": False, "error": "'body' is required."}
+
+        settings = await self._settings_repo.get_email_settings()
+        if not settings.enabled:
+            return {"success": False, "error": "Email channel is disabled. Ask an admin to enable it."}
+
+        # Build HTML body with signature
+        from flydesk.email.formatter import EmailFormatter
+        from flydesk.email.models import OutboundEmail
+
+        formatter = EmailFormatter()
+        signature_html = settings.signature_html
+        if not signature_html:
+            from flydesk.email.signature import build_default_signature
+
+            signature_html = build_default_signature(
+                agent_name=settings.from_display_name or "Ember",
+                from_address=settings.from_address,
+            )
+
+        html_body = formatter.format_response(body_md, signature_html=signature_html)
+
+        cc_list = [a.strip() for a in arguments.get("cc", "").split(",") if a.strip()] if arguments.get("cc") else []
+        reply_to = arguments.get("reply_to", "").strip() or settings.reply_to or None
+
+        email = OutboundEmail(
+            from_address=settings.from_address,
+            from_name=settings.from_display_name or "Ember",
+            to=[to],
+            subject=subject,
+            html_body=html_body,
+            text_body=body_md,
+            cc=cc_list,
+            reply_to=reply_to,
+        )
+
+        try:
+            result = await self._email_port.send(email)
+        except Exception as exc:
+            logger.error("send_email failed: %s", exc, exc_info=True)
+            return {"success": False, "error": str(exc)}
+
+        if not result.success:
+            return {"success": False, "error": result.error or "Unknown send error"}
+
+        return {
+            "success": True,
+            "message_id": result.provider_message_id,
+            "message": f"Email sent to {to}.",
         }
 
     # ------------------------------------------------------------------

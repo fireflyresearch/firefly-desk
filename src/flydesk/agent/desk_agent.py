@@ -916,6 +916,15 @@ class DeskAgent:
             except Exception:
                 _logger.debug("Failed to load agent profile; using defaults.", exc_info=True)
 
+        # Check if email channel is enabled for email composing guidance.
+        email_enabled = False
+        if self._settings_repo is not None:
+            try:
+                _email_settings = await self._settings_repo.get_email_settings()
+                email_enabled = _email_settings.enabled
+            except Exception:
+                _logger.debug("Failed to check email settings.", exc_info=True)
+
         # Load user feedback summary for adaptive behavior
         feedback_context = ""
         if self._feedback_repo is not None:
@@ -945,6 +954,7 @@ class DeskAgent:
             custom_instructions=custom_instructions,
             language=language,
             feedback_context=feedback_context,
+            email_enabled=email_enabled,
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 

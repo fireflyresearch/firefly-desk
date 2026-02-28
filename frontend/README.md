@@ -71,12 +71,12 @@ Conversational interface components:
 Admin console components:
 
 - **AdminDashboard.svelte** -- Platform overview with aggregated statistics.
-- **CatalogManager.svelte** -- External system and endpoint management.
+- **CatalogManager.svelte** -- System Catalog: external system and endpoint management.
 - **CredentialVault.svelte** -- Encrypted credential management.
 - **KnowledgeBaseManager.svelte** -- Tabbed interface for document management (Documents, Add Document, Graph Explorer).
 - **KnowledgeAddDocument.svelte** -- Document creation with manual, URL import, and file upload methods.
 - **KnowledgeDocumentDetail.svelte** -- Detailed document view with metadata and content.
-- **KnowledgeGraphExplorer.svelte** -- Interactive D3 force-directed graph visualization of knowledge entities.
+- **KnowledgeGraphExplorer.svelte** -- Interactive Cytoscape.js force-directed graph visualization of knowledge entities.
 - **RoleManager.svelte** -- RBAC role viewing and management.
 - **UserManager.svelte** -- User account management with role assignment.
 - **ExportManager.svelte** -- Export viewing, downloading, and template management.

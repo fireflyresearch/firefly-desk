@@ -39,6 +39,7 @@ class PromptContext:
     custom_instructions: str = ""
     language: str = "en"
     feedback_context: str = ""
+    email_enabled: bool = False
 
 
 class SystemPromptBuilder:
@@ -100,6 +101,8 @@ class SystemPromptBuilder:
                     feedback_context=context.feedback_context,
                 )
             )
+        if context.email_enabled:
+            sections.append(self._registry.get("email_composing").render())
 
         return "\n\n".join(sections)
 

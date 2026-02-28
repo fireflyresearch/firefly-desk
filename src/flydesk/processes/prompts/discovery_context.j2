@@ -1,7 +1,11 @@
-Analyze the following enterprise context to discover business processes:
+Analyze the following enterprise context to discover business processes.
+Pay special attention to API endpoints — they reveal how systems interact and what business operations they support.
 
 {% if systems %}
-## Available Systems and Endpoints
+## Available Systems and Endpoints ({{ systems | length }} systems)
+
+IMPORTANT: Analyze these systems and their endpoints carefully to identify business processes.
+Look for CRUD patterns, cross-system data flows, and sequential endpoint chains.
 
 {% for system in systems %}
 ### {{ system.name }} (ID: {{ system.id }})
@@ -11,12 +15,12 @@ Status: {{ system.status }}
 {% if system.tags %}Tags: {{ system.tags | join(', ') }}{% endif %}
 
 {% if system.endpoints %}
-Endpoints:
+API Endpoints ({{ system.endpoints | length }}):
 {% for ep in system.endpoints %}
   - {{ ep.name }} (ID: {{ ep.id }}): {{ ep.description }}
-    Method: {{ ep.method }} {{ ep.path }}
-    When to use: {{ ep.when_to_use }}
-    Risk level: {{ ep.risk_level }}
+    {{ ep.method }} {{ ep.path }}
+    Business purpose: {{ ep.when_to_use }}
+    Risk: {{ ep.risk_level }}
 {% endfor %}
 {% endif %}
 
@@ -60,4 +64,9 @@ No knowledge graph entities are currently available.
 No knowledge base documents are currently available.
 {% endif %}
 
-Based on the above context, identify all business processes, their steps, system interactions, and step dependencies. Return the result as structured JSON.
+Based on the above context, identify ALL business processes including:
+1. Processes evidenced by API endpoints and system integrations (CRUD workflows, cross-system data flows, sequential operations)
+2. Processes described in documents (SOPs, procedures, workflows)
+3. Processes inferred from knowledge graph relations
+
+For each process, include specific system_id and endpoint_id references where applicable. Return the result as structured JSON. Keep descriptions concise (1-2 sentences) to avoid response truncation.

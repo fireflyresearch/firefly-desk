@@ -7,16 +7,19 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Loader2, RefreshCw, PanelLeftClose, PanelLeft, Sparkles } from 'lucide-svelte';
+	import { Loader2, RefreshCw, PanelLeftClose, PanelLeft, Sparkles, Box, LayoutGrid } from 'lucide-svelte';
 
 	interface Props {
 		showFilterPanel: boolean;
 		regenerating: boolean;
 		regenerateMessage: string;
 		regenerateProgress: number;
+		viewMode: '2d' | '3d';
+		webglAvailable: boolean;
 		onToggleFilter: () => void;
 		onRefresh: () => void;
 		onRegenerate?: () => void;
+		onToggleViewMode: () => void;
 	}
 
 	let {
@@ -24,9 +27,12 @@
 		regenerating,
 		regenerateMessage,
 		regenerateProgress,
+		viewMode,
+		webglAvailable,
 		onToggleFilter,
 		onRefresh,
-		onRegenerate
+		onRegenerate,
+		onToggleViewMode
 	}: Props = $props();
 </script>
 
@@ -52,6 +58,23 @@
 	>
 		<RefreshCw size={14} />
 	</button>
+
+	{#if webglAvailable}
+		<button
+			type="button"
+			onclick={onToggleViewMode}
+			class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+			title="Switch to {viewMode === '3d' ? '2D' : '3D'} view"
+		>
+			{#if viewMode === '3d'}
+				<LayoutGrid size={13} />
+				2D
+			{:else}
+				<Box size={13} />
+				3D
+			{/if}
+		</button>
+	{/if}
 
 	<div class="flex-1"></div>
 

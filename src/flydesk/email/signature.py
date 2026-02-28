@@ -8,7 +8,7 @@
 
 """Default email signature template builder.
 
-Generates an email-safe HTML signature with Ember avatar branding,
+Generates an email-safe HTML signature with Flydesk logo branding,
 using ``<table>`` layout and inline styles for maximum email client
 compatibility.
 """
@@ -20,28 +20,15 @@ from html import escape
 
 _SAFE_EMAIL_RE = re.compile(r'^[^"<>\s]+$')
 
-# Ember brand gradient colours (matches EmberAvatar SVG).
-_GRADIENT_START = "#F68000"
-_GRADIENT_END = "#FFF9C1"
-
-# Inline SVG of a simplified robot icon (white, designed for the avatar circle).
-# Kept intentionally small so it inlines cleanly in email HTML.
-_ROBOT_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" '
-    'width="36" height="36" fill="none">'
-    '<rect x="8" y="14" width="20" height="14" rx="3" fill="white"/>'
-    '<rect x="14" y="8" width="8" height="8" rx="2" fill="white"/>'
-    '<circle cx="13" cy="20" r="2" fill="{start}"/>'
-    '<circle cx="23" cy="20" r="2" fill="{start}"/>'
-    '<rect x="15" y="23" width="6" height="2" rx="1" fill="{start}"/>'
-    "</svg>"
-).format(start=_GRADIENT_START)
+# Flydesk brand colour.
+_BRAND_COLOR = "#F68000"
 
 
 def build_default_signature(
     agent_name: str,
     from_address: str,
     company_name: str = "Firefly Desk",
+    logo_url: str | None = None,
 ) -> str:
     """Build an email-safe HTML signature block.
 
@@ -53,6 +40,9 @@ def build_default_signature(
         The ``From`` email address shown to recipients.
     company_name:
         Organisation name displayed beneath the address.
+    logo_url:
+        Full URL to the Flydesk logo image. When ``None`` the avatar
+        cell is omitted.
 
     Returns
     -------
@@ -68,43 +58,65 @@ def build_default_signature(
     safe_address = escape(from_address)
     safe_company = escape(company_name)
 
-    return (
-        # Horizontal rule separator
-        '<table cellpadding="0" cellspacing="0" border="0" width="100%" '
-        'style="border-collapse:collapse;margin-top:16px;">'
-        "<tr><td>"
-        # Inner signature table: avatar | text
-        '<table cellpadding="0" cellspacing="0" border="0" '
-        'style="border-collapse:collapse;">'
-        "<tr>"
-        # --- Avatar column ---
-        '<td style="vertical-align:top;padding-right:12px;padding-top:8px;">'
-        '<div style="'
-        "width:44px;"
-        "height:44px;"
-        "border-radius:50%;"
-        f"background:linear-gradient(135deg, {_GRADIENT_START}, {_GRADIENT_END});"
-        "text-align:center;"
-        "padding-top:4px;"
-        '">'
-        f"{_ROBOT_SVG}"
-        "</div>"
-        "</td>"
-        # --- Text column ---
-        '<td style="vertical-align:top;font-family:Arial,Helvetica,sans-serif;">'
-        # Agent name (bold)
-        f'<strong style="font-size:14px;color:#1F2937;">{safe_name}</strong><br/>'
-        # Subtitle
-        '<span style="font-size:12px;color:#6B7280;">AI Assistant</span><br/>'
-        # Email as mailto link
-        f'<a href="mailto:{safe_address}" '
-        f'style="font-size:12px;color:#F68000;text-decoration:none;">'
-        f"{safe_address}</a><br/>"
-        # Company name
-        f'<span style="font-size:11px;color:#9CA3AF;">{safe_company}</span>'
-        "</td>"
-        "</tr>"
-        "</table>"
-        "</td></tr>"
-        "</table>"
-    )
+    # Build logo cell — uses <img> tag for the Flydesk logo, with a
+    # circular clip for modern clients and a fallback bgcolor for Outlook.
+    if logo_url:
+        safe_logo_url = escape(logo_url, quote=True)
+        logo_cell = "\n".join([
+            "          <!-- Logo -->",
+            '          <td width="44" height="44" align="center" valign="middle"',
+            '              style="width:44px;height:44px;border-radius:50%;overflow:hidden;">',
+            f'            <img src="{safe_logo_url}" alt="{safe_name}"',
+            '                 width="44" height="44"',
+            '                 style="display:block;border-radius:50%;border:0;"',
+            "            />",
+            "          </td>",
+        ])
+    else:
+        # Fallback: styled initial letter when no logo URL is available
+        initial = escape(agent_name[0].upper()) if agent_name else "E"
+        avatar_css = (
+            "width:44px;height:44px;"
+            f"border-radius:50%;background:{_BRAND_COLOR};"
+            "text-align:center;line-height:44px;"
+            "font-size:20px;font-weight:bold;color:white;"
+            "font-family:Arial,Helvetica,sans-serif;"
+        )
+        logo_cell = "\n".join([
+            "          <!-- Avatar fallback -->",
+            '          <td width="44" height="44" align="center" valign="middle"',
+            f'              bgcolor="{_BRAND_COLOR}"',
+            f'              style="{avatar_css}">',
+            f"            {initial}",
+            "          </td>",
+        ])
+
+    # fmt: off
+    return "\n".join([
+        '<table cellpadding="0" cellspacing="0" border="0" width="100%"',
+        '       style="border-collapse:collapse; margin-top:16px;">',
+        "  <tr>",
+        "    <td>",
+        '      <table cellpadding="0" cellspacing="0" border="0"',
+        '             style="border-collapse:collapse;">',
+        "        <tr>",
+        logo_cell,
+        "          <!-- Spacer -->",
+        '          <td width="12" style="width:12px;">&nbsp;</td>',
+        "          <!-- Info -->",
+        '          <td style="vertical-align:top; font-family:Arial,Helvetica,sans-serif;">',
+        f'            <strong style="font-size:14px; color:#1F2937;">{safe_name}</strong><br/>',
+        '            <span style="font-size:12px; color:#6B7280;">AI Assistant</span><br/>',
+        f'            <a href="mailto:{safe_address}"',
+        f'               style="font-size:12px; color:#F68000; text-decoration:none;">',
+        f"              {safe_address}",
+        "            </a><br/>",
+        f'            <span style="font-size:11px; color:#9CA3AF;">{safe_company}</span>',
+        "          </td>",
+        "        </tr>",
+        "      </table>",
+        "    </td>",
+        "  </tr>",
+        "</table>",
+    ])
+    # fmt: on

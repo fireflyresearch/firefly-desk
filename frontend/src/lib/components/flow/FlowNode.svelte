@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte';
-	import { Circle, Cog, Monitor, FileText } from 'lucide-svelte';
+	import { Circle, Cog, Monitor, FileText, Play, Flag } from 'lucide-svelte';
 	import type { FlowNodeData, FlowNodeType } from './flow-types.js';
 
 	// -----------------------------------------------------------------------
@@ -69,6 +69,13 @@
 			accentColor: 'text-amber-500',
 			icon: FileText,
 			rounded: 'rounded-lg'
+		},
+		'start-end': {
+			borderColor: 'border-emerald-400/60',
+			bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
+			accentColor: 'text-emerald-600',
+			icon: Play,
+			rounded: 'rounded-full'
 		}
 	};
 
@@ -92,12 +99,27 @@
 	let style = $derived(styleMap[nodeType] ?? styleMap.entity);
 	let statusColor = $derived(data.status ? (statusColors[data.status] ?? statusColors.idle) : null);
 	let isActive = $derived(data.status === 'active');
-	let IconComponent = $derived(style.icon);
+
+	// For start-end nodes, differentiate icon: Start → Play, End → Flag
+	let isEndNode = $derived(nodeType === 'start-end' && data.metadata?.sentinel === 'end');
+	let endStyle = $derived<NodeStyle | null>(
+		isEndNode
+			? {
+					borderColor: 'border-rose-400/60',
+					bgColor: 'bg-rose-50 dark:bg-rose-950/40',
+					accentColor: 'text-rose-600',
+					icon: Flag,
+					rounded: 'rounded-full'
+				}
+			: null
+	);
+	let effectiveStyle = $derived(endStyle ?? style);
+	let IconComponent = $derived(effectiveStyle.icon);
 </script>
 
 <div
 	class="flow-node relative border-2 px-4 py-2.5 shadow-sm transition-shadow
-		{style.rounded} {style.borderColor} {style.bgColor}
+		{effectiveStyle.rounded} {effectiveStyle.borderColor} {effectiveStyle.bgColor}
 		{selected ? 'ring-2 ring-accent shadow-md' : 'hover:shadow-md'}"
 	data-node-id={id}
 >
@@ -106,7 +128,7 @@
 
 	<div class="flex items-center gap-2.5">
 		<!-- Icon -->
-		<div class="flex-shrink-0 {style.accentColor}">
+		<div class="flex-shrink-0 {effectiveStyle.accentColor}">
 			<IconComponent size={16} />
 		</div>
 

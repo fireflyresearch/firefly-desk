@@ -159,6 +159,56 @@ async def get_suggestions(request: Request) -> SuggestionsResponse:
     return SuggestionsResponse(suggestions=items)
 
 
+async def _generate_title(
+    request: Request,
+    conversation_id: str,
+    user_message: str,
+) -> str | None:
+    """Generate a concise conversation title via LLM after the first exchange.
+
+    Returns the generated title or ``None`` if generation is skipped / fails.
+    This is non-fatal — any error is logged and swallowed.
+    """
+    try:
+        repo = getattr(request.app.state, "conversation_repo", None)
+        agent_factory = getattr(request.app.state, "agent_factory", None)
+        if not repo or not agent_factory:
+            return None
+
+        user_session = getattr(request.state, "user_session", None)
+        user_id = user_session.user_id if user_session else "anonymous"
+
+        # Only generate for the first exchange (user + assistant = 2 messages)
+        msgs = await repo.get_messages(conversation_id, user_id, limit=3)
+        if len(msgs) > 2:
+            return None
+
+        agent = await agent_factory.create_agent(
+            "You are a conversation title generator. Given the user's first message, "
+            "generate a short, descriptive title (3-7 words) that captures the intent. "
+            "Return ONLY the title text. No quotes, no trailing punctuation.",
+        )
+        if agent is None:
+            return None
+
+        result = await agent.run(user_message[:500])
+        title = str(result.output).strip().strip("\"'")
+
+        if not title or len(title) > 100:
+            return None
+
+        # Persist the improved title
+        conversation = await repo.get_conversation(conversation_id, user_id)
+        if conversation:
+            conversation.title = title
+            await repo.update_conversation(conversation, user_id)
+
+        return title
+    except Exception:
+        logger.debug("Title generation failed (non-fatal).", exc_info=True)
+        return None
+
+
 async def _persist_messages(
     request: Request,
     conversation_id: str,
@@ -569,6 +619,7 @@ async def send_message(
             collected: list[str] = []
             collected_widgets: list[dict] = []
             collected_usage: dict | None = None
+            held_done: SSEEvent | None = None
 
             # Choose reasoning or standard stream based on request flags
             if body.reasoning or body.pattern:
@@ -595,6 +646,11 @@ async def send_message(
                 # Collect usage data for persistence
                 elif event.event == SSEEventType.USAGE and isinstance(event.data, dict):
                     collected_usage = event.data
+
+                # Hold the DONE event so we can insert TITLE before it
+                if event.event == SSEEventType.DONE:
+                    held_done = event
+                    continue
                 yield event.to_sse()
 
             # Persist after stream completes
@@ -604,6 +660,18 @@ async def send_message(
                 widgets=collected_widgets or None,
                 usage=collected_usage,
             )
+
+            # Generate a title for new conversations (first exchange)
+            title = await _generate_title(request, conversation_id, body.message)
+            if title:
+                yield SSEEvent(
+                    event=SSEEventType.TITLE,
+                    data={"title": title, "conversation_id": conversation_id},
+                ).to_sse()
+
+            # Now emit the held DONE event
+            if held_done:
+                yield held_done.to_sse()
 
         return StreamingResponse(
             agent_stream(),

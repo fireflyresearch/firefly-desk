@@ -27,6 +27,7 @@ class SSEEventType(StrEnum):
     REASONING_STEP = "reasoning_step"
     PLAN = "plan"
     CONTENT_REPLACE = "content_replace"
+    TITLE = "title"
     USAGE = "usage"
     ERROR = "error"
     DONE = "done"

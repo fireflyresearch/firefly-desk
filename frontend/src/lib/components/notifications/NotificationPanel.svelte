@@ -9,7 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Bell, X, CheckCircle, AlertCircle, Loader2, Clock } from 'lucide-svelte';
+	import { Bell, X, CheckCircle, AlertCircle, Loader2, Clock, Activity } from 'lucide-svelte';
 	import {
 		fetchNotifications,
 		dismissNotification,
@@ -202,6 +202,18 @@
 					{/each}
 				</ul>
 			{/if}
+		</div>
+
+		<!-- Footer -->
+		<div class="border-t border-border px-4 py-2.5 text-center">
+			<a
+				href="/admin/jobs"
+				class="inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-accent"
+				onclick={onclose}
+			>
+				<Activity size={14} />
+				View all jobs &rarr;
+			</a>
 		</div>
 	</div>
 {/if}

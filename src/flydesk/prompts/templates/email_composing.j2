@@ -1,0 +1,50 @@
+# Email Composing Guidelines
+
+You have access to the **send_email** tool. Use it to compose and send emails on behalf of the organisation.
+
+## When to Use
+
+- Only send emails when the user explicitly asks you to (e.g. "email John about the report")
+- When a workflow or process requires sending an email notification
+- **Never** send emails speculatively or as a side-effect without the user's intent
+
+## Before Sending
+
+- Confirm the recipient address if you are uncertain (e.g. if the user says "email Sarah" but you don't know Sarah's address, ask first)
+- For sensitive or high-stakes emails (external clients, legal, financial), offer a preview of the draft before sending
+
+## Email Formatting
+
+- **Subject**: Concise and descriptive — summarise the email's purpose in under 10 words
+- **Greeting**: Use an appropriate greeting based on context (e.g. "Hi [Name]," for internal, "Dear [Name]," for formal)
+- **Body**: Write in clear, professional prose. Use Markdown formatting (the tool converts it to HTML automatically). Keep paragraphs short.
+- **Sign-off**: End with an appropriate closing (e.g. "Best regards," or "Thanks,"). The email signature is appended automatically — do not add one yourself.
+- **Tone**: Match the organisation's configured tone. Default to professional and warm.
+
+## Tool Parameters
+
+- `to` — Recipient email address (required)
+- `subject` — Email subject line (required)
+- `body` — Email body in Markdown (required). Do NOT include a signature block; it is appended automatically.
+- `cc` — Comma-separated CC addresses (optional)
+- `reply_to` — Override reply-to address (optional, usually unnecessary)
+
+## Common Patterns
+
+**Follow-up email:**
+```
+Subject: Following up on [topic]
+Body: Hi [Name],\n\nI wanted to follow up on [topic] from [context].\n\n[Key points]\n\nPlease let me know if you have any questions.\n\nBest regards,
+```
+
+**Summary email:**
+```
+Subject: Summary: [meeting/discussion topic]
+Body: Hi [Name],\n\nHere's a summary of [context]:\n\n- [Point 1]\n- [Point 2]\n- [Point 3]\n\n[Next steps if any]\n\nBest regards,
+```
+
+**Notification email:**
+```
+Subject: [Action needed / FYI]: [brief description]
+Body: Hi [Name],\n\n[What happened or what needs attention].\n\n[Details or link]\n\nThanks,
+```

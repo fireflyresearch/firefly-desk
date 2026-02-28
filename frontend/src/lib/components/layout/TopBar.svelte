@@ -1,7 +1,5 @@
 <script lang="ts">
 	import {
-		PanelLeft,
-		PanelLeftClose,
 		Sun,
 		Moon,
 		User,
@@ -20,15 +18,11 @@
 	interface TopBarProps {
 		title?: string;
 		userName?: string;
-		onToggleSidebar?: () => void;
-		sidebarOpen?: boolean;
 	}
 
 	let {
 		title = 'Firefly Desk',
-		userName = 'User',
-		onToggleSidebar,
-		sidebarOpen = true
+		userName = 'User'
 	}: TopBarProps = $props();
 
 	let dropdownOpen = $state(false);
@@ -97,23 +91,11 @@
 		class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-ember/20 to-transparent opacity-0 transition-opacity dark:opacity-100"
 	></div>
 
-	<!-- Left: Sidebar toggle + Logo -->
+	<!-- Left: Logo (clickable → home) -->
 	<div class="flex items-center gap-3">
-		{#if onToggleSidebar}
-			<button
-				type="button"
-				onclick={onToggleSidebar}
-				class="btn-hover flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
-				aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-			>
-				{#if sidebarOpen}
-					<PanelLeftClose size={18} class="transition-transform duration-200" />
-				{:else}
-					<PanelLeft size={18} class="transition-transform duration-200" />
-				{/if}
-			</button>
-		{/if}
-		<Logo class="h-7 text-text-primary" />
+		<a href="/" class="transition-opacity hover:opacity-80" aria-label="Go to home">
+			<Logo class="h-7 text-text-primary" />
+		</a>
 	</div>
 
 	<!-- Spacer -->

@@ -73,6 +73,7 @@ class EmailSettings(BaseModel):
     # Signature
     signature_html: str = ""
     signature_text: str = ""
+    signature_image_url: str = ""  # URL to an uploaded signature/logo image
 
     # Persona overrides (empty = inherit from agent settings)
     email_tone: str = ""

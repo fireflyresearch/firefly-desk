@@ -15,7 +15,9 @@
 	import KGToolbar from './KGToolbar.svelte';
 	import KGFilterSidebar from './KGFilterSidebar.svelte';
 	import KGGraphViewport from './KGGraphViewport.svelte';
+	import KGGraphViewport3D from './KGGraphViewport3D.svelte';
 	import KGDetailPanel from './KGDetailPanel.svelte';
+	import { isWebGLAvailable } from '$lib/utils/webgl.js';
 
 	// -----------------------------------------------------------------------
 	// Props from parent (for KG regeneration)
@@ -70,6 +72,15 @@
 	let selectedEntity = $state<GraphEntity | null>(null);
 	let neighborhood = $state<GraphNeighborhood | null>(null);
 	let loadingDetail = $state(false);
+
+	// View mode (3D with WebGL fallback to 2D)
+	let viewMode = $state<'2d' | '3d'>('3d');
+	let webglAvailable = $state(false);
+
+	$effect(() => {
+		webglAvailable = isWebGLAvailable();
+		if (!webglAvailable) viewMode = '2d';
+	});
 
 	// -----------------------------------------------------------------------
 	// Constants — type colors shared by filter sidebar and graph viewport
@@ -270,8 +281,11 @@
 		{regenerating}
 		{regenerateMessage}
 		{regenerateProgress}
+		{viewMode}
+		{webglAvailable}
 		onToggleFilter={() => (showFilterPanel = !showFilterPanel)}
 		onRefresh={refreshGraph}
+		onToggleViewMode={() => (viewMode = viewMode === '3d' ? '2d' : '3d')}
 		{onRegenerate}
 	/>
 
@@ -308,15 +322,27 @@
 			{/if}
 
 			<!-- Graph viewport -->
-			<KGGraphViewport
-				entities={entities}
-				relations={relations}
-				{hiddenTypes}
-				selectedId={selectedEntity?.id ?? null}
-				{typeColors}
-				onNodeSelect={selectEntity}
-				onShowAllTypes={showAllTypes}
-			/>
+			{#if viewMode === '3d'}
+				<KGGraphViewport3D
+					{entities}
+					{relations}
+					{hiddenTypes}
+					selectedId={selectedEntity?.id ?? null}
+					{typeColors}
+					onNodeSelect={selectEntity}
+					onShowAllTypes={showAllTypes}
+				/>
+			{:else}
+				<KGGraphViewport
+					{entities}
+					{relations}
+					{hiddenTypes}
+					selectedId={selectedEntity?.id ?? null}
+					{typeColors}
+					onNodeSelect={selectEntity}
+					onShowAllTypes={showAllTypes}
+				/>
+			{/if}
 
 			<!-- Detail panel -->
 			{#if selectedEntity}

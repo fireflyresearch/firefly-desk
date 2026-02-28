@@ -223,12 +223,22 @@ function stepTypeToNodeType(stepType: string | undefined): FlowNodeData['nodeTyp
 	return 'process-step';
 }
 
+/** Sentinel node IDs for process start/end. */
+export const PROCESS_START_ID = '__process_start__';
+export const PROCESS_END_ID = '__process_end__';
+
 /**
- * Convert process steps to SvelteFlow nodes.
+ * Convert process steps to SvelteFlow nodes, injecting Start and End
+ * sentinel nodes for clear process entry/exit representation.
  * Positions default to (0, 0) -- use {@link layoutDagre} afterwards.
  */
-export function toProcessFlowNodes(steps: ProcessStep[]): FlowNode[] {
-	return steps.map((step) => ({
+export function toProcessFlowNodes(
+	steps: ProcessStep[],
+	dependencies: ProcessDependency[] = []
+): FlowNode[] {
+	if (steps.length === 0) return [];
+
+	const stepNodes: FlowNode[] = steps.map((step) => ({
 		id: step.id,
 		type: stepTypeToNodeType(step.step_type),
 		position: { x: 0, y: 0 },
@@ -246,13 +256,54 @@ export function toProcessFlowNodes(steps: ProcessStep[]): FlowNode[] {
 			}
 		}
 	}));
+
+	// Build sets of steps that have incoming / outgoing edges
+	const hasIncoming = new Set(dependencies.map((d) => d.target_step_id));
+	const hasOutgoing = new Set(dependencies.map((d) => d.source_step_id));
+	const stepIds = new Set(steps.map((s) => s.id));
+
+	// Root steps: no incoming dependency edges (process entry points)
+	const rootSteps = steps.filter((s) => !hasIncoming.has(s.id));
+	// Leaf steps: no outgoing dependency edges (process exit points)
+	const leafSteps = steps.filter((s) => !hasOutgoing.has(s.id));
+
+	// If all steps have both incoming and outgoing (cycle), fall back to order-based
+	const startNode: FlowNode = {
+		id: PROCESS_START_ID,
+		type: 'start-end',
+		position: { x: 0, y: 0 },
+		data: {
+			label: 'Start',
+			nodeType: 'start-end',
+			status: 'active' as const,
+			metadata: { sentinel: 'start' }
+		}
+	};
+
+	const endNode: FlowNode = {
+		id: PROCESS_END_ID,
+		type: 'start-end',
+		position: { x: 0, y: 0 },
+		data: {
+			label: 'End',
+			nodeType: 'start-end',
+			status: 'completed' as const,
+			metadata: { sentinel: 'end' }
+		}
+	};
+
+	return [startNode, ...stepNodes, endNode];
 }
 
 /**
- * Convert process dependencies to SvelteFlow edges.
+ * Convert process dependencies to SvelteFlow edges, including edges
+ * from the Start sentinel to root steps and from leaf steps to End.
  */
-export function toProcessFlowEdges(dependencies: ProcessDependency[]): FlowEdge[] {
-	return dependencies.map((dep, idx) => ({
+export function toProcessFlowEdges(
+	dependencies: ProcessDependency[],
+	steps: ProcessStep[] = []
+): FlowEdge[] {
+	const depEdges: FlowEdge[] = dependencies.map((dep, idx) => ({
 		id: `dep-${idx}-${dep.source_step_id}-${dep.target_step_id}`,
 		source: dep.source_step_id,
 		target: dep.target_step_id,
@@ -263,4 +314,33 @@ export function toProcessFlowEdges(dependencies: ProcessDependency[]): FlowEdge[
 			animated: false
 		}
 	}));
+
+	if (steps.length === 0) return depEdges;
+
+	// Compute root and leaf steps for sentinel edges
+	const hasIncoming = new Set(dependencies.map((d) => d.target_step_id));
+	const hasOutgoing = new Set(dependencies.map((d) => d.source_step_id));
+
+	const rootSteps = steps.filter((s) => !hasIncoming.has(s.id));
+	const leafSteps = steps.filter((s) => !hasOutgoing.has(s.id));
+
+	// Edges from Start → root steps
+	const startEdges: FlowEdge[] = rootSteps.map((s) => ({
+		id: `sentinel-start-${s.id}`,
+		source: PROCESS_START_ID,
+		target: s.id,
+		type: 'default',
+		data: { relation: 'sequence' as const, animated: true }
+	}));
+
+	// Edges from leaf steps → End
+	const endEdges: FlowEdge[] = leafSteps.map((s) => ({
+		id: `sentinel-end-${s.id}`,
+		source: s.id,
+		target: PROCESS_END_ID,
+		type: 'default',
+		data: { relation: 'sequence' as const, animated: false }
+	}));
+
+	return [...startEdges, ...depEdges, ...endEdges];
 }

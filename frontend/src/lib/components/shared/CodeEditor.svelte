@@ -25,7 +25,7 @@
 
 	interface Props {
 		value?: string;
-		language?: 'python' | 'jinja2' | 'json';
+		language?: 'python' | 'jinja2' | 'json' | 'html';
 		placeholder?: string;
 		readonly?: boolean;
 		minHeight?: string;
@@ -69,7 +69,7 @@
 				const langExtension =
 					language === 'json'
 						? cmJson.json()
-						: language === 'jinja2'
+						: language === 'html' || language === 'jinja2'
 							? cmHtml.html()
 							: cmPython.python();
 

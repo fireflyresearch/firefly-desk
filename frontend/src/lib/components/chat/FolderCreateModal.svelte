@@ -72,9 +72,10 @@
 		open: boolean;
 		onClose: () => void;
 		onCreate: (name: string, icon: string) => void;
+		error?: string | null;
 	}
 
-	let { open, onClose, onCreate }: FolderCreateModalProps = $props();
+	let { open, onClose, onCreate, error = null }: FolderCreateModalProps = $props();
 
 	// -----------------------------------------------------------------------
 	// State
@@ -173,6 +174,13 @@
 						{/each}
 					</div>
 				</div>
+
+				<!-- Error message -->
+				{#if error}
+					<div class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+						{error}
+					</div>
+				{/if}
 
 				<!-- Action buttons -->
 				<div class="flex items-center justify-end gap-2 pt-2">

@@ -10,21 +10,34 @@ The Admin Console is the graphical management interface for Firefly Desk. It pro
 
 Access to the Admin Console requires the admin role. Non-admin users do not see the admin navigation items and cannot access the admin routes directly. This restriction exists because the operations performed in the admin console, such as registering new systems, modifying credentials, and deleting knowledge documents, affect the behavior and capabilities of the entire platform for all users.
 
+### Sidebar Navigation
+
+The sidebar organizes features into collapsible groups with a left-bar accent indicator for the active page:
+
+- **Dashboard** — Always visible at the top
+- **Content & Data** — Workspaces, System Catalog, Knowledge Base, Processes
+- **AI Configuration** — Agent, LLM Providers, Prompts, Tools, Email
+- **Security & Access** — Users & Roles, Credentials, Single Sign-On
+- **Operations** — Audit Log, Exports, Git Providers, Document Sources, Search Engine, Background Jobs
+- **Help & Guides** — Pinned at the bottom
+
+Each group is collapsible with a chevron toggle and item count badge.
+
 ## Admin Dashboard
 
 **Route:** `/admin`
 
 The Admin Dashboard provides an at-a-glance overview of platform health and activity. It displays aggregated statistics including total conversations, tool invocations, active users, system health status, and recent activity metrics. This view helps administrators quickly assess whether the platform is operating normally and identify trends in usage.
 
-## Catalog Manager
+## System Catalog Manager
 
 **Route:** `/admin/catalog`
 
-The Catalog Manager is where administrators register and configure the external systems and endpoints that Ember can interact with. The interface displays all registered systems with their status, endpoint count, and health information. From this view, administrators can add new systems, edit existing system configurations, and manage the endpoints within each system.
+The System Catalog Manager is where administrators register and configure the external systems and endpoints that Ember can interact with. The interface displays all registered systems with their status, endpoint count, and health information. From this view, administrators can add new systems, edit existing system configurations, and manage the endpoints within each system.
 
 When adding or editing a system, the form captures the system name, description, base URL, authentication method, health check path, and tags. When managing endpoints, administrators define the HTTP method, path, parameter schema, risk level, required permissions, and the critical `when_to_use` guidance text that shapes how the agent selects tools.
 
-The Catalog Manager is the primary way that Firefly Desk's capabilities grow. Every new system registered here immediately becomes available to Ember in subsequent conversations, without any code deployment or agent retraining. This is why the catalog metadata, particularly the descriptions and `when_to_use` fields, deserves careful attention: the quality of these descriptions directly determines the quality of the agent's tool selection.
+The System Catalog Manager is the primary way that Firefly Desk's capabilities grow. Every new system registered here immediately becomes available to Ember in subsequent conversations, without any code deployment or agent retraining. This is why the catalog metadata, particularly the descriptions and `when_to_use` fields, deserves careful attention: the quality of these descriptions directly determines the quality of the agent's tool selection.
 
 ## Credential Vault
 
@@ -66,14 +79,14 @@ Provides three methods for adding new documents:
 
 **Also accessible from:** `/admin/knowledge` (Graph Explorer tab)
 
-The Knowledge Graph Explorer provides a visual, interactive exploration of the knowledge graph using SvelteFlow, a React Flow-based library for Svelte. This view helps administrators understand the relationships between concepts, systems, and processes in their knowledge base.
+The Knowledge Graph Explorer provides a visual, interactive exploration of the knowledge graph using Cytoscape.js with an fcose force-directed layout. This view helps administrators understand the relationships between concepts, systems, and processes in their knowledge base.
 
 Features of the graph explorer:
 
-- **Interactive graph visualization:** Entities are rendered as styled nodes and relationships as directed edges in an interactive canvas. Nodes can be dragged to rearrange the layout, and the canvas supports pan and zoom.
+- **Interactive graph visualization:** Entities are rendered as typed, color-coded nodes with distinct shapes per entity type, and relationships as directed edges. The canvas supports pan, zoom, and hover-to-highlight neighbors.
 - **Entity details:** Clicking on a node reveals its properties, type, and connected relationships in a detail panel.
-- **Relationship navigation:** Edges show the relationship type and direction between entities, with labels displayed on hover or selection.
-- **Automatic layout:** Nodes are automatically positioned using a hierarchical layout algorithm, with manual repositioning supported through drag-and-drop.
+- **Relationship navigation:** Edges show the relationship type and direction between entities, with labels displayed along the edge.
+- **Automatic layout:** Nodes are automatically positioned using the fcose force-directed layout algorithm, optimized for readability with configurable node separation and edge lengths.
 - **Discovery:** The visual layout often reveals unexpected connections or structural patterns in your operational knowledge that are not apparent when browsing documents individually.
 
 The graph explorer is particularly valuable for understanding system dependencies, process flows, and concept hierarchies within your organization's operational domain.
@@ -110,7 +123,7 @@ Key features:
 - **Verification:** Mark a discovered process as verified once a human has reviewed it, changing its status from "discovered" to "verified."
 - **Discovery trigger:** Manually trigger a new discovery run from the interface, which submits a background job that analyzes all available context.
 
-The process explorer uses the same SvelteFlow base components (`FlowCanvas`, `FlowNode`, `FlowEdge`) as the Knowledge Graph Explorer, providing a consistent visual language across the admin console.
+The process explorer uses SvelteFlow base components (`FlowCanvas`, `FlowNode`, `FlowEdge`) for flow diagram rendering, while the Knowledge Graph Explorer uses Cytoscape.js for force-directed graph visualization.
 
 For complete documentation including the domain model and API reference, see [Process Discovery](processes.md).
 
@@ -223,3 +236,49 @@ The Search Engine page configures the web search provider that gives the agent i
 When no search provider is configured, the page displays a getting-started view explaining what web search enables and offering a one-click setup for Tavily. The configuration form includes an inline setup tutorial with step-by-step instructions for creating a Tavily account and obtaining an API key, a max results slider, a connection test button, and a save action. Changes take effect immediately for subsequent conversation turns.
 
 Administrators can also disable search entirely, which removes the agent's ability to look up real-time information from the web.
+
+## Email Channel
+
+**Route:** `/admin/email`
+
+The Email Channel page configures the email communication channel that allows the AI agent to send and receive emails through external providers. The Email entry appears in the **AI Configuration** sidebar group alongside Agent, LLM Providers, Prompts, and Tools.
+
+When the email channel has not been configured, the page displays a setup wizard that walks administrators through provider selection, API key entry, validation, and identity configuration. Once configured, the page organises settings into five tabs:
+
+### Connection Tab
+
+Configures the email provider and credentials. Administrators select between Resend and AWS SES, enter the provider API key (or configure an AWS region for SES), and validate the credentials with a lightweight API call that does not send any email. The tab also displays the current connection status (enabled/disabled, provider name, configured state) and provides a disconnect action to clear credentials and disable the channel.
+
+### Identity Tab
+
+Controls how outbound emails appear to recipients. Fields include the from address (which must be verified with the provider), the display name shown alongside the address, and an optional reply-to address. A test email section lets administrators send a sample message to verify end-to-end delivery through the configured provider.
+
+### Signature Tab
+
+Provides an HTML signature editor with a live preview rendered in an iframe. Administrators can edit the raw HTML directly with syntax highlighting, upload a custom logo image (PNG, JPEG, GIF, or WebP, max 2 MB) that is embedded as a base64 data URI, or reset the signature to the auto-generated Flydesk-branded default. The default signature is built from the current display name and from address using email-safe `<table>` layout with inline styles.
+
+### Behaviour Tab
+
+Controls the agent's email behaviour: auto-reply toggle and delay (default 30 seconds), greeting and sign-off toggles, maximum email length (default 2000 characters), and CC handling mode. The CC mode determines whether replies go to the sender only (`respond_sender`), the sender and all CC recipients (`respond_all`), or are suppressed entirely (`silent`). The tab also includes email-specific persona overrides for tone, personality, and custom instructions that apply only when the agent is composing email responses.
+
+### Inbound Tab
+
+Configures how the platform receives inbound emails. The tab displays the webhook URL that must be registered with the email provider, along with provider-specific setup instructions for Resend and SES. In dev mode, a built-in ngrok tunnel section allows administrators to start and stop a tunnel that exposes the local server on a public HTTPS URL for testing inbound webhooks without deploying. The tab also provides identity resolution tools (check whether an email address maps to a known user, list all users with email addresses) and an inbound simulation form that runs the full pipeline -- identity resolution, thread creation, and optional auto-reply -- without requiring a real email.
+
+For comprehensive documentation including provider setup guides, the agent email tool, and troubleshooting, see [Email Channel](help/email.md).
+
+## Background Jobs
+
+**Route:** `/admin/jobs`
+
+The Background Jobs page provides visibility into the asynchronous tasks running on the platform. Jobs include operations such as process discovery runs, knowledge base indexing, document source sync, export generation, and other long-running tasks that execute outside the request-response cycle.
+
+Administrators can:
+
+- View all jobs with their status (queued, running, completed, failed, cancelled), type, creation time, and duration
+- Monitor running jobs and track progress
+- Cancel queued or running jobs that are no longer needed
+- View error details for failed jobs to diagnose issues
+- Filter jobs by status or type
+
+The Background Jobs entry appears in the **Operations** sidebar group alongside Audit Log, Exports, Git Providers, Document Sources, and Search Engine.

@@ -25,7 +25,8 @@ import {
 	finishStreaming,
 	isStreaming,
 	messages,
-	loadConversations
+	loadConversations,
+	updateConversationTitle
 } from '../stores/chat.js';
 import { pushPanel } from '../stores/panel.js';
 import { startTool, endTool, mergeAgentToolCalls, clearToolState, completedTools } from '../stores/tools.js';
@@ -326,6 +327,15 @@ function handleSSEEvent(msg: SSEMessage): void {
 			const steps =
 				(msg.data.steps as Array<{ description: string; status: string }>) ?? [];
 			setReasoningPlan(steps);
+			break;
+		}
+
+		case 'title': {
+			const title = msg.data.title as string;
+			const convId = msg.data.conversation_id as string;
+			if (title && convId) {
+				updateConversationTitle(convId, title);
+			}
 			break;
 		}
 

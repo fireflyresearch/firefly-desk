@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.process import (
@@ -214,6 +214,35 @@ class ProcessRepository:
             row.updated_at = _utcnow()
             await session.commit()
             return step
+
+    async def delete_step(self, process_id: str, step_id: str) -> bool:
+        """Delete a step and all dependencies referencing it."""
+        async with self._session_factory() as session:
+            row = await session.execute(
+                select(ProcessStepRow).where(
+                    ProcessStepRow.process_id == process_id,
+                    ProcessStepRow.id == step_id,
+                )
+            )
+            step_row = row.scalar_one_or_none()
+            if not step_row:
+                return False
+            await session.execute(
+                delete(ProcessDependencyRow).where(
+                    ProcessDependencyRow.process_id == process_id,
+                    or_(
+                        ProcessDependencyRow.source_step_id == step_id,
+                        ProcessDependencyRow.target_step_id == step_id,
+                    ),
+                )
+            )
+            await session.delete(step_row)
+            # Touch updated_at on the parent process
+            proc = await session.get(BusinessProcessRow, process_id)
+            if proc is not None:
+                proc.updated_at = _utcnow()
+            await session.commit()
+            return True
 
     # ------------------------------------------------------------------
     # Dependency operations

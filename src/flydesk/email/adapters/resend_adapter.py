@@ -27,6 +27,31 @@ class ResendEmailAdapter:
         self._api_key = api_key
 
     # ------------------------------------------------------------------
+    # Validate
+    # ------------------------------------------------------------------
+
+    async def validate(self) -> SendResult:
+        """Test the API key by listing domains (lightweight call)."""
+        try:
+            import resend
+
+            resend.api_key = self._api_key
+            result = resend.Domains.list()
+            domains = [d["name"] for d in (result.data or [])]
+            return SendResult(
+                success=True,
+                provider_message_id=None,
+                error=None,
+                metadata={"domains": domains},
+            )
+        except Exception as exc:
+            logger.exception("Resend validation failed")
+            msg = str(exc)
+            if "401" in msg or "unauthorized" in msg.lower() or "invalid" in msg.lower():
+                return SendResult(success=False, error="Invalid API key")
+            return SendResult(success=False, error=msg)
+
+    # ------------------------------------------------------------------
     # Send
     # ------------------------------------------------------------------
 

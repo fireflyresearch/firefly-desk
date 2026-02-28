@@ -494,6 +494,27 @@
 	function hideTooltip() {
 		hoveredCell = null;
 	}
+
+	// -----------------------------------------------------------------------
+	// KPI cards derived data
+	// -----------------------------------------------------------------------
+
+	type LucideIcon = typeof MessageSquare;
+
+	interface KpiCard {
+		label: string;
+		value: number;
+		icon: LucideIcon;
+		iconBg: string;
+		iconColor: string;
+	}
+
+	let kpis = $derived<KpiCard[]>([
+		{ label: 'Conversations', value: stats?.conversation_count ?? 0, icon: MessageSquare, iconBg: 'bg-accent/8', iconColor: 'text-accent' },
+		{ label: 'Active Users', value: stats?.active_user_count ?? 0, icon: Users, iconBg: 'bg-success/8', iconColor: 'text-success' },
+		{ label: 'Systems', value: stats?.system_count ?? 0, icon: Database, iconBg: 'bg-accent/8', iconColor: 'text-accent' },
+		{ label: 'Knowledge Docs', value: stats?.knowledge_doc_count ?? 0, icon: FileText, iconBg: 'bg-accent/8', iconColor: 'text-accent' },
+	]);
 </script>
 
 <style>
@@ -512,282 +533,214 @@
 	}
 </style>
 
-<div class="mx-auto flex h-full max-w-7xl flex-col gap-5 overflow-y-auto p-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">Dashboard</h1>
-			<p class="text-sm text-text-secondary">System overview and health status</p>
-		</div>
-		<button
-			type="button"
-			onclick={loadDashboard}
-			class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary transition-all hover:bg-surface-hover hover:text-text-primary"
-		>
-			<RefreshCw size={14} />
-			Refresh
-		</button>
-	</div>
-
-	<!-- Error banner -->
-	{#if error}
-		<div class="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
-			{error}
-		</div>
-	{/if}
-
-	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<Loader2 size={24} class="animate-spin text-text-secondary" />
-		</div>
-	{:else}
-		<!-- Stat cards -->
-		<div class="mx-auto grid max-w-5xl grid-cols-2 gap-3 lg:grid-cols-4">
-			<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-				<div class="flex items-center gap-3">
-					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-						<MessageSquare size={16} class="text-accent" />
-					</div>
-					<div>
-						<p class="text-2xl font-bold text-text-primary">
-							{stats?.conversation_count ?? 0}
-						</p>
-						<p class="text-[11px] text-text-secondary">Conversations</p>
-					</div>
-				</div>
+<div class="flex h-full flex-col overflow-y-auto">
+	<div class="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-5">
+		<!-- Header -->
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-lg font-semibold text-text-primary">Dashboard</h1>
+				<p class="text-[13px] text-text-secondary">System overview and health status</p>
 			</div>
-
-			<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-				<div class="flex items-center gap-3">
-					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10">
-						<Users size={16} class="text-success" />
-					</div>
-					<div>
-						<p class="text-2xl font-bold text-text-primary">
-							{stats?.active_user_count ?? 0}
-						</p>
-						<p class="text-[11px] text-text-secondary">Active Users</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-				<div class="flex items-center gap-3">
-					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ember/10">
-						<Database size={16} class="text-ember" />
-					</div>
-					<div>
-						<p class="text-2xl font-bold text-text-primary">
-							{stats?.system_count ?? 0}
-						</p>
-						<p class="text-[11px] text-text-secondary">Systems</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-				<div class="flex items-center gap-3">
-					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-						<FileText size={16} class="text-accent" />
-					</div>
-					<div>
-						<p class="text-2xl font-bold text-text-primary">
-							{stats?.knowledge_doc_count ?? 0}
-						</p>
-						<p class="text-[11px] text-text-secondary">Knowledge Docs</p>
-					</div>
-				</div>
-			</div>
+			<button
+				type="button"
+				onclick={loadDashboard}
+				class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			>
+				<RefreshCw size={13} />
+				Refresh
+			</button>
 		</div>
 
-		<!-- Analytics stat cards (second row) -->
-		{#if tokenUsage || analytics}
-			<div class="mx-auto grid max-w-5xl grid-cols-2 gap-3 lg:grid-cols-4">
-				{#if tokenUsage}
-					<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-						<div class="flex items-center gap-3">
-							<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ember/10">
-								<BarChart3 size={16} class="text-ember" />
-							</div>
-							<div>
-								<p class="text-2xl font-bold text-text-primary">
-									{formatTokenCount(tokenUsage.total_input_tokens + tokenUsage.total_output_tokens)}
-								</p>
-								<p class="text-[11px] text-text-secondary">Total Tokens</p>
-							</div>
-						</div>
-					</div>
-
-					<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-						<div class="flex items-center gap-3">
-							<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-warning/10">
-								<Coins size={16} class="text-warning" />
-							</div>
-							<div>
-								<p class="text-2xl font-bold text-text-primary">
-									${tokenUsage.estimated_cost_usd.toFixed(2)}
-								</p>
-								<p class="text-[11px] text-text-secondary">Estimated Cost</p>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				{#if analytics}
-					<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-						<div class="flex items-center gap-3">
-							<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10">
-								<TrendingUp size={16} class="text-success" />
-							</div>
-							<div>
-								<p class="text-2xl font-bold text-text-primary">
-									{analytics.messages_per_day?.length
-										? analytics.messages_per_day[analytics.messages_per_day.length - 1].count
-										: 0}
-								</p>
-								<p class="text-[11px] text-text-secondary">Messages Today</p>
-							</div>
-						</div>
-					</div>
-
-					<div class="rounded-xl border border-border bg-surface-elevated px-4 py-3.5 shadow-sm">
-						<div class="flex items-center gap-3">
-							<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-								<MessageSquare size={16} class="text-accent" />
-							</div>
-							<div>
-								<p class="text-2xl font-bold text-text-primary">
-									{analytics.avg_conversation_length?.toFixed(1) ?? '--'}
-								</p>
-								<p class="text-[11px] text-text-secondary">Avg Conv Length</p>
-							</div>
-						</div>
-					</div>
-				{/if}
+		<!-- Error banner -->
+		{#if error}
+			<div class="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2 text-[13px] text-danger">
+				{error}
 			</div>
 		{/if}
 
-		<!-- System Health + Operations side by side -->
-		<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-			<!-- System health -->
-			{#if health}
-				<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
-					<div class="mb-4 flex items-center justify-between">
-						<h2 class="text-sm font-semibold text-text-primary">System Health</h2>
+		{#if loading}
+			<div class="flex items-center justify-center py-16">
+				<Loader2 size={22} class="animate-spin text-text-secondary" />
+			</div>
+		{:else}
+			<!-- ============================================================= -->
+			<!-- KPI Cards — primary metrics                                    -->
+			<!-- ============================================================= -->
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+				{#each kpis as kpi}
+					<div class="rounded-lg border border-border bg-surface-elevated px-4 py-3">
 						<div class="flex items-center gap-3">
-							<span
-								class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium {healthBg(health.overall)} {healthColor(health.overall)}"
-							>
-								{#if health.overall === 'healthy'}
-									<CheckCircle size={12} />
-								{:else if health.overall === 'degraded'}
-									<AlertTriangle size={12} />
-								{:else}
-									<XCircle size={12} />
-								{/if}
-								{health.overall}
-							</span>
-							{#if health.uptime_seconds > 0}
-								<span class="text-xs text-text-secondary">
-									{formatUptime(health.uptime_seconds)}
-								</span>
-							{/if}
+							<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md {kpi.iconBg}">
+								<kpi.icon size={15} class={kpi.iconColor} />
+							</div>
+							<div class="min-w-0">
+								<p class="text-xl font-bold tabular-nums text-text-primary">{kpi.value}</p>
+								<p class="truncate text-[11px] text-text-secondary">{kpi.label}</p>
+							</div>
 						</div>
 					</div>
+				{/each}
+			</div>
 
-					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-						{#each health.components as component}
-							<div
-								class="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2.5"
-							>
-								<div class="flex items-center gap-2">
-									<Activity size={14} class={healthColor(component.status)} />
-									<span class="text-sm font-medium text-text-primary">{component.name}</span>
-								</div>
-								<div class="flex items-center gap-2">
-									{#if component.latency_ms !== null}
-										<span class="text-xs text-text-secondary">
-											{component.latency_ms}ms
-										</span>
-									{/if}
-									<span class={healthDotClass(component.status)} aria-label="{component.status} status"></span>
-								</div>
-							</div>
-						{/each}
-					</div>
+			<!-- ============================================================= -->
+			<!-- Usage metrics bar (secondary KPIs — compact inline)            -->
+			<!-- ============================================================= -->
+			{#if tokenUsage || analytics}
+				<div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border bg-surface-elevated px-5 py-3">
+					{#if tokenUsage}
+						<div class="flex items-center gap-2">
+							<BarChart3 size={13} class="text-text-secondary/50" />
+							<span class="text-[13px] font-semibold tabular-nums text-text-primary">
+								{formatTokenCount(tokenUsage.total_input_tokens + tokenUsage.total_output_tokens)}
+							</span>
+							<span class="text-[11px] text-text-secondary">tokens</span>
+						</div>
+						<span class="hidden h-3.5 w-px bg-border sm:block"></span>
+						<div class="flex items-center gap-2">
+							<Coins size={13} class="text-text-secondary/50" />
+							<span class="text-[13px] font-semibold tabular-nums text-text-primary">
+								${tokenUsage.estimated_cost_usd.toFixed(2)}
+							</span>
+							<span class="text-[11px] text-text-secondary">cost ({tokenUsage.period_days}d)</span>
+						</div>
+					{/if}
+					{#if analytics}
+						{#if tokenUsage}<span class="hidden h-3.5 w-px bg-border sm:block"></span>{/if}
+						<div class="flex items-center gap-2">
+							<TrendingUp size={13} class="text-text-secondary/50" />
+							<span class="text-[13px] font-semibold tabular-nums text-text-primary">
+								{analytics.messages_per_day?.length
+									? analytics.messages_per_day[analytics.messages_per_day.length - 1].count
+									: 0}
+							</span>
+							<span class="text-[11px] text-text-secondary">messages today</span>
+						</div>
+						<span class="hidden h-3.5 w-px bg-border sm:block"></span>
+						<div class="flex items-center gap-2">
+							<MessageSquare size={13} class="text-text-secondary/50" />
+							<span class="text-[13px] font-semibold tabular-nums text-text-primary">
+								{analytics.avg_conversation_length?.toFixed(1) ?? '--'}
+							</span>
+							<span class="text-[11px] text-text-secondary">avg length</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
-			<!-- Operations -->
-			<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
-				<div class="mb-4 flex items-center gap-2">
-					<Wrench size={16} class="text-text-secondary" />
-					<h2 class="text-sm font-semibold text-text-primary">Operations</h2>
-				</div>
-				<div class="flex flex-wrap gap-2">
-					<button
-						type="button"
-						onclick={testLLMConnection}
-						disabled={testingLLM}
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-all hover:bg-surface-hover disabled:opacity-50"
-					>
-						{#if testingLLM}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Zap size={14} />
-						{/if}
-						Test LLM Connection
-					</button>
+			<!-- ============================================================= -->
+			<!-- Health + Operations row                                        -->
+			<!-- ============================================================= -->
+			<div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
+				<!-- System health — wider -->
+				{#if health}
+					<div class="rounded-lg border border-border bg-surface-elevated p-4 lg:col-span-3">
+						<div class="mb-3 flex items-center justify-between">
+							<h2 class="text-[13px] font-semibold text-text-primary">System Health</h2>
+							<div class="flex items-center gap-2.5">
+								<span
+									class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium {healthBg(health.overall)} {healthColor(health.overall)}"
+								>
+									{#if health.overall === 'healthy'}
+										<CheckCircle size={11} />
+									{:else if health.overall === 'degraded'}
+										<AlertTriangle size={11} />
+									{:else}
+										<XCircle size={11} />
+									{/if}
+									{health.overall}
+								</span>
+								{#if health.uptime_seconds > 0}
+									<span class="text-[11px] text-text-secondary/60">{formatUptime(health.uptime_seconds)}</span>
+								{/if}
+							</div>
+						</div>
 
-					<a
-						href="/admin/audit"
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-all hover:bg-surface-hover"
-					>
-						<AlertTriangle size={14} />
-						View Audit Log
-					</a>
+						<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+							{#each health.components as component}
+								<div class="flex items-center justify-between rounded-md border border-border/60 bg-surface px-3 py-2">
+									<div class="flex items-center gap-2">
+										<Activity size={13} class={healthColor(component.status)} />
+										<span class="text-[13px] font-medium text-text-primary">{component.name}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										{#if component.latency_ms !== null}
+											<span class="text-[11px] tabular-nums text-text-secondary">{component.latency_ms}ms</span>
+										{/if}
+										<span class={healthDotClass(component.status)} aria-label="{component.status} status"></span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
-					<button
-						type="button"
-						onclick={refreshKnowledgeIndex}
-						disabled={refreshingIndex}
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-all hover:bg-surface-hover disabled:opacity-50"
-					>
-						{#if refreshingIndex}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<BookOpen size={14} />
-						{/if}
-						Refresh Knowledge Index
-					</button>
+				<!-- Operations — narrower -->
+				<div class="rounded-lg border border-border bg-surface-elevated p-4 lg:col-span-2">
+					<div class="mb-3 flex items-center gap-2">
+						<Wrench size={14} class="text-text-secondary/60" />
+						<h2 class="text-[13px] font-semibold text-text-primary">Operations</h2>
+					</div>
+					<div class="flex flex-col gap-2">
+						<button
+							type="button"
+							onclick={testLLMConnection}
+							disabled={testingLLM}
+							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+						>
+							{#if testingLLM}
+								<Loader2 size={13} class="animate-spin" />
+							{:else}
+								<Zap size={13} class="text-text-secondary/60" />
+							{/if}
+							Test LLM Connection
+						</button>
+						<a
+							href="/admin/audit"
+							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover"
+						>
+							<AlertTriangle size={13} class="text-text-secondary/60" />
+							View Audit Log
+						</a>
+						<button
+							type="button"
+							onclick={refreshKnowledgeIndex}
+							disabled={refreshingIndex}
+							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+						>
+							{#if refreshingIndex}
+								<Loader2 size={13} class="animate-spin" />
+							{:else}
+								<BookOpen size={13} class="text-text-secondary/60" />
+							{/if}
+							Refresh Knowledge Index
+						</button>
+					</div>
 				</div>
 			</div>
-		</div>
 
-		<!-- Charts section -->
-		{#if analytics || tokenUsage}
-			<!-- Conversation Activity — GitHub-style heatmap -->
+			<!-- ============================================================= -->
+			<!-- Conversation Activity heatmap (full width)                     -->
+			<!-- ============================================================= -->
 			{#if heatmapData.weeks.length > 0}
-				<div class="mx-auto max-w-3xl rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
-					<!-- Header with year selector -->
-					<div class="mb-4 flex items-center justify-between">
-						<h2 class="text-sm font-semibold text-text-primary">Conversation Activity</h2>
+				<div class="rounded-lg border border-border bg-surface-elevated p-4">
+					<div class="mb-3 flex items-center justify-between">
+						<h2 class="text-[13px] font-semibold text-text-primary">Conversation Activity</h2>
 						<div class="flex items-center gap-1">
 							<button type="button" onclick={() => changeYear(-1)}
 								class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-30"
 								disabled={selectedYear <= minYear}>
-								<ChevronLeft size={14} />
+								<ChevronLeft size={13} />
 							</button>
-							<span class="min-w-[3rem] text-center text-xs font-medium text-text-primary">{selectedYear}</span>
+							<span class="min-w-[3rem] text-center text-[12px] font-medium tabular-nums text-text-primary">{selectedYear}</span>
 							<button type="button" onclick={() => changeYear(1)}
 								class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-30"
 								disabled={selectedYear >= new Date().getFullYear()}>
-								<ChevronRight size={14} />
+								<ChevronRight size={13} />
 							</button>
 						</div>
 					</div>
 
-					<div class="relative">
+					<div class="relative overflow-x-auto">
 						<!-- Month headers -->
 						<div class="mb-1 flex pl-7" style="gap: 2px;">
 							{#each heatmapData.monthHeaders as header, i}
@@ -815,9 +768,9 @@
 								<span class="h-[11px] text-[10px] leading-[11px] text-text-secondary">&nbsp;</span>
 							</div>
 
-							<!-- Heatmap grid — fixed-size cells like GitHub -->
-							<div class="flex gap-[2px] overflow-x-auto">
-								{#each heatmapData.weeks as week, wi}
+							<!-- Heatmap cells -->
+							<div class="flex gap-[2px]">
+								{#each heatmapData.weeks as week}
 									<div class="flex shrink-0 flex-col gap-[2px]">
 										{#each week.cells as cell}
 											<div
@@ -835,7 +788,7 @@
 						<!-- Custom tooltip -->
 						{#if hoveredCell}
 							<div
-								class="pointer-events-none fixed z-50 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-xs shadow-lg"
+								class="pointer-events-none fixed z-50 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] shadow-lg"
 								style="left: {hoveredCell.x}px; top: {hoveredCell.y - 40}px;"
 							>
 								<div class="font-medium text-text-primary">{formatHeatmapDate(hoveredCell.date)}</div>
@@ -845,7 +798,7 @@
 					</div>
 
 					<!-- Legend -->
-					<div class="mt-3 flex items-center justify-end gap-1.5">
+					<div class="mt-2.5 flex items-center justify-end gap-1.5">
 						<span class="text-[10px] text-text-secondary">Less</span>
 						{#each heatmapLevelClasses as cls}
 							<div class="h-[11px] w-[11px] rounded-[2px] {cls}"></div>
@@ -855,172 +808,173 @@
 				</div>
 			{/if}
 
-			<!-- Tool Usage + Token Usage side by side -->
-			<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-				{#if analytics?.tool_usage?.length}
-					<ChartWidget
-						chartType="bar"
-						title="Tool Usage"
-						labels={analytics.tool_usage.map(t => t.tool_name)}
-						datasets={[{
-							label: 'Calls',
-							data: analytics.tool_usage.map(t => t.count)
-						}]}
-						options={{ indexAxis: 'y', plugins: { legend: { display: false } } }}
-					/>
-				{/if}
-
+			<!-- ============================================================= -->
+			<!-- Token Usage + Recent Activity row                              -->
+			<!-- ============================================================= -->
+			<div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
+				<!-- Token Usage — left -->
 				{#if tokenUsage && (tokenUsage.total_input_tokens > 0 || tokenUsage.total_output_tokens > 0)}
 					{@const total = tokenUsage.total_input_tokens + tokenUsage.total_output_tokens}
 					{@const inputPct = total > 0 ? (tokenUsage.total_input_tokens / total) * 100 : 50}
-					<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
-						<div class="border-b border-border px-4 py-3">
-							<h3 class="text-sm font-semibold text-text-primary">Token Usage</h3>
+					<div class="overflow-hidden rounded-lg border border-border bg-surface-elevated lg:col-span-2">
+						<div class="border-b border-border px-4 py-2.5">
+							<h3 class="text-[13px] font-semibold text-text-primary">Token Usage</h3>
 						</div>
-						<div class="p-4 space-y-4">
+						<div class="space-y-3 p-4">
 							<!-- Stacked bar -->
-							<div class="h-3 rounded-full overflow-hidden bg-surface-secondary flex">
+							<div class="flex h-2.5 overflow-hidden rounded-full bg-surface-secondary">
 								<div class="h-full bg-accent transition-all" style="width: {inputPct}%"></div>
 								<div class="h-full bg-ember transition-all" style="width: {100 - inputPct}%"></div>
 							</div>
 
-							<!-- Legend + numbers -->
+							<!-- Legend -->
 							<div class="grid grid-cols-2 gap-3">
 								<div class="flex items-center gap-2">
-									<span class="inline-block h-2.5 w-2.5 rounded-full bg-accent"></span>
+									<span class="inline-block h-2 w-2 rounded-full bg-accent"></span>
 									<div>
-										<p class="text-xs text-text-secondary">Input</p>
-										<p class="text-sm font-semibold text-text-primary">{formatTokenCount(tokenUsage.total_input_tokens)}</p>
+										<p class="text-[11px] text-text-secondary">Input</p>
+										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_input_tokens)}</p>
 									</div>
 								</div>
 								<div class="flex items-center gap-2">
-									<span class="inline-block h-2.5 w-2.5 rounded-full bg-ember"></span>
+									<span class="inline-block h-2 w-2 rounded-full bg-ember"></span>
 									<div>
-										<p class="text-xs text-text-secondary">Output</p>
-										<p class="text-sm font-semibold text-text-primary">{formatTokenCount(tokenUsage.total_output_tokens)}</p>
+										<p class="text-[11px] text-text-secondary">Output</p>
+										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_output_tokens)}</p>
 									</div>
 								</div>
 							</div>
 
-							<!-- Cost + period -->
-							<div class="flex items-center justify-between border-t border-border pt-3">
-								<span class="text-xs text-text-secondary">
+							<!-- Cost -->
+							<div class="flex items-center justify-between border-t border-border pt-2.5">
+								<span class="text-[11px] text-text-secondary">
 									Last {tokenUsage.period_days} day{tokenUsage.period_days !== 1 ? 's' : ''}
 								</span>
-								<span class="text-sm font-semibold text-text-primary">
+								<span class="text-[13px] font-semibold tabular-nums text-text-primary">
 									${tokenUsage.estimated_cost_usd.toFixed(2)}
 								</span>
 							</div>
 						</div>
 					</div>
 				{/if}
-			</div>
-		{/if}
 
-		<!-- Recent audit events -->
-		<div class="rounded-xl border border-border bg-surface-elevated shadow-sm overflow-hidden">
-			<div class="border-b border-border px-5 py-3.5">
-				<h2 class="text-sm font-semibold text-text-primary">Recent Activity</h2>
+				<!-- Tool Usage chart -->
+				{#if analytics?.tool_usage?.length}
+					<div class="lg:col-span-3">
+						<ChartWidget
+							chartType="bar"
+							title="Tool Usage"
+							labels={analytics.tool_usage.map(t => t.tool_name)}
+							datasets={[{ label: 'Calls', data: analytics.tool_usage.map(t => t.count) }]}
+							options={{ indexAxis: 'y', plugins: { legend: { display: false } } }}
+						/>
+					</div>
+				{/if}
 			</div>
-			<div class="overflow-x-auto">
-				<table class="w-full text-left text-sm">
-					<thead>
-						<tr class="border-b border-border bg-surface-secondary/50">
-							<th class="px-5 py-2.5 text-xs font-medium text-text-secondary">Type</th>
-							<th class="px-5 py-2.5 text-xs font-medium text-text-secondary">User</th>
-							<th class="px-5 py-2.5 text-xs font-medium text-text-secondary">Action</th>
-							<th class="px-5 py-2.5 text-xs font-medium text-text-secondary">Time</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each recentEvents as event}
-							<tr class="border-b border-border last:border-b-0 even:bg-surface-secondary/30">
-								<td class="px-5 py-2.5">
-									<span
-										class="inline-block rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
-									>
-										{event.event_type}
-									</span>
-								</td>
-								<td class="px-5 py-2.5 text-text-secondary">{event.user_id}</td>
-								<td class="px-5 py-2.5 text-text-primary">{event.action}</td>
-								<td class="px-5 py-2.5 text-text-secondary">
-									<span class="inline-flex items-center gap-1">
-										<Clock size={12} class="text-text-secondary/60" />
-										{formatTimestamp(event.created_at)}
-									</span>
-								</td>
-							</tr>
-						{:else}
-							<tr>
-								<td colspan="4" class="px-5 py-8 text-center text-sm text-text-secondary">
-									No recent activity.
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</div>
 
-		<!-- Development Tools (only visible in devMode) -->
-		{#if $currentUser?.devMode}
-			<div class="rounded-xl border border-border bg-surface-elevated p-5 shadow-sm">
-				<div class="mb-4 flex items-center gap-2">
-					<FlaskConical size={16} class="text-ember" />
-					<h2 class="text-sm font-semibold text-text-primary">Development Tools</h2>
-					<span
-						class="inline-flex items-center rounded-md bg-ember/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ember"
-					>
-						Dev
-					</span>
+			<!-- ============================================================= -->
+			<!-- Recent Activity table                                          -->
+			<!-- ============================================================= -->
+			<div class="overflow-hidden rounded-lg border border-border bg-surface-elevated">
+				<div class="border-b border-border px-4 py-2.5">
+					<h2 class="text-[13px] font-semibold text-text-primary">Recent Activity</h2>
 				</div>
-				<div class="flex flex-wrap gap-2">
-					<button
-						type="button"
-						onclick={() => (showSeedConfirm = true)}
-						disabled={seedingData}
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-accent-hover disabled:opacity-50"
-					>
-						{#if seedingData}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Database size={14} />
-						{/if}
-						Seed Data
-					</button>
-
-					<button
-						type="button"
-						onclick={() => (showClearConfirm = true)}
-						disabled={clearingData}
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm font-medium text-danger transition-all hover:bg-danger/5 disabled:opacity-50"
-					>
-						{#if clearingData}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Trash2 size={14} />
-						{/if}
-						Clear Demo Data
-					</button>
-
-					<button
-						type="button"
-						onclick={() => (showResetConfirm = true)}
-						disabled={resettingSetup}
-						class="btn-hover inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm font-medium text-danger transition-all hover:bg-danger/5 disabled:opacity-50"
-					>
-						{#if resettingSetup}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<RotateCcw size={14} />
-						{/if}
-						Reset Setup
-					</button>
-				</div>
+				{#if recentEvents.length > 0}
+					<div class="overflow-x-auto">
+						<table class="w-full text-left text-[13px]">
+							<thead>
+								<tr class="border-b border-border bg-surface-secondary/40">
+									<th class="px-4 py-2 text-[11px] font-medium text-text-secondary">Type</th>
+									<th class="px-4 py-2 text-[11px] font-medium text-text-secondary">User</th>
+									<th class="px-4 py-2 text-[11px] font-medium text-text-secondary">Action</th>
+									<th class="px-4 py-2 text-[11px] font-medium text-text-secondary">Time</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each recentEvents as event}
+									<tr class="border-b border-border/50 last:border-b-0">
+										<td class="px-4 py-2">
+											<span class="inline-block rounded-full bg-accent/8 px-2 py-0.5 text-[11px] font-medium text-accent">
+												{event.event_type}
+											</span>
+										</td>
+										<td class="px-4 py-2 text-text-secondary">{event.user_id}</td>
+										<td class="px-4 py-2 text-text-primary">{event.action}</td>
+										<td class="px-4 py-2 text-text-secondary">
+											<span class="inline-flex items-center gap-1">
+												<Clock size={11} class="text-text-secondary/50" />
+												{formatTimestamp(event.created_at)}
+											</span>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else}
+					<div class="px-4 py-6 text-center text-[13px] text-text-secondary/60">
+						No recent activity
+					</div>
+				{/if}
 			</div>
+
+			<!-- ============================================================= -->
+			<!-- Development Tools (devMode only)                               -->
+			<!-- ============================================================= -->
+			{#if $currentUser?.devMode}
+				<div class="rounded-lg border border-dashed border-border bg-surface-elevated/50 px-4 py-3">
+					<div class="flex flex-wrap items-center gap-3">
+						<div class="flex items-center gap-1.5">
+							<FlaskConical size={13} class="text-text-secondary/50" />
+							<span class="text-[12px] font-medium text-text-secondary">Dev Tools</span>
+						</div>
+						<span class="hidden h-3.5 w-px bg-border sm:block"></span>
+						<div class="flex flex-wrap items-center gap-2">
+							<button
+								type="button"
+								onclick={() => (showSeedConfirm = true)}
+								disabled={seedingData}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+							>
+								{#if seedingData}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Database size={12} />
+								{/if}
+								Seed Data
+							</button>
+							<button
+								type="button"
+								onclick={() => (showClearConfirm = true)}
+								disabled={clearingData}
+								class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
+							>
+								{#if clearingData}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<Trash2 size={12} />
+								{/if}
+								Clear Demo Data
+							</button>
+							<button
+								type="button"
+								onclick={() => (showResetConfirm = true)}
+								disabled={resettingSetup}
+								class="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
+							>
+								{#if resettingSetup}
+									<Loader2 size={12} class="animate-spin" />
+								{:else}
+									<RotateCcw size={12} />
+								{/if}
+								Reset Setup
+							</button>
+						</div>
+					</div>
+				</div>
+			{/if}
 		{/if}
-	{/if}
+	</div>
 </div>
 
 <!-- Seed data confirmation dialog -->

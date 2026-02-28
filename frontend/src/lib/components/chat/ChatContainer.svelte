@@ -12,6 +12,7 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import { ArrowDown } from 'lucide-svelte';
+	import { goto } from '$app/navigation';
 	import MessageBubble from './MessageBubble.svelte';
 	import StreamingMessage from './StreamingMessage.svelte';
 	import ReasoningIndicator from './ReasoningIndicator.svelte';
@@ -23,7 +24,8 @@
 		messages,
 		activeConversationId,
 		isStreaming,
-		reasoningSteps
+		reasoningSteps,
+		createNewConversation
 	} from '$lib/stores/chat.js';
 	import { sendMessage } from '$lib/services/chat.js';
 	import type { UploadedFile } from '$lib/services/files.js';
@@ -71,8 +73,8 @@
 	async function handleSend(text: string, files?: UploadedFile[]) {
 		let conversationId = $activeConversationId;
 		if (!conversationId) {
-			conversationId = crypto.randomUUID();
-			$activeConversationId = conversationId;
+			conversationId = await createNewConversation();
+			goto(`/chat/${conversationId}`);
 		}
 
 		const fileIds = files?.map((f) => f.id);

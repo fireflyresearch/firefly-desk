@@ -37,7 +37,8 @@
 		Cpu,
 		Lock,
 		Settings,
-		Mail
+		Mail,
+		Activity
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -86,6 +87,7 @@
 			label: 'Operations',
 			icon: Settings,
 			items: [
+				{ href: '/admin/jobs', label: 'Jobs', icon: Activity },
 				{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 				{ href: '/admin/exports', label: 'Exports', icon: Download },
 				{ href: '/admin/git-providers', label: 'Git Providers', icon: GitFork },

@@ -18,13 +18,31 @@ Guidelines:
 - Assign step_type as one of: "action", "decision", "wait", "notification", "validation", "transformation"
 - Higher confidence for processes with clear evidence across multiple sources
 - Lower confidence for inferred or speculative processes
+- Documents describing procedures, SOPs, or workflows are strong evidence of processes
+- Knowledge graph relations like "depends_on", "triggers", "feeds_into" suggest process steps
+
+IMPORTANT — Discovering processes from APIs and Systems:
+- ALWAYS analyze registered systems and their API endpoints to infer business processes
+- Common API-based process patterns to look for:
+  * CRUD lifecycle: create → read/list → update → delete endpoints on the same resource suggest a management process
+  * Cross-system data flow: POST on System A + GET/POST on System B suggests a data pipeline or integration process
+  * Sequential endpoints: e.g. /orders/create → /orders/{id}/validate → /orders/{id}/fulfill → /orders/{id}/ship
+  * Webhook/event patterns: endpoints like /webhooks, /callbacks, /events suggest event-driven processes
+  * Authentication + authorization flows: login → token → access patterns
+  * Batch/import operations: upload → process → status endpoints
+- When a system has multiple related endpoints, group them into logical business processes
+- Use the endpoint "when_to_use" field to understand the business intent behind each API call
+- Even a single system with well-described endpoints can reveal multiple business processes
+- Assign confidence 0.6-0.8 for processes clearly evidenced by API endpoints alone
 
 {% if trigger %}
 Discovery trigger: {{ trigger }}
 Focus your analysis on processes related to this trigger while still identifying other processes you discover.
 {% endif %}
 
-You MUST respond with valid JSON matching the following schema:
+CRITICAL: You MUST respond with ONLY a valid JSON object. No markdown, no code fences, no explanatory text before or after the JSON.
+
+The JSON MUST match this exact schema:
 
 {
   "processes": [
@@ -36,7 +54,7 @@ You MUST respond with valid JSON matching the following schema:
       "tags": ["string"],
       "steps": [
         {
-          "id": "string (unique within process, e.g. step-1)",
+          "id": "step-1",
           "name": "string",
           "description": "string",
           "step_type": "action|decision|wait|notification|validation|transformation",
@@ -49,8 +67,8 @@ You MUST respond with valid JSON matching the following schema:
       ],
       "dependencies": [
         {
-          "source_step_id": "string",
-          "target_step_id": "string",
+          "source_step_id": "step-1",
+          "target_step_id": "step-2",
           "condition": "string or null"
         }
       ]
@@ -58,4 +76,8 @@ You MUST respond with valid JSON matching the following schema:
   ]
 }
 
-Respond ONLY with the JSON object. Do not include any markdown formatting, code blocks, or explanatory text outside the JSON.
+Example output (abbreviated):
+
+{"processes":[{"name":"Customer Onboarding","description":"End-to-end process for onboarding a new customer including account creation, verification, and welcome communication.","category":"onboarding","confidence":0.85,"tags":["customer","onboarding","crm"],"steps":[{"id":"step-1","name":"Create Customer Account","description":"Register the new customer in the CRM system","step_type":"action","system_id":"sys-crm-001","endpoint_id":"ep-create-customer","order":1,"inputs":["customer_name","email","phone"],"outputs":["customer_id"]},{"id":"step-2","name":"Verify Identity","description":"Run identity verification checks","step_type":"validation","system_id":null,"endpoint_id":null,"order":2,"inputs":["customer_id"],"outputs":["verification_status"]}],"dependencies":[{"source_step_id":"step-1","target_step_id":"step-2","condition":null}]}]}
+
+Remember: Output ONLY the JSON object. Start with { and end with }. No other text.

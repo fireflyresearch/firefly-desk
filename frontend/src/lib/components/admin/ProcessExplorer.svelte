@@ -37,7 +37,25 @@
 		Merge,
 		CircleCheck,
 		CircleX,
-		Settings
+		Settings,
+		Trash2,
+		Archive,
+		Pencil,
+		Plus,
+		ChevronUp,
+		ChevronDown,
+		Zap,
+		Split,
+		Timer,
+		Bell,
+		ShieldCheck,
+		Shuffle,
+		Link2,
+		Server,
+		ArrowDownRight,
+		LogIn,
+		LogOut,
+		GripVertical
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
@@ -126,14 +144,34 @@
 	let stepForm = $state({
 		name: '',
 		description: '',
+		step_type: '',
 		system_id: '',
-		inputs: '',
-		outputs: ''
+		inputs: [] as string[],
+		outputs: [] as string[],
+		newInput: '',
+		newOutput: ''
 	});
 	let savingStep = $state(false);
 
 	// Verify / re-discover
 	let verifying = $state(false);
+
+	// Process actions (delete, archive, edit metadata)
+	let confirmingDelete = $state(false);
+	let deletingProcess = $state(false);
+	let archivingProcess = $state(false);
+	let editingMetadata = $state(false);
+	let metadataForm = $state({
+		name: '',
+		description: '',
+		category: '',
+		tags: [] as string[],
+		newTag: ''
+	});
+	let savingMetadata = $state(false);
+
+	// Step creation
+	let creatingStep = $state(false);
 
 	// Discovery job
 	let discoveryJobId = $state<string | null>(null);
@@ -213,6 +251,35 @@
 
 	let editingStepIcon = $derived(editingStep ? stepTypeIcon(editingStep.step_type) : Cog);
 
+	let processStats = $derived.by(() => {
+		if (!selectedProcess) return null;
+		const stepsByType: Record<string, number> = {};
+		for (const s of selectedProcess.steps) {
+			const t = s.step_type || 'general';
+			stepsByType[t] = (stepsByType[t] || 0) + 1;
+		}
+		const systemIds = new Set(
+			selectedProcess.steps.map((s) => s.system_id).filter(Boolean)
+		);
+		const conditionalDeps = selectedProcess.dependencies.filter(
+			(d) => d.condition
+		).length;
+		return { stepsByType, linkedSystemCount: systemIds.size, conditionalDeps };
+	});
+
+	let incomingDeps = $derived.by(() => {
+		if (!selectedProcess || !editingStep || !editingStep.id) return [];
+		return selectedProcess.dependencies.filter((d) => d.target_step_id === editingStep!.id);
+	});
+
+	let availableDepSources = $derived.by(() => {
+		if (!selectedProcess || !editingStep || !editingStep.id) return [];
+		const existingSources = new Set(incomingDeps.map((d) => d.source_step_id));
+		return selectedProcess.steps.filter(
+			(s) => s.id !== editingStep!.id && !existingSources.has(s.id)
+		);
+	});
+
 	// -----------------------------------------------------------------------
 	// Build flow graph when selected process changes
 	// -----------------------------------------------------------------------
@@ -224,8 +291,8 @@
 			return;
 		}
 
-		const rawNodes = toProcessFlowNodes(selectedProcess.steps);
-		const rawEdges = toProcessFlowEdges(selectedProcess.dependencies);
+		const rawNodes = toProcessFlowNodes(selectedProcess.steps, selectedProcess.dependencies);
+		const rawEdges = toProcessFlowEdges(selectedProcess.dependencies, selectedProcess.steps);
 
 		flowNodes = layoutDagre(rawNodes, rawEdges, {
 			nodeWidth: 200,
@@ -360,6 +427,9 @@
 	function clearSelection() {
 		selectedProcess = null;
 		editingStep = null;
+		editingMetadata = false;
+		confirmingDelete = false;
+		creatingStep = false;
 		flowNodes = [];
 		flowEdges = [];
 	}
@@ -382,21 +452,44 @@
 
 	function openStepEditor(step: ProcessStep) {
 		editingStep = step;
+		creatingStep = false;
 		stepForm = {
 			name: step.name,
 			description: step.description ?? '',
+			step_type: step.step_type ?? '',
 			system_id: step.system_id ?? '',
-			inputs: (step.inputs ?? []).join(', '),
-			outputs: (step.outputs ?? []).join(', ')
+			inputs: [...(step.inputs ?? [])],
+			outputs: [...(step.outputs ?? [])],
+			newInput: '',
+			newOutput: ''
 		};
 	}
 
 	function closeStepEditor() {
 		editingStep = null;
+		creatingStep = false;
+		confirmingStepDelete = false;
+		addingDependency = false;
+	}
+
+	function buildStepPayload(order?: number) {
+		return {
+			name: stepForm.name,
+			description: stepForm.description || '',
+			step_type: stepForm.step_type || '',
+			system_id: stepForm.system_id || null,
+			order: order ?? editingStep?.order ?? 0,
+			inputs: stepForm.inputs.filter(Boolean),
+			outputs: stepForm.outputs.filter(Boolean)
+		};
 	}
 
 	async function saveStep() {
 		if (!selectedProcess || !editingStep) return;
+		if (creatingStep) {
+			await createStep();
+			return;
+		}
 		if (!stepForm.name.trim()) {
 			error = 'Step name is required.';
 			return;
@@ -404,22 +497,9 @@
 		savingStep = true;
 		error = '';
 		try {
-			const payload = {
-				name: stepForm.name,
-				description: stepForm.description || null,
-				system_id: stepForm.system_id || null,
-				inputs: stepForm.inputs
-					.split(',')
-					.map((s) => s.trim())
-					.filter(Boolean),
-				outputs: stepForm.outputs
-					.split(',')
-					.map((s) => s.trim())
-					.filter(Boolean)
-			};
 			await apiJson(`/processes/${selectedProcess.id}/steps/${editingStep.id}`, {
 				method: 'PUT',
-				body: JSON.stringify(payload)
+				body: JSON.stringify(buildStepPayload())
 			});
 			editingStep = null;
 			await loadProcessDetail(selectedProcess.id);
@@ -428,6 +508,50 @@
 		} finally {
 			savingStep = false;
 		}
+	}
+
+	async function changeStepOrder(delta: number) {
+		if (!selectedProcess || !editingStep) return;
+		const newOrder = editingStep.order + delta;
+		if (newOrder < 0) return;
+		editingStep = { ...editingStep, order: newOrder };
+		savingStep = true;
+		error = '';
+		try {
+			await apiJson(`/processes/${selectedProcess.id}/steps/${editingStep.id}`, {
+				method: 'PUT',
+				body: JSON.stringify(buildStepPayload(newOrder))
+			});
+			await loadProcessDetail(selectedProcess.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to reorder step';
+		} finally {
+			savingStep = false;
+		}
+	}
+
+	function addInput() {
+		const val = stepForm.newInput.trim();
+		if (val && !stepForm.inputs.includes(val)) {
+			stepForm.inputs = [...stepForm.inputs, val];
+		}
+		stepForm.newInput = '';
+	}
+
+	function removeInput(val: string) {
+		stepForm.inputs = stepForm.inputs.filter((v) => v !== val);
+	}
+
+	function addOutput() {
+		const val = stepForm.newOutput.trim();
+		if (val && !stepForm.outputs.includes(val)) {
+			stepForm.outputs = [...stepForm.outputs, val];
+		}
+		stepForm.newOutput = '';
+	}
+
+	function removeOutput(val: string) {
+		stepForm.outputs = stepForm.outputs.filter((v) => v !== val);
 	}
 
 	// -----------------------------------------------------------------------
@@ -450,20 +574,261 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// Delete process
+	// -----------------------------------------------------------------------
+
+	async function deleteProcess() {
+		if (!selectedProcess) return;
+		deletingProcess = true;
+		error = '';
+		try {
+			await apiFetch(`/processes/${selectedProcess.id}`, { method: 'DELETE' });
+			processes = processes.filter((p) => p.id !== selectedProcess!.id);
+			clearSelection();
+			confirmingDelete = false;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to delete process';
+		} finally {
+			deletingProcess = false;
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Archive process
+	// -----------------------------------------------------------------------
+
+	async function archiveProcess() {
+		if (!selectedProcess) return;
+		archivingProcess = true;
+		error = '';
+		try {
+			const updated = { ...selectedProcess, status: 'archived' };
+			await apiJson(`/processes/${selectedProcess.id}`, {
+				method: 'PUT',
+				body: JSON.stringify(updated)
+			});
+			await loadProcessDetail(selectedProcess.id);
+			await loadProcesses();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to archive process';
+		} finally {
+			archivingProcess = false;
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Edit metadata
+	// -----------------------------------------------------------------------
+
+	function startEditingMetadata() {
+		if (!selectedProcess) return;
+		metadataForm = {
+			name: selectedProcess.name,
+			description: selectedProcess.description,
+			category: selectedProcess.category,
+			tags: [...selectedProcess.tags],
+			newTag: ''
+		};
+		editingMetadata = true;
+	}
+
+	function cancelEditingMetadata() {
+		editingMetadata = false;
+	}
+
+	function addMetadataTag() {
+		const tag = metadataForm.newTag.trim();
+		if (tag && !metadataForm.tags.includes(tag)) {
+			metadataForm.tags = [...metadataForm.tags, tag];
+		}
+		metadataForm.newTag = '';
+	}
+
+	function removeMetadataTag(tag: string) {
+		metadataForm.tags = metadataForm.tags.filter((t) => t !== tag);
+	}
+
+	async function saveMetadata() {
+		if (!selectedProcess) return;
+		if (!metadataForm.name.trim()) {
+			error = 'Process name is required.';
+			return;
+		}
+		savingMetadata = true;
+		error = '';
+		try {
+			const updated = {
+				...selectedProcess,
+				name: metadataForm.name,
+				description: metadataForm.description,
+				category: metadataForm.category,
+				tags: metadataForm.tags
+			};
+			await apiJson(`/processes/${selectedProcess.id}`, {
+				method: 'PUT',
+				body: JSON.stringify(updated)
+			});
+			editingMetadata = false;
+			await loadProcessDetail(selectedProcess.id);
+			await loadProcesses();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save metadata';
+		} finally {
+			savingMetadata = false;
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Step CRUD
+	// -----------------------------------------------------------------------
+
+	function openNewStepEditor() {
+		const maxOrder = selectedProcess
+			? Math.max(0, ...selectedProcess.steps.map((s) => s.order))
+			: 0;
+		editingStep = {
+			id: '',
+			name: '',
+			description: '',
+			step_type: 'action',
+			system_id: null,
+			endpoint_id: null,
+			order: maxOrder + 1,
+			inputs: [],
+			outputs: []
+		} as ProcessStep;
+		stepForm = {
+			name: '',
+			description: '',
+			step_type: 'action',
+			system_id: '',
+			inputs: [],
+			outputs: [],
+			newInput: '',
+			newOutput: ''
+		};
+		creatingStep = true;
+	}
+
+	async function createStep() {
+		if (!selectedProcess) return;
+		if (!stepForm.name.trim()) {
+			error = 'Step name is required.';
+			return;
+		}
+		savingStep = true;
+		error = '';
+		try {
+			await apiJson(`/processes/${selectedProcess.id}/steps`, {
+				method: 'POST',
+				body: JSON.stringify(buildStepPayload())
+			});
+			editingStep = null;
+			creatingStep = false;
+			await loadProcessDetail(selectedProcess.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to create step';
+		} finally {
+			savingStep = false;
+		}
+	}
+
+	let confirmingStepDelete = $state(false);
+
+	async function deleteStep() {
+		if (!selectedProcess || !editingStep || !editingStep.id) return;
+		savingStep = true;
+		error = '';
+		try {
+			await apiFetch(`/processes/${selectedProcess.id}/steps/${editingStep.id}`, {
+				method: 'DELETE'
+			});
+			editingStep = null;
+			confirmingStepDelete = false;
+			await loadProcessDetail(selectedProcess.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to delete step';
+		} finally {
+			savingStep = false;
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Dependency management
+	// -----------------------------------------------------------------------
+
+	let addingDependency = $state(false);
+	let newDepSourceId = $state('');
+	let newDepCondition = $state('');
+
+	async function addDependency() {
+		if (!selectedProcess || !editingStep || !newDepSourceId) return;
+		error = '';
+		try {
+			await apiJson(`/processes/${selectedProcess.id}/dependencies`, {
+				method: 'POST',
+				body: JSON.stringify({
+					source_step_id: newDepSourceId,
+					target_step_id: editingStep.id,
+					condition: newDepCondition || null
+				})
+			});
+			addingDependency = false;
+			newDepSourceId = '';
+			newDepCondition = '';
+			await loadProcessDetail(selectedProcess.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to add dependency';
+		}
+	}
+
+	async function removeDependency(sourceStepId: string, targetStepId: string) {
+		if (!selectedProcess) return;
+		error = '';
+		try {
+			await apiFetch(
+				`/processes/${selectedProcess.id}/dependencies?source_step_id=${encodeURIComponent(sourceStepId)}&target_step_id=${encodeURIComponent(targetStepId)}`,
+				{ method: 'DELETE' }
+			);
+			await loadProcessDetail(selectedProcess.id);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to remove dependency';
+		}
+	}
+
+	// -----------------------------------------------------------------------
 	// Re-discover
 	// -----------------------------------------------------------------------
 
 	function classifyLogEntry(message: string): DiscoveryLogEntry['type'] {
 		const lower = message.toLowerCase();
+		// Scanning / gathering phases
+		if (lower.includes('scanning system:') || lower.includes('scanning catalog')) return 'scan';
 		if (lower.includes('scanning') || lower.includes('gathering')) return 'scan';
-		if (lower.includes('context gathered')) return 'context';
+		if (lower.includes('querying knowledge graph')) return 'scan';
+		if (lower.includes('processing document:')) return 'scan';
+		// Context summary
+		if (lower.includes('found') && (lower.includes('systems') || lower.includes('entities') || lower.includes('documents'))) return 'context';
+		if (lower.includes('loaded') && lower.includes('documents')) return 'context';
+		if (lower.includes('context gathered') || lower.includes('no context available')) return 'context';
+		// LLM interaction
 		if (lower.includes('sending') && lower.includes('llm')) return 'llm';
-		if (lower.includes('calling llm') || lower.includes('analysis')) return 'llm';
-		if (lower.includes('identified')) return 'result';
+		if (lower.includes('calling llm') || lower.includes('waiting for llm')) return 'llm';
+		if (lower.includes('llm responded') || lower.includes('parsing')) return 'llm';
+		if (lower.includes('truncated') || lower.includes('token limit')) return 'llm';
+		if (lower.includes('repair') && lower.includes('successful')) return 'result';
+		if (lower.includes('repair') || lower.includes('parse issue')) return 'llm';
+		// Results
+		if (lower.includes('identified') || lower.includes('analysis complete')) return 'result';
+		// Merge
 		if (lower.includes('merging') || lower.includes('merge complete')) return 'merge';
-		if (lower.includes('complete') || lower.includes('discovery complete')) return 'done';
-		if (lower.includes('failed') || lower.includes('error')) return 'error';
+		// Done
+		if (lower.includes('discovery complete')) return 'done';
+		// Errors
+		if (lower.includes('failed') || lower.includes('error') || lower.includes('also failed')) return 'error';
 		if (lower.includes('skipped') || lower.includes('no llm')) return 'error';
+		// Completion
+		if (lower.includes('complete')) return 'done';
 		return 'info';
 	}
 
@@ -608,6 +973,34 @@
 		return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 	}
 
+	function relativeTime(dateStr: string): string {
+		if (!dateStr) return '--';
+		const now = Date.now();
+		const then = new Date(dateStr).getTime();
+		const diffMs = now - then;
+		const diffSec = Math.floor(diffMs / 1000);
+		if (diffSec < 60) return 'just now';
+		const diffMin = Math.floor(diffSec / 60);
+		if (diffMin < 60) return `${diffMin}m ago`;
+		const diffHr = Math.floor(diffMin / 60);
+		if (diffHr < 24) return `${diffHr}h ago`;
+		const diffDay = Math.floor(diffHr / 24);
+		if (diffDay < 30) return `${diffDay}d ago`;
+		const diffMonth = Math.floor(diffDay / 30);
+		if (diffMonth < 12) return `${diffMonth}mo ago`;
+		return `${Math.floor(diffMonth / 12)}y ago`;
+	}
+
+	const STEP_TYPE_CONFIG: Record<string, { icon: typeof Cog; color: string; bg: string; label: string }> = {
+		action: { icon: Zap, color: 'text-accent', bg: 'bg-accent/10 border-accent/20', label: 'Action' },
+		decision: { icon: Split, color: 'text-warning', bg: 'bg-warning/10 border-warning/20', label: 'Decision' },
+		wait: { icon: Timer, color: 'text-text-secondary', bg: 'bg-text-secondary/10 border-text-secondary/20', label: 'Wait' },
+		notification: { icon: Bell, color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10 border-[#8b5cf6]/20', label: 'Notification' },
+		validation: { icon: ShieldCheck, color: 'text-success', bg: 'bg-success/10 border-success/20', label: 'Validation' },
+		transformation: { icon: Shuffle, color: 'text-[#ec4899]', bg: 'bg-[#ec4899]/10 border-[#ec4899]/20', label: 'Transform' }
+	};
+	const STEP_TYPES = Object.keys(STEP_TYPE_CONFIG);
+
 	const statusOptions: { value: ProcessStatus | 'all'; label: string }[] = [
 		{ value: 'all', label: 'All' },
 		{ value: 'discovered', label: 'Discovered' },
@@ -618,10 +1011,12 @@
 
 	function stepTypeIcon(stepType?: string): typeof Cog {
 		if (!stepType) return Cog;
-		const lower = stepType.toLowerCase();
-		if (lower === 'system' || lower === 'integration') return Monitor;
-		if (lower === 'document' || lower === 'form') return FileText;
-		return Cog;
+		return STEP_TYPE_CONFIG[stepType.toLowerCase()]?.icon ?? Cog;
+	}
+
+	function getStepTypeConfig(stepType?: string) {
+		if (!stepType) return { icon: Cog, color: 'text-text-secondary', bg: 'bg-surface-secondary border-border', label: stepType || 'General' };
+		return STEP_TYPE_CONFIG[stepType.toLowerCase()] ?? { icon: Cog, color: 'text-text-secondary', bg: 'bg-surface-secondary border-border', label: stepType };
 	}
 
 	function logEntryIcon(type: DiscoveryLogEntry['type']): typeof Cog {
@@ -872,20 +1267,7 @@
 				{/if}
 			</button>
 
-			{#if isDiscovering}
-				<div class="flex items-center gap-2">
-					<div class="h-1.5 w-24 overflow-hidden rounded-full bg-surface-secondary">
-						<div
-							class="h-full rounded-full bg-accent transition-all duration-500"
-							style="width: {discoveryJobProgress}%"
-						></div>
-					</div>
-					{#if discoveryProgressMessage}
-						<span class="max-w-40 truncate text-[10px] text-text-secondary">{discoveryProgressMessage}</span>
-					{/if}
-				</div>
-			{/if}
-		</div>
+			</div>
 	</div>
 
 	<!-- ================================================================= -->
@@ -1124,67 +1506,181 @@
 		{:else}
 			<!-- Process detail header -->
 			<div class="shrink-0 border-b border-border px-5 py-3">
+				<!-- Delete confirmation bar -->
+				{#if confirmingDelete}
+					<div class="mb-3 flex items-center gap-3 rounded-lg border border-danger/30 bg-danger/5 px-4 py-2">
+						<span class="text-xs text-danger">Are you sure? This cannot be undone.</span>
+						<div class="flex-1"></div>
+						<button
+							type="button"
+							onclick={() => (confirmingDelete = false)}
+							class="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+						>Cancel</button>
+						<button
+							type="button"
+							onclick={deleteProcess}
+							disabled={deletingProcess}
+							class="inline-flex items-center gap-1 rounded-md bg-danger px-3 py-1 text-xs font-medium text-white hover:bg-danger/90 disabled:opacity-50"
+						>
+							{#if deletingProcess}<Loader2 size={12} class="animate-spin" />{/if}
+							Delete
+						</button>
+					</div>
+				{/if}
+
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0 flex-1">
-						<div class="flex items-center gap-2">
-							<h2 class="truncate text-base font-semibold text-text-primary">
-								{selectedProcess.name}
-							</h2>
-							<span
-								class="flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(
-									selectedProcess.status
-								)}"
-							>
-								{selectedProcess.status}
-							</span>
-							<span
-								class="flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium {confidenceColor(
-									selectedProcess.confidence
-								)}"
-							>
-								{Math.round(selectedProcess.confidence * 100)}% confidence
-							</span>
-						</div>
-						{#if selectedProcess.description}
-							<p class="mt-1 text-xs leading-relaxed text-text-secondary">
-								{selectedProcess.description}
-							</p>
-						{/if}
-						<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-							{#if selectedProcess.category}
-								<span class="flex items-center gap-1">
-									<Cog size={12} />
-									{selectedProcess.category}
-								</span>
-							{/if}
-							<span class="flex items-center gap-1">
-								<Sparkles size={12} />
-								{sourceLabel(selectedProcess.source)}
-							</span>
-							<span class="flex items-center gap-1">
-								<Clock size={12} />
-								{formatDate(selectedProcess.updated_at)}
-							</span>
-							{#if selectedProcess.steps.length > 0}
-								<span>{selectedProcess.steps.length} steps</span>
-							{/if}
-							{#if selectedProcess.tags.length > 0}
-								<span class="flex items-center gap-1">
-									<Tag size={12} />
-									{#each selectedProcess.tags as tag}
-										<span
-											class="rounded bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary"
-										>
+						{#if editingMetadata}
+							<!-- Editable metadata form -->
+							<div class="flex flex-col gap-2">
+								<input
+									type="text"
+									bind:value={metadataForm.name}
+									placeholder="Process name"
+									class="rounded-md border border-border bg-surface px-3 py-1.5 text-base font-semibold text-text-primary outline-none focus:border-accent"
+								/>
+								<textarea
+									bind:value={metadataForm.description}
+									placeholder="Description"
+									rows="2"
+									class="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+								></textarea>
+								<input
+									type="text"
+									bind:value={metadataForm.category}
+									placeholder="Category (e.g. customer-service)"
+									class="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+								/>
+								<!-- Tags editor -->
+								<div class="flex flex-wrap items-center gap-1.5">
+									{#each metadataForm.tags as tag}
+										<span class="inline-flex items-center gap-1 rounded-full bg-surface-secondary px-2 py-0.5 text-[10px] text-text-secondary">
 											{tag}
+											<button
+												type="button"
+												onclick={() => removeMetadataTag(tag)}
+												class="text-text-secondary hover:text-danger"
+											><X size={10} /></button>
 										</span>
 									{/each}
+									<input
+										type="text"
+										bind:value={metadataForm.newTag}
+										placeholder="Add tag..."
+										class="w-24 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
+										onkeydown={(e) => {
+											if (e.key === 'Enter') {
+												e.preventDefault();
+												addMetadataTag();
+											}
+										}}
+									/>
+								</div>
+								<div class="flex gap-2 pt-1">
+									<button
+										type="button"
+										onclick={cancelEditingMetadata}
+										class="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+									>Cancel</button>
+									<button
+										type="button"
+										onclick={saveMetadata}
+										disabled={savingMetadata}
+										class="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+									>
+										{#if savingMetadata}<Loader2 size={12} class="animate-spin" />{/if}
+										<Save size={12} />
+										Save
+									</button>
+								</div>
+							</div>
+						{:else}
+							<!-- Read-only metadata display -->
+							<div class="flex items-center gap-2">
+								<h2 class="truncate text-base font-semibold text-text-primary">
+									{selectedProcess.name}
+								</h2>
+								<span
+									class="flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(
+										selectedProcess.status
+									)}"
+								>
+									{selectedProcess.status}
 								</span>
+								<span
+									class="flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium {confidenceColor(
+										selectedProcess.confidence
+									)}"
+								>
+									{Math.round(selectedProcess.confidence * 100)}% confidence
+								</span>
+							</div>
+							{#if selectedProcess.description}
+								<p class="mt-1 text-xs leading-relaxed text-text-secondary">
+									{selectedProcess.description}
+								</p>
 							{/if}
-						</div>
+							<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+								{#if selectedProcess.category}
+									<span class="flex items-center gap-1">
+										<Cog size={12} />
+										{selectedProcess.category}
+									</span>
+								{/if}
+								<span class="flex items-center gap-1">
+									<Sparkles size={12} />
+									{sourceLabel(selectedProcess.source)}
+								</span>
+								{#if selectedProcess.tags.length > 0}
+									<span class="flex items-center gap-1">
+										<Tag size={12} />
+										{#each selectedProcess.tags as tag}
+											<span
+												class="rounded bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary"
+											>
+												{tag}
+											</span>
+										{/each}
+									</span>
+								{/if}
+							</div>
+						{/if}
 					</div>
 
 					<!-- Actions -->
-					<div class="flex items-center gap-2">
+					<div class="flex items-center gap-1.5">
+						<button
+							type="button"
+							onclick={startEditingMetadata}
+							class="rounded p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+							title="Edit metadata"
+						>
+							<Pencil size={14} />
+						</button>
+						{#if selectedProcess.status !== 'archived'}
+							<button
+								type="button"
+								onclick={archiveProcess}
+								disabled={archivingProcess}
+								class="rounded p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+								title="Archive process"
+							>
+								{#if archivingProcess}
+									<Loader2 size={14} class="animate-spin" />
+								{:else}
+									<Archive size={14} />
+								{/if}
+							</button>
+						{/if}
+						<button
+							type="button"
+							onclick={() => (confirmingDelete = true)}
+							class="rounded p-1.5 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+							title="Delete process"
+						>
+							<Trash2 size={14} />
+						</button>
+						<div class="mx-1 h-5 w-px bg-border/50"></div>
 						{#if selectedProcess.status !== 'verified'}
 							<button
 								type="button"
@@ -1217,6 +1713,84 @@
 				</div>
 			</div>
 
+			<!-- Rich detail stats row -->
+			{#if processStats}
+				<div class="shrink-0 border-b border-border/50 bg-surface-secondary/30 px-5 py-2.5">
+					<div class="flex flex-wrap items-center gap-3">
+						<!-- Steps breakdown -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs">
+							<GitBranch size={12} class="text-accent" />
+							<span class="font-medium text-text-primary">{selectedProcess.steps.length}</span>
+							<span class="text-text-secondary">steps</span>
+							{#if Object.keys(processStats.stepsByType).length > 0}
+								<span class="text-text-secondary/30 mx-0.5">|</span>
+								{#each Object.entries(processStats.stepsByType) as [t, c]}
+									{@const conf = STEP_TYPE_CONFIG[t]}
+									{#if conf}
+										{@const Icon = conf.icon}
+										<span class="inline-flex items-center gap-0.5 {conf.color}" title="{c} {t}">
+											<Icon size={10} />
+											<span class="text-[10px] font-medium">{c}</span>
+										</span>
+									{:else}
+										<span class="text-[10px] text-text-secondary">{c} {t}</span>
+									{/if}
+								{/each}
+							{/if}
+						</div>
+
+						<!-- Dependencies -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs">
+							<ArrowRight size={12} class="text-accent" />
+							<span class="font-medium text-text-primary">{selectedProcess.dependencies.length}</span>
+							<span class="text-text-secondary">deps</span>
+							{#if processStats.conditionalDeps > 0}
+								<span class="text-text-secondary/50">·</span>
+								<span class="text-[10px] text-text-secondary">{processStats.conditionalDeps} conditional</span>
+							{/if}
+						</div>
+
+						<!-- Linked Systems -->
+						{#if processStats.linkedSystemCount > 0}
+							<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs">
+								<Monitor size={12} class="text-accent" />
+								<span class="font-medium text-text-primary">{processStats.linkedSystemCount}</span>
+								<span class="text-text-secondary">systems</span>
+							</div>
+						{/if}
+
+						<!-- Source -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs">
+							<Sparkles size={12} class="text-text-secondary" />
+							<span class="text-text-secondary">{sourceLabel(selectedProcess.source)}</span>
+						</div>
+
+						<!-- Confidence gauge -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs">
+							<div class="h-1.5 w-16 overflow-hidden rounded-full bg-surface-secondary">
+								<div
+									class="h-full rounded-full {selectedProcess.confidence >= 0.8 ? 'bg-success' : selectedProcess.confidence >= 0.5 ? 'bg-warning' : 'bg-danger'}"
+									style="width: {Math.round(selectedProcess.confidence * 100)}%"
+								></div>
+							</div>
+							<span class="text-text-secondary">{Math.round(selectedProcess.confidence * 100)}%</span>
+						</div>
+
+						<!-- Created -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs" title={formatDate(selectedProcess.created_at)}>
+							<Clock size={12} class="text-text-secondary" />
+							<span class="text-text-secondary">Created {relativeTime(selectedProcess.created_at)}</span>
+						</div>
+
+						<!-- Updated -->
+						<div class="flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1.5 text-xs" title={formatDate(selectedProcess.updated_at)}>
+							<Clock size={12} class="text-text-secondary" />
+							<span class="text-text-secondary">Updated {relativeTime(selectedProcess.updated_at)}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
+
 			<!-- Canvas and step editor area -->
 			<div class="flex min-h-0 flex-1 overflow-hidden">
 				<!-- SvelteFlow canvas -->
@@ -1227,6 +1801,14 @@
 						>
 							<GitBranch size={36} strokeWidth={1} class="opacity-30" />
 							<p class="text-sm">No steps in this process</p>
+							<button
+								type="button"
+								onclick={openNewStepEditor}
+								class="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+							>
+								<Plus size={14} />
+								Add First Step
+							</button>
 						</div>
 					{:else}
 						<FlowCanvas
@@ -1245,26 +1827,16 @@
 							onPaneClick={handlePaneClick}
 						/>
 
-						<!-- Step count overlay -->
-						<div
-							class="pointer-events-none absolute top-3 right-3 flex gap-2"
-						>
-							<div
-								class="pointer-events-auto rounded-md border border-border bg-surface/90 px-3 py-2 text-xs shadow-sm backdrop-blur-sm"
+						<!-- Add step overlay button -->
+						<div class="pointer-events-none absolute top-3 left-3">
+							<button
+								type="button"
+								onclick={openNewStepEditor}
+								class="pointer-events-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-surface/90 px-3 py-1.5 text-xs font-medium text-text-primary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover"
 							>
-								<div class="font-medium text-text-secondary">Steps</div>
-								<div class="text-lg font-semibold text-text-primary">
-									{selectedProcess.steps.length}
-								</div>
-							</div>
-							<div
-								class="pointer-events-auto rounded-md border border-border bg-surface/90 px-3 py-2 text-xs shadow-sm backdrop-blur-sm"
-							>
-								<div class="font-medium text-text-secondary">Dependencies</div>
-								<div class="text-lg font-semibold text-text-primary">
-									{selectedProcess.dependencies.length}
-								</div>
-							</div>
+								<Plus size={14} />
+								Add Step
+							</button>
 						</div>
 
 						<!-- Click hint -->
@@ -1280,142 +1852,344 @@
 
 				<!-- Step edit panel (slide-out) -->
 				{#if editingStep}
+					{@const typeConf = getStepTypeConfig(stepForm.step_type || editingStep.step_type)}
 					<div
-						class="flex w-80 shrink-0 flex-col border-l border-border bg-surface"
+						class="flex w-[340px] shrink-0 flex-col border-l border-border bg-surface"
 					>
-						<!-- Panel header -->
-						<div
-							class="flex items-center justify-between border-b border-border px-4 py-2.5"
-						>
-							<h4 class="text-sm font-semibold text-text-primary">Edit Step</h4>
-							<button
-								type="button"
-								onclick={closeStepEditor}
-								class="rounded p-1 text-text-secondary hover:text-text-primary"
-								title="Close"
-							>
-								<X size={14} />
-							</button>
+						<!-- Panel header — rich with type badge + order controls -->
+						<div class="border-b border-border">
+							<div class="flex items-center justify-between px-4 pt-3 pb-2">
+								<div class="flex items-center gap-2.5">
+									{#if typeConf}
+										{@const TypeIcon = typeConf.icon}
+										<div class="flex h-8 w-8 items-center justify-center rounded-lg border {typeConf.bg}">
+											<TypeIcon size={16} class={typeConf.color} />
+										</div>
+									{/if}
+									<div>
+										<h4 class="text-sm font-semibold text-text-primary leading-tight">
+											{creatingStep ? 'New Step' : 'Edit Step'}
+										</h4>
+										{#if !creatingStep}
+											<div class="flex items-center gap-1.5 mt-0.5">
+												<span class="text-[10px] text-text-secondary/60">#{editingStep.order}</span>
+												<div class="flex">
+													<button
+														type="button"
+														onclick={() => changeStepOrder(-1)}
+														disabled={savingStep || editingStep.order <= 0}
+														class="rounded p-0.5 text-text-secondary/50 hover:text-text-primary disabled:opacity-20 transition-colors"
+														title="Move up"
+													><ChevronUp size={12} /></button>
+													<button
+														type="button"
+														onclick={() => changeStepOrder(1)}
+														disabled={savingStep}
+														class="rounded p-0.5 text-text-secondary/50 hover:text-text-primary disabled:opacity-20 transition-colors"
+														title="Move down"
+													><ChevronDown size={12} /></button>
+												</div>
+											</div>
+										{/if}
+									</div>
+								</div>
+								<button
+									type="button"
+									onclick={closeStepEditor}
+									class="rounded-lg p-1.5 text-text-secondary/50 transition-colors hover:bg-surface-hover hover:text-text-primary"
+									title="Close"
+								>
+									<X size={14} />
+								</button>
+							</div>
 						</div>
 
 						<!-- Panel body -->
-						<div class="flex-1 overflow-y-auto p-4">
+						<div class="flex-1 overflow-y-auto">
 							<form
 								onsubmit={(e) => {
 									e.preventDefault();
 									saveStep();
 								}}
-								class="flex flex-col gap-3"
+								class="flex flex-col"
 							>
-								<!-- Step name -->
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-text-secondary">Name</span>
+								<!-- Section: Identity -->
+								<div class="px-4 pt-4 pb-3 flex flex-col gap-3">
 									<input
 										type="text"
 										bind:value={stepForm.name}
 										required
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+										placeholder="Step name..."
+										class="rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary outline-none transition-colors focus:border-accent focus:ring-1 focus:ring-accent/20"
 									/>
-								</label>
-
-								<!-- Description -->
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-text-secondary">Description</span>
 									<RichEditor
 										value={stepForm.description}
-										placeholder="Step description..."
+										placeholder="Describe what this step does..."
 										mode="compact"
-										minHeight="80px"
+										minHeight="64px"
 										onchange={(md) => (stepForm.description = md)}
 									/>
-								</label>
+								</div>
 
-								<!-- System ID -->
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-text-secondary">System ID</span>
-									<input
-										type="text"
-										bind:value={stepForm.system_id}
-										placeholder="e.g. crm-system"
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-									/>
-								</label>
-
-								<!-- Step type + order (read-only info) -->
-								<div class="rounded-md border border-border bg-surface-secondary p-3">
-									<div class="flex flex-col gap-1.5 text-xs">
-										<div class="flex items-center gap-2">
-											<span class="font-medium text-text-secondary">Type:</span>
-											<span class="flex items-center gap-1 text-text-primary">
-												{#if editingStepIcon}
-													{@const StepIcon = editingStepIcon}
-													<StepIcon size={12} />
-												{/if}
-												{editingStep.step_type ?? 'general'}
-											</span>
-										</div>
-										<div class="flex items-center gap-2">
-											<span class="font-medium text-text-secondary">Order:</span>
-											<span class="text-text-primary">{editingStep.order}</span>
-										</div>
-										{#if editingStep.endpoint_id}
-											<div class="flex items-center gap-2">
-												<span class="font-medium text-text-secondary">Endpoint:</span>
-												<span class="font-mono text-text-primary">
-													{editingStep.endpoint_id}
-												</span>
-											</div>
-										{/if}
+								<!-- Section: Type selector (visual pills) -->
+								<div class="border-t border-border/50 px-4 py-3">
+									<span class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary/50 mb-2 block">Type</span>
+									<div class="grid grid-cols-3 gap-1.5">
+										{#each STEP_TYPES as t}
+											{@const conf = STEP_TYPE_CONFIG[t]}
+											{@const Icon = conf.icon}
+											{@const isActive = stepForm.step_type === t}
+											<button
+												type="button"
+												onclick={() => (stepForm.step_type = t)}
+												class="flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-[10px] font-medium transition-all
+													{isActive
+													? conf.bg + ' ' + conf.color + ' ring-1 ring-current/20 shadow-sm'
+													: 'border-border/50 text-text-secondary/60 hover:border-border hover:bg-surface-hover hover:text-text-secondary'}"
+											>
+												<Icon size={14} />
+												{conf.label}
+											</button>
+										{/each}
 									</div>
 								</div>
 
-								<!-- Inputs -->
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-text-secondary">
-										Inputs (comma-separated)
-									</span>
-									<input
-										type="text"
-										bind:value={stepForm.inputs}
-										placeholder="e.g. customer_id, order_data"
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-									/>
-								</label>
+								<!-- Section: System integration -->
+								<div class="border-t border-border/50 px-4 py-3">
+									<span class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary/50 mb-2 block">Integration</span>
+									{#if stepForm.system_id}
+										<div class="flex items-center gap-2 rounded-lg border border-border bg-surface-secondary/50 p-2.5">
+											<div class="flex h-7 w-7 items-center justify-center rounded-md bg-accent/10">
+												<Server size={13} class="text-accent" />
+											</div>
+											<div class="flex-1 min-w-0">
+												<div class="text-xs font-medium text-text-primary truncate">{stepForm.system_id}</div>
+												<div class="text-[10px] text-text-secondary/50">System link</div>
+											</div>
+											<button
+												type="button"
+												onclick={() => (stepForm.system_id = '')}
+												class="rounded p-1 text-text-secondary/40 hover:text-danger transition-colors"
+											><X size={12} /></button>
+										</div>
+									{:else}
+										<div class="relative">
+											<Link2 size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary/40" />
+											<input
+												type="text"
+												bind:value={stepForm.system_id}
+												placeholder="Link a system..."
+												class="w-full rounded-lg border border-dashed border-border/60 bg-transparent pl-8 pr-3 py-2 text-xs text-text-primary outline-none transition-colors focus:border-accent focus:border-solid"
+											/>
+										</div>
+									{/if}
+									{#if editingStep.endpoint_id}
+										<div class="mt-2 flex items-center gap-1.5 rounded-md bg-surface-secondary/50 px-2.5 py-1.5 text-[10px] text-text-secondary">
+											<ArrowRight size={10} class="text-text-secondary/40" />
+											<span class="font-mono truncate">{editingStep.endpoint_id}</span>
+										</div>
+									{/if}
+								</div>
 
-								<!-- Outputs -->
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-text-secondary">
-										Outputs (comma-separated)
-									</span>
-									<input
-										type="text"
-										bind:value={stepForm.outputs}
-										placeholder="e.g. confirmation, receipt"
-										class="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-									/>
-								</label>
+								<!-- Section: Data flow — Inputs & Outputs as chips -->
+								<div class="border-t border-border/50 px-4 py-3">
+									<span class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary/50 mb-2.5 block">Data Flow</span>
 
-								<!-- Save / Cancel -->
-								<div class="flex justify-end gap-2 pt-1">
-									<button
-										type="button"
-										onclick={closeStepEditor}
-										class="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
-									>
-										Cancel
-									</button>
-									<button
-										type="submit"
-										disabled={savingStep}
-										class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-									>
-										{#if savingStep}
-											<Loader2 size={12} class="animate-spin" />
+									<!-- Inputs -->
+									<div class="mb-3">
+										<div class="flex items-center gap-1.5 mb-1.5">
+											<LogIn size={11} class="text-accent/60" />
+											<span class="text-[10px] font-medium text-text-secondary">Inputs</span>
+										</div>
+										<div class="flex flex-wrap gap-1.5">
+											{#each stepForm.inputs as val}
+												<span class="group inline-flex items-center gap-1 rounded-md border border-accent/15 bg-accent/5 px-2 py-0.5 text-[11px] font-mono text-accent transition-colors">
+													{val}
+													<button
+														type="button"
+														onclick={() => removeInput(val)}
+														class="opacity-0 group-hover:opacity-100 text-accent/40 hover:text-danger transition-all"
+													><X size={10} /></button>
+												</span>
+											{/each}
+											<div class="inline-flex">
+												<input
+													type="text"
+													bind:value={stepForm.newInput}
+													placeholder={stepForm.inputs.length === 0 ? 'Add input...' : '+'}
+													class="w-20 rounded-md border border-dashed border-border/40 bg-transparent px-2 py-0.5 text-[11px] font-mono text-text-primary outline-none transition-all focus:w-32 focus:border-accent/40"
+													onkeydown={(e) => {
+														if (e.key === 'Enter') { e.preventDefault(); addInput(); }
+													}}
+												/>
+											</div>
+										</div>
+									</div>
+
+									<!-- Outputs -->
+									<div>
+										<div class="flex items-center gap-1.5 mb-1.5">
+											<LogOut size={11} class="text-success/60" />
+											<span class="text-[10px] font-medium text-text-secondary">Outputs</span>
+										</div>
+										<div class="flex flex-wrap gap-1.5">
+											{#each stepForm.outputs as val}
+												<span class="group inline-flex items-center gap-1 rounded-md border border-success/15 bg-success/5 px-2 py-0.5 text-[11px] font-mono text-success transition-colors">
+													{val}
+													<button
+														type="button"
+														onclick={() => removeOutput(val)}
+														class="opacity-0 group-hover:opacity-100 text-success/40 hover:text-danger transition-all"
+													><X size={10} /></button>
+												</span>
+											{/each}
+											<div class="inline-flex">
+												<input
+													type="text"
+													bind:value={stepForm.newOutput}
+													placeholder={stepForm.outputs.length === 0 ? 'Add output...' : '+'}
+													class="w-20 rounded-md border border-dashed border-border/40 bg-transparent px-2 py-0.5 text-[11px] font-mono text-text-primary outline-none transition-all focus:w-32 focus:border-success/40"
+													onkeydown={(e) => {
+														if (e.key === 'Enter') { e.preventDefault(); addOutput(); }
+													}}
+												/>
+											</div>
+										</div>
+									</div>
+								</div>
+
+								<!-- Section: Dependencies (existing steps only) -->
+								{#if !creatingStep && editingStep.id}
+									<div class="border-t border-border/50 px-4 py-3">
+										<span class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary/50 mb-2 block">Dependencies</span>
+										{#if incomingDeps.length > 0}
+											<div class="flex flex-col gap-1.5">
+												{#each incomingDeps as dep}
+													{@const sourceStep = selectedProcess.steps.find((s) => s.id === dep.source_step_id)}
+													{@const srcConf = getStepTypeConfig(sourceStep?.step_type)}
+													{@const SrcIcon = srcConf.icon}
+													<div class="group flex items-center gap-2 rounded-lg border border-border/50 bg-surface-secondary/30 px-2.5 py-2 transition-colors hover:bg-surface-secondary/60">
+														<div class="flex h-6 w-6 items-center justify-center rounded-md {srcConf.bg}">
+															<SrcIcon size={11} class={srcConf.color} />
+														</div>
+														<div class="flex-1 min-w-0">
+															<div class="text-[11px] font-medium text-text-primary truncate">{sourceStep?.name ?? dep.source_step_id}</div>
+															{#if dep.condition}
+																<div class="text-[10px] text-text-secondary/50 truncate">when: {dep.condition}</div>
+															{/if}
+														</div>
+														<button
+															type="button"
+															onclick={() => removeDependency(dep.source_step_id, dep.target_step_id)}
+															class="rounded p-1 opacity-0 group-hover:opacity-100 text-text-secondary/40 hover:text-danger transition-all"
+															title="Remove"
+														><X size={12} /></button>
+													</div>
+												{/each}
+											</div>
 										{:else}
-											<Save size={12} />
+											<div class="flex items-center gap-2 rounded-lg border border-dashed border-border/40 px-3 py-2.5 text-[10px] text-text-secondary/40">
+												<ArrowDownRight size={12} />
+												No incoming dependencies
+											</div>
 										{/if}
-										Save Step
-									</button>
+
+										{#if addingDependency}
+											<div class="mt-2 flex flex-col gap-2 rounded-lg border border-accent/20 bg-accent/5 p-3">
+												<select
+													bind:value={newDepSourceId}
+													class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+												>
+													<option value="">Select step...</option>
+													{#each availableDepSources as step}
+														{@const sConf = getStepTypeConfig(step.step_type)}
+														<option value={step.id}>{sConf.label}: {step.name}</option>
+													{/each}
+												</select>
+												<input
+													type="text"
+													bind:value={newDepCondition}
+													placeholder="Condition (optional)"
+													class="rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+												/>
+												<div class="flex gap-2">
+													<button
+														type="button"
+														onclick={() => { addingDependency = false; newDepSourceId = ''; newDepCondition = ''; }}
+														class="flex-1 rounded-md border border-border px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
+													>Cancel</button>
+													<button
+														type="button"
+														onclick={addDependency}
+														disabled={!newDepSourceId}
+														class="flex-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+													>Add</button>
+												</div>
+											</div>
+										{:else if availableDepSources.length > 0}
+											<button
+												type="button"
+												onclick={() => (addingDependency = true)}
+												class="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 px-3 py-2 text-[11px] text-text-secondary/50 transition-colors hover:border-border hover:bg-surface-hover hover:text-text-secondary"
+											>
+												<Plus size={12} />
+												Add dependency
+											</button>
+										{/if}
+									</div>
+								{/if}
+
+								<!-- Action footer — sticky at bottom -->
+								<div class="sticky bottom-0 border-t border-border bg-surface px-4 py-3">
+									<div class="flex gap-2">
+										<button
+											type="button"
+											onclick={closeStepEditor}
+											class="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+										>Cancel</button>
+										<button
+											type="submit"
+											disabled={savingStep}
+											class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50"
+										>
+											{#if savingStep}
+												<Loader2 size={13} class="animate-spin" />
+											{:else}
+												<Save size={13} />
+											{/if}
+											{creatingStep ? 'Create' : 'Save'}
+										</button>
+									</div>
+									{#if !creatingStep && editingStep.id}
+										{#if confirmingStepDelete}
+											<div class="mt-2 flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2">
+												<span class="flex-1 text-[11px] text-danger">Delete this step?</span>
+												<button
+													type="button"
+													onclick={() => (confirmingStepDelete = false)}
+													class="rounded px-2 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
+												>No</button>
+												<button
+													type="button"
+													onclick={deleteStep}
+													disabled={savingStep}
+													class="inline-flex items-center gap-1 rounded bg-danger px-2 py-0.5 text-[10px] font-medium text-white hover:bg-danger/90 disabled:opacity-50"
+												>
+													{#if savingStep}<Loader2 size={10} class="animate-spin" />{/if}
+													Yes, delete
+												</button>
+											</div>
+										{:else}
+											<button
+												type="button"
+												onclick={() => (confirmingStepDelete = true)}
+												class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-danger/15 py-1.5 text-[11px] text-danger/50 transition-colors hover:border-danger/30 hover:bg-danger/5 hover:text-danger"
+											>
+												<Trash2 size={12} />
+												Delete step
+											</button>
+										{/if}
+									{/if}
 								</div>
 							</form>
 						</div>

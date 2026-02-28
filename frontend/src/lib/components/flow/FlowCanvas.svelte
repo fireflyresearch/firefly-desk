@@ -75,7 +75,8 @@
 		entity: FlowNode as unknown as NodeTypes[string],
 		'process-step': FlowNode as unknown as NodeTypes[string],
 		system: FlowNode as unknown as NodeTypes[string],
-		document: FlowNode as unknown as NodeTypes[string]
+		document: FlowNode as unknown as NodeTypes[string],
+		'start-end': FlowNode as unknown as NodeTypes[string]
 	};
 
 	const edgeTypes: EdgeTypes = {

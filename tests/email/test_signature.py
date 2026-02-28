@@ -77,14 +77,33 @@ class TestDefaultSignature:
         )
         assert "<style" not in sig
 
-    def test_contains_avatar_circle(self):
-        """The avatar area should render a circular element with the brand gradient."""
+    def test_fallback_avatar_when_no_logo_url(self):
+        """Without logo_url, falls back to a circular initial with brand colour."""
         sig = build_default_signature(
             agent_name="Ember", from_address="ember@flydesk.ai"
         )
         assert "border-radius" in sig
-        # Second gradient stop
-        assert "#FFF9C1" in sig or "FFF9C1" in sig
+        assert 'bgcolor="#F68000"' in sig
+
+    def test_logo_url_uses_img_tag(self):
+        """When logo_url is provided, renders an <img> tag."""
+        sig = build_default_signature(
+            agent_name="Ember",
+            from_address="ember@flydesk.ai",
+            logo_url="https://example.com/logo.png",
+        )
+        assert '<img src="https://example.com/logo.png"' in sig
+        assert 'bgcolor="#F68000"' not in sig
+
+    def test_logo_url_is_escaped(self):
+        """Logo URL containing special chars should be HTML-escaped."""
+        sig = build_default_signature(
+            agent_name="Ember",
+            from_address="ember@flydesk.ai",
+            logo_url="https://example.com/logo.png?a=1&b=2",
+        )
+        assert "&amp;" in sig
+        assert "&b=2" not in sig  # raw & should not appear
 
     def test_agent_name_in_bold(self):
         sig = build_default_signature(

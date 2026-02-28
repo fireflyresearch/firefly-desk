@@ -135,7 +135,7 @@ See [docs/configuration.md](docs/configuration.md) for the complete reference.
 | Authentication | OIDC (any compliant provider) |
 | Frontend framework | SvelteKit with Svelte 5 (runes) |
 | Styling | Tailwind CSS 4 |
-| Graph visualization | D3 (d3-force, d3-selection) |
+| Graph visualization | Cytoscape.js (knowledge graph), D3 (process flows) |
 | Markdown rendering | Marked with DOMPurify |
 | Package management | uv (Python), npm (frontend) |
 

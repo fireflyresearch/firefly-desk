@@ -104,6 +104,13 @@ export function addMessage(message: Message): void {
 	messages.update((msgs) => [...msgs, message]);
 }
 
+/** Update a conversation's title in the sidebar store. */
+export function updateConversationTitle(conversationId: string, title: string): void {
+	conversations.update((convs) =>
+		convs.map((c) => (c.id === conversationId ? { ...c, title } : c))
+	);
+}
+
 /**
  * Append content to the last assistant message that is currently streaming.
  * If no streaming message exists this is a no-op.
