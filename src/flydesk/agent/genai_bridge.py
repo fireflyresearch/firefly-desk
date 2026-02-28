@@ -25,20 +25,17 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-# Fallback models per provider type, tried in order when the primary model is
-# persistently overloaded.  These should be lightweight/high-availability models.
-_PROVIDER_FALLBACK_MODELS: dict[str, list[str]] = {
-    "anthropic": ["claude-haiku-4-5-20251001"],
-    "openai": ["gpt-4o-mini"],
-    "google": ["gemini-2.0-flash"],
-}
-
 
 def provider_to_model_string(provider: LLMProvider) -> str:
     """Convert a Desk LLMProvider to a pydantic-ai model string like 'openai:gpt-4o'."""
+    from flydesk.domain.exceptions import ConfigurationError
     from flydesk.llm.models import ProviderType
 
-    model_name = provider.default_model or "gpt-4o"
+    model_name = provider.default_model
+    if not model_name:
+        raise ConfigurationError(
+            "No model configured for LLM provider. Set model_id or model_name."
+        )
 
     match provider.provider_type:
         case ProviderType.OPENAI:
@@ -197,8 +194,11 @@ class DeskAgentFactory:
 
         These are lighter-weight models that can be used when the primary
         model is persistently overloaded.  Returns an empty list when no
-        fallback models are defined for the provider type.
+        fallback models are defined for the provider type or no config is set.
         """
+        if self._config is None:
+            return []
+
         try:
             provider = await self._llm_repo.get_default_provider()
         except Exception:
@@ -210,7 +210,7 @@ class DeskAgentFactory:
         from flydesk.llm.models import ProviderType
 
         pt = provider.provider_type.value if hasattr(provider.provider_type, "value") else str(provider.provider_type)
-        fallback_ids = _PROVIDER_FALLBACK_MODELS.get(pt, [])
+        fallback_ids = self._config.llm_fallback_models.get(pt, [])
 
         prefix_map = {
             ProviderType.OPENAI: "openai",

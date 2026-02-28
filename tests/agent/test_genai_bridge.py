@@ -21,6 +21,7 @@ from flydesk.agent.genai_bridge import (
     provider_to_model_string,
 )
 from flydesk.config import DeskConfig
+from flydesk.domain.exceptions import ConfigurationError
 from flydesk.llm.models import LLMProvider, ProviderType
 
 
@@ -56,9 +57,10 @@ class TestProviderToModelString:
         provider = _make_provider(ProviderType.OPENAI, default_model="gpt-4o")
         assert provider_to_model_string(provider) == "openai:gpt-4o"
 
-    def test_openai_without_model_falls_back_to_gpt4o(self):
+    def test_openai_without_model_raises_configuration_error(self):
         provider = _make_provider(ProviderType.OPENAI, default_model=None)
-        assert provider_to_model_string(provider) == "openai:gpt-4o"
+        with pytest.raises(ConfigurationError, match="No model configured"):
+            provider_to_model_string(provider)
 
     def test_anthropic(self):
         provider = _make_provider(ProviderType.ANTHROPIC, default_model="claude-sonnet-4-20250514")
@@ -243,7 +245,7 @@ class TestDeskAgentFactory:
     ):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         provider = _make_provider(
-            ProviderType.OPENAI, api_key="sk-env-test",
+            ProviderType.OPENAI, api_key="sk-env-test", default_model="gpt-4o",
         )
         llm_repo.get_default_provider.return_value = provider
 
@@ -272,7 +274,7 @@ class TestDeskAgentFactory:
         self, mock_agent_cls, factory, llm_repo, monkeypatch
     ):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
 
         mock_tool = lambda x: x  # noqa: E731
@@ -286,7 +288,7 @@ class TestDeskAgentFactory:
     ):
         """create_agent() should pass the MemoryManager to FireflyAgent."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
 
         await factory_with_memory.create_agent("system prompt")
@@ -299,7 +301,7 @@ class TestDeskAgentFactory:
     ):
         """Factory created without memory_manager should pass memory=None."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
 
         await factory.create_agent("system prompt")
@@ -419,7 +421,7 @@ class TestBuildMiddleware:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg = _make_config(cost_guard_enabled="true")
         factory = DeskAgentFactory(llm_repo, config=cfg)
-        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
 
         await factory.create_agent("system prompt")
@@ -436,9 +438,114 @@ class TestBuildMiddleware:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg = _make_config(prompt_cache_enabled="false")
         factory = DeskAgentFactory(llm_repo, config=cfg)
-        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test")
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
 
         await factory.create_agent("system prompt")
         call_kwargs = mock_agent_cls.call_args
         assert call_kwargs.kwargs["middleware"] is None
+
+
+# ---------------------------------------------------------------------------
+# Fallback model tests
+# ---------------------------------------------------------------------------
+
+class TestGetFallbackModelStrings:
+    """Tests for DeskAgentFactory.get_fallback_model_strings()."""
+
+    @pytest.fixture
+    def llm_repo(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def _make_config(self):
+        def _factory(**overrides):
+            env = {"FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db"}
+            for key, val in overrides.items():
+                env[f"FLYDESK_{key.upper()}"] = str(val)
+            with patch.dict(os.environ, env):
+                return DeskConfig()
+        return _factory
+
+    async def test_returns_empty_list_when_no_config(self, llm_repo):
+        """No config means no fallback models."""
+        factory = DeskAgentFactory(llm_repo, config=None)
+        result = await factory.get_fallback_model_strings()
+        assert result == []
+
+    async def test_returns_empty_list_when_no_provider(self, llm_repo, _make_config):
+        """No default provider returns empty list."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        llm_repo.get_default_provider.return_value = None
+        result = await factory.get_fallback_model_strings()
+        assert result == []
+
+    async def test_returns_empty_list_when_repo_raises(self, llm_repo, _make_config):
+        """Repository error returns empty list."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        llm_repo.get_default_provider.side_effect = RuntimeError("DB down")
+        result = await factory.get_fallback_model_strings()
+        assert result == []
+
+    async def test_returns_openai_fallbacks_from_config(self, llm_repo, _make_config):
+        """OpenAI provider returns fallbacks from config."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.OPENAI, default_model="gpt-4o")
+        llm_repo.get_default_provider.return_value = provider
+        result = await factory.get_fallback_model_strings()
+        assert result == ["openai:gpt-4o-mini"]
+
+    async def test_returns_anthropic_fallbacks_from_config(self, llm_repo, _make_config):
+        """Anthropic provider returns fallbacks from config."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.ANTHROPIC, default_model="claude-sonnet-4-20250514")
+        llm_repo.get_default_provider.return_value = provider
+        result = await factory.get_fallback_model_strings()
+        assert result == ["anthropic:claude-haiku-4-5-20251001"]
+
+    async def test_returns_google_fallbacks_from_config(self, llm_repo, _make_config):
+        """Google provider returns fallbacks from config."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.GOOGLE, default_model="gemini-1.5-pro")
+        llm_repo.get_default_provider.return_value = provider
+        result = await factory.get_fallback_model_strings()
+        assert result == ["google-gla:gemini-2.0-flash"]
+
+    async def test_returns_empty_for_unknown_provider_type(self, llm_repo, _make_config):
+        """Provider type not in config returns empty list."""
+        cfg = _make_config()
+        factory = DeskAgentFactory(llm_repo, config=cfg)
+        provider = _make_provider(ProviderType.OLLAMA, default_model="llama3")
+        llm_repo.get_default_provider.return_value = provider
+        result = await factory.get_fallback_model_strings()
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# ConfigurationError tests
+# ---------------------------------------------------------------------------
+
+class TestConfigurationErrorOnMissingModel:
+    """Tests that ConfigurationError is raised when no model is configured."""
+
+    @pytest.fixture
+    def llm_repo(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def factory(self, llm_repo: AsyncMock) -> DeskAgentFactory:
+        return DeskAgentFactory(llm_repo)
+
+    async def test_create_agent_raises_when_no_model(self, factory, llm_repo, monkeypatch):
+        """create_agent() should propagate ConfigurationError when no model is set."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        provider = _make_provider(ProviderType.OPENAI, api_key="sk-test", default_model=None)
+        llm_repo.get_default_provider.return_value = provider
+
+        with pytest.raises(ConfigurationError, match="No model configured"):
+            await factory.create_agent("system prompt")
