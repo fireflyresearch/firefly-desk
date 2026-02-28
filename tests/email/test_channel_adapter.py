@@ -16,6 +16,8 @@ import pytest
 
 from flydesk.channels.models import AgentResponse, InboundMessage, Notification
 from flydesk.email.channel_adapter import EmailChannelAdapter
+from flydesk.email.identity import ResolvedIdentity
+from flydesk.email.models import InboundEmail
 
 
 class TestReceive:
@@ -168,6 +170,51 @@ class TestReceive:
         reply_meta = adapter._pending_replies["conv-2"]
         assert reply_meta["subject"] == "Re: Original topic"
 
+    async def test_stores_reply_context_in_conversation_metadata(self):
+        """receive() persists reply context to conversation metadata when repo is available."""
+        email_port = AsyncMock()
+        email_port.parse_inbound.return_value = MagicMock(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=["bob@example.com"],
+            subject="Help with invoice",
+            text_body="body",
+            html_body=None,
+            message_id="<msg-1@example.com>",
+            in_reply_to="<prev@example.com>",
+            references=["<prev@example.com>"],
+            attachments=[],
+            received_at=None,
+        )
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = MagicMock(
+            user_id="user-1", email="user@example.com", display_name="Alice"
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-1", False)
+        conversation_repo = AsyncMock()
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=AsyncMock(),
+            conversation_repo=conversation_repo,
+        )
+
+        await adapter.receive({"provider": "resend", "payload": {}})
+
+        conversation_repo.update_conversation_metadata.assert_called_once()
+        call_args = conversation_repo.update_conversation_metadata.call_args
+        assert call_args[0][0] == "conv-1"
+        reply_ctx = call_args[0][1]["email_reply_context"]
+        assert reply_ctx["to"] == ["user@example.com"]
+        assert reply_ctx["cc"] == ["bob@example.com"]
+        assert reply_ctx["subject"] == "Re: Help with invoice"
+        assert reply_ctx["in_reply_to"] == "<msg-1@example.com>"
+        assert "<msg-1@example.com>" in reply_ctx["references"]
+
 
 class TestSend:
     async def test_formats_html_and_sends_email(self):
@@ -265,6 +312,70 @@ class TestSend:
             identity_resolver=AsyncMock(),
             thread_tracker=AsyncMock(),
             settings_repo=settings_repo,
+        )
+
+        with pytest.raises(KeyError):
+            await adapter.send("unknown-conv", AgentResponse(content="Hi"))
+
+    async def test_send_reads_reply_context_from_conversation_metadata(self):
+        """send() reads reply context from conversation metadata when repo is available."""
+        email_port = AsyncMock()
+        email_port.send.return_value = MagicMock(
+            success=True, provider_message_id="msg-123"
+        )
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
+            from_address="ember@flydesk.ai",
+            from_display_name="Ember",
+            signature_html="",
+            include_sign_off=False,
+        )
+        conversation_repo = AsyncMock()
+        conversation_repo.get_conversation_metadata.return_value = {
+            "email_reply_context": {
+                "to": ["user@example.com"],
+                "cc": ["bob@example.com"],
+                "subject": "Re: Help with invoice",
+                "in_reply_to": "<msg-1@example.com>",
+                "references": ["<msg-1@example.com>"],
+            }
+        }
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=AsyncMock(),
+            thread_tracker=AsyncMock(),
+            settings_repo=settings_repo,
+            conversation_repo=conversation_repo,
+        )
+
+        response = AgentResponse(content="Invoice #42 has been processed.")
+        await adapter.send("conv-1", response)
+
+        email_port.send.assert_called_once()
+        sent = email_port.send.call_args[0][0]
+        assert sent.to == ["user@example.com"]
+        assert sent.cc == ["bob@example.com"]
+        assert sent.subject == "Re: Help with invoice"
+
+    async def test_send_without_reply_metadata_in_db_raises(self):
+        """send() raises KeyError when no reply metadata in conversation metadata."""
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            enabled=True,
+            cc_mode="respond_all",
+        )
+        conversation_repo = AsyncMock()
+        conversation_repo.get_conversation_metadata.return_value = {}  # no email_reply_context
+
+        adapter = EmailChannelAdapter(
+            email_port=AsyncMock(),
+            identity_resolver=AsyncMock(),
+            thread_tracker=AsyncMock(),
+            settings_repo=settings_repo,
+            conversation_repo=conversation_repo,
         )
 
         with pytest.raises(KeyError):
@@ -649,6 +760,93 @@ class TestAttachmentProcessing:
         # Should still return a valid message, just without file_ids
         assert isinstance(msg, InboundMessage)
         assert "file_ids" not in msg.metadata
+
+
+class TestReceiveBodyFetch:
+    """Tests for the body-fetch fallback in receive()."""
+
+    async def test_fetches_content_when_body_empty(self):
+        """receive() fetches full content when webhook delivers empty body."""
+        email_port = AsyncMock()
+        email_port.parse_inbound.return_value = InboundEmail(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Billing question",
+            text_body="",
+            message_id="<msg-bf1@example.com>",
+            metadata={"email_id": "eid-123", "needs_content_fetch": True},
+        )
+        email_port.fetch_inbound_content.return_value = InboundEmail(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Billing question",
+            text_body="What is the billing cycle?",
+            message_id="<msg-bf1@example.com>",
+            metadata={"email_id": "eid-123"},
+        )
+
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = ResolvedIdentity(
+            user_id="user-1", email="user@example.com", display_name="Alice",
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-1", True)
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            dev_authorized_emails=[],
+        )
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=settings_repo,
+        )
+
+        message = await adapter.receive({"provider": "resend", "payload": {}})
+
+        email_port.fetch_inbound_content.assert_called_once_with("eid-123")
+        assert message.content == "What is the billing cycle?"
+
+    async def test_skips_fetch_when_body_present(self):
+        """receive() does not fetch content when body is already present."""
+        email_port = AsyncMock()
+        email_port.parse_inbound.return_value = InboundEmail(
+            from_address="user@example.com",
+            from_name="Alice",
+            to=["ember@flydesk.ai"],
+            cc=[],
+            subject="Direct question",
+            text_body="Body is here",
+            message_id="<msg-bf2@example.com>",
+        )
+
+        identity_resolver = AsyncMock()
+        identity_resolver.resolve.return_value = ResolvedIdentity(
+            user_id="user-1", email="user@example.com", display_name="Alice",
+        )
+        thread_tracker = AsyncMock()
+        thread_tracker.resolve_conversation.return_value = ("conv-2", True)
+        settings_repo = AsyncMock()
+        settings_repo.get_email_settings.return_value = MagicMock(
+            dev_authorized_emails=[],
+        )
+
+        adapter = EmailChannelAdapter(
+            email_port=email_port,
+            identity_resolver=identity_resolver,
+            thread_tracker=thread_tracker,
+            settings_repo=settings_repo,
+        )
+
+        message = await adapter.receive({"provider": "resend", "payload": {}})
+
+        email_port.fetch_inbound_content.assert_not_called()
+        assert message.content == "Body is here"
 
 
 class TestChannelType:

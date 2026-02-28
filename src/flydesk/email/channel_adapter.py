@@ -21,6 +21,7 @@ from flydesk.files.models import FileUpload
 
 if TYPE_CHECKING:
     from flydesk.channels.models import AgentResponse, Notification
+    from flydesk.conversation.repository import ConversationRepository
     from flydesk.email.identity import EmailIdentityResolver
     from flydesk.email.port import EmailPort
     from flydesk.email.threading import EmailThreadTracker
@@ -57,6 +58,7 @@ class EmailChannelAdapter:
         file_repo: FileUploadRepository | None = None,
         file_storage: FileStorageProvider | None = None,
         content_extractor: ContentExtractor | None = None,
+        conversation_repo: ConversationRepository | None = None,
     ) -> None:
         self._email_port = email_port
         self._identity_resolver = identity_resolver
@@ -65,6 +67,7 @@ class EmailChannelAdapter:
         self._file_repo = file_repo
         self._file_storage = file_storage
         self._content_extractor = content_extractor
+        self._conversation_repo = conversation_repo
 
         # Maps conversation_id -> reply metadata (populated by receive(),
         # consumed by send()).
@@ -83,14 +86,42 @@ class EmailChannelAdapter:
         payload = raw_event.get("payload", raw_event)
         inbound = await self._email_port.parse_inbound(payload)
 
+        # If the provider's webhook didn't include the body, fetch it.
+        if not inbound.text_body and inbound.metadata.get("needs_content_fetch"):
+            email_id = inbound.metadata.get("email_id")
+            if email_id:
+                logger.info("Fetching email content for %s", email_id)
+                inbound = await self._email_port.fetch_inbound_content(email_id)
+
         # Resolve the sender to a user account.
         identity = await self._identity_resolver.resolve(inbound.from_address)
         if identity is None:
-            logger.warning(
-                "Ignoring inbound email from unknown sender: %s",
-                inbound.from_address,
-            )
-            return None
+            # Check dev authorized emails whitelist before rejecting.
+            import hashlib
+
+            from flydesk.email.identity import ResolvedIdentity
+
+            settings = await self._settings_repo.get_email_settings()
+            if inbound.from_address.lower() in {e.lower() for e in settings.dev_authorized_emails}:
+                email_hash = hashlib.sha256(
+                    inbound.from_address.encode()
+                ).hexdigest()[:12]
+                identity = ResolvedIdentity(
+                    user_id=f"dev-{email_hash}",
+                    email=inbound.from_address,
+                    display_name=inbound.from_name or inbound.from_address,
+                )
+                logger.warning(
+                    "Dev override: accepting inbound email from whitelisted address %s (user_id=%s)",
+                    inbound.from_address,
+                    identity.user_id,
+                )
+            else:
+                logger.warning(
+                    "Ignoring inbound email from unknown sender: %s",
+                    inbound.from_address,
+                )
+                return None
 
         # Resolve email thread -> conversation.
         conversation_id, _is_new = await self._thread_tracker.resolve_conversation(
@@ -112,13 +143,19 @@ class EmailChannelAdapter:
             reply_references.append(inbound.message_id)
 
         # Store reply metadata for the subsequent send().
-        self._pending_replies[conversation_id] = {
+        reply_context = {
             "to": [inbound.from_address],
             "cc": list(inbound.cc),
             "subject": reply_subject,
             "in_reply_to": inbound.message_id,
             "references": reply_references,
         }
+        if self._conversation_repo is not None:
+            await self._conversation_repo.update_conversation_metadata(
+                conversation_id, {"email_reply_context": reply_context}
+            )
+        else:
+            self._pending_replies[conversation_id] = reply_context
 
         # Convert email attachments to channel attachments.
         attachments = [
@@ -254,7 +291,13 @@ class EmailChannelAdapter:
             )
             return
 
-        reply_meta = self._pending_replies.pop(conversation_id)
+        if self._conversation_repo is not None:
+            meta = await self._conversation_repo.get_conversation_metadata(conversation_id)
+            if meta is None or "email_reply_context" not in meta:
+                raise KeyError(f"No reply metadata for conversation {conversation_id}")
+            reply_meta = meta["email_reply_context"]
+        else:
+            reply_meta = self._pending_replies.pop(conversation_id)
 
         # Handle cc_mode.
         if settings.cc_mode == "silent":

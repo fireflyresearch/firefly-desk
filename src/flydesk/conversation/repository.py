@@ -131,6 +131,44 @@ class ConversationRepository:
             )
             return result.scalar_one_or_none() is not None
 
+    async def get_conversation_metadata(self, conversation_id: str) -> dict | None:
+        """Return the metadata dict for a conversation (system-level, no ownership check).
+
+        Returns None if conversation doesn't exist.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ConversationRow.metadata_).where(
+                    ConversationRow.id == conversation_id,
+                )
+            )
+            raw = result.scalar_one_or_none()
+            if raw is None:
+                return None
+            return _from_json(raw) if raw else {}
+
+    async def update_conversation_metadata(
+        self, conversation_id: str, metadata_update: dict
+    ) -> None:
+        """Merge keys into conversation metadata (system-level, no ownership check).
+
+        Existing keys not in metadata_update are preserved.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ConversationRow).where(
+                    ConversationRow.id == conversation_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                msg = f"Conversation {conversation_id} not found"
+                raise ValueError(msg)
+            existing = _from_json(row.metadata_) if row.metadata_ else {}
+            existing.update(metadata_update)
+            row.metadata_ = _to_json(existing)
+            await session.commit()
+
     async def delete_conversation(
         self, conversation_id: str, user_id: str
     ) -> None:
