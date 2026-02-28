@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
-from flydesk.settings.models import AgentSettings, UserSettings
+from flydesk.settings.models import AgentSettings, EmailSettings, UserSettings
 
 
 def _to_json(value: Any) -> str | None:
@@ -152,3 +152,39 @@ class SettingsRepository:
             else:
                 str_value = str(value)
             await self.set_app_setting(key, str_value, category="agent")
+
+    # -- Email Settings --
+
+    async def get_email_settings(self) -> EmailSettings:
+        """Retrieve email channel settings from the ``email`` category."""
+        raw = await self.get_all_app_settings(category="email")
+        if not raw:
+            return EmailSettings()
+
+        data: dict[str, Any] = {}
+        for field_name in EmailSettings.model_fields:
+            if field_name in raw:
+                field_info = EmailSettings.model_fields[field_name]
+                raw_val = raw[field_name]
+                if field_info.annotation is list or (
+                    hasattr(field_info.annotation, "__origin__")
+                    and getattr(field_info.annotation, "__origin__", None) is list
+                ):
+                    data[field_name] = json.loads(raw_val) if raw_val else []
+                elif field_info.annotation is bool:
+                    data[field_name] = raw_val.lower() in ("true", "1")
+                elif field_info.annotation is int:
+                    data[field_name] = int(raw_val)
+                else:
+                    data[field_name] = raw_val
+        return EmailSettings(**data)
+
+    async def set_email_settings(self, settings: EmailSettings) -> None:
+        """Persist email channel settings under the ``email`` category."""
+        dumped = settings.model_dump()
+        for key, value in dumped.items():
+            if isinstance(value, (list, dict)):
+                str_value = json.dumps(value)
+            else:
+                str_value = str(value)
+            await self.set_app_setting(key, str_value, category="email")

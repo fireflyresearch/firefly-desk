@@ -54,3 +54,42 @@ class AgentSettings(BaseModel):
     custom_instructions: str = ""  # Free-form additional instructions
     language: str = "en"
     allow_user_personality_overrides: bool = True
+
+
+class EmailSettings(BaseModel):
+    """Email channel configuration settings."""
+
+    # Identity
+    enabled: bool = False
+    from_address: str = "ember@flydesk.ai"
+    from_display_name: str = "Ember"
+    reply_to: str = ""
+
+    # Provider
+    provider: str = "resend"  # "resend" | "ses"
+    provider_api_key: str = ""
+    provider_region: str = ""
+
+    # Signature
+    signature_html: str = ""
+    signature_text: str = ""
+
+    # Persona overrides (empty = inherit from agent settings)
+    email_tone: str = ""
+    email_personality: str = ""
+    email_instructions: str = ""
+
+    # Behavior
+    auto_reply: bool = True
+    auto_reply_delay_seconds: int = 30
+    max_email_length: int = 2000
+    include_greeting: bool = True
+    include_sign_off: bool = True
+
+    # CC behavior
+    cc_mode: str = "respond_all"  # "respond_all" | "respond_sender" | "silent"
+    cc_instructions: str = ""
+
+    # Access control
+    allowed_tool_ids: list[str] = Field(default_factory=list)
+    allowed_workspace_ids: list[str] = Field(default_factory=list)
