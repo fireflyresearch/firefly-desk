@@ -913,6 +913,7 @@ async def _init_email_channel(
     file_repo: Any,
     file_storage: Any,
     content_extractor: Any,
+    conversation_repo: Any,
 ) -> None:
     """Create and register the email channel adapter if email is enabled.
 
@@ -967,6 +968,7 @@ async def _init_email_channel(
         file_repo=file_repo,
         file_storage=file_storage,
         content_extractor=content_extractor,
+        conversation_repo=conversation_repo,
     )
 
     router.register("email", adapter)
@@ -1068,6 +1070,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         file_repo=files["file_repo"],
         file_storage=files["file_storage"],
         content_extractor=files["content_extractor"],
+        conversation_repo=repos["conversation_repo"],
     )
 
     # Wire email port into the builtin executor so the agent can send emails.
@@ -1075,10 +1078,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if email_adapter is not None:
         app.state.builtin_executor.set_email_port(email_adapter._email_port)
 
-    # Webhook log (in-memory ring buffer for debugging inbound emails)
-    from flydesk.email.webhook_log import WebhookLog
+    # Webhook log (DB-backed)
+    from flydesk.email.webhook_log_repository import WebhookLogRepository
 
-    app.state.webhook_log = WebhookLog()
+    webhook_log_repo = WebhookLogRepository(session_factory)
+    app.state.webhook_log = webhook_log_repo
+
+    # Callback delivery log (DB-backed)
+    from flydesk.callbacks.delivery_repository import CallbackDeliveryRepository
+
+    delivery_repo = CallbackDeliveryRepository(session_factory)
+    app.state.callback_delivery_repo = delivery_repo
 
     # Callback dispatcher for outbound webhooks
     from flydesk.callbacks.dispatcher import CallbackDispatcher
@@ -1086,6 +1096,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.callback_dispatcher = CallbackDispatcher(
         settings_repo=repos["settings_repo"],
         http_client=http_client,
+        delivery_repo=delivery_repo,
     )
 
     # Wire callback dispatcher into builtin executor
@@ -1101,6 +1112,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = session_factory
     app.state.conversation_repo = repos["conversation_repo"]
     app.state.started_at = datetime.now(timezone.utc)
+
+    from flydesk.api.deps import get_callback_delivery_repo, get_webhook_log_repo
+    app.dependency_overrides[get_webhook_log_repo] = lambda: webhook_log_repo
+    app.dependency_overrides[get_callback_delivery_repo] = lambda: delivery_repo
 
     # 13. Ensure default workspace exists
     default_ws_id = await _ensure_default_workspace(session_factory)

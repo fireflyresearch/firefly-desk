@@ -31,7 +31,8 @@ from flydesk.auth.models import UserSession
 from flydesk.channels.models import AgentResponse as ChannelAgentResponse
 from flydesk.conversation.models import Conversation, Message, MessageRole
 from flydesk.email.channel_adapter import EmailChannelAdapter
-from flydesk.email.webhook_log import WebhookLog, WebhookLogEntry
+from flydesk.email.webhook_log import WebhookLogEntry
+from flydesk.email.webhook_log_repository import WebhookLogRepository
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.repository import SettingsRepository
 
@@ -45,12 +46,12 @@ Adapter = Annotated[EmailChannelAdapter, Depends(get_email_channel_adapter)]
 _SUPPORTED_PROVIDERS = ("resend", "ses", "sendgrid")
 
 
-def _get_webhook_log(request: Request) -> WebhookLog:
-    """Retrieve the WebhookLog singleton from app state."""
-    return getattr(request.app.state, "webhook_log", WebhookLog())
+def _get_webhook_log(request: Request) -> WebhookLogRepository:
+    """Retrieve the WebhookLogRepository from app state."""
+    return request.app.state.webhook_log
 
 
-WebhookLogDep = Annotated[WebhookLog, Depends(_get_webhook_log)]
+WebhookLogDep = Annotated[WebhookLogRepository, Depends(_get_webhook_log)]
 
 
 @router.post("/inbound/{provider}")
@@ -95,7 +96,7 @@ async def receive_inbound_email(
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             logger.warning("Invalid JSON in inbound email payload: %s", exc)
             elapsed_ms = (time.monotonic() - start_time) * 1000
-            webhook_log.record(WebhookLogEntry(
+            await webhook_log.record(WebhookLogEntry(
                 provider=provider,
                 status="error",
                 payload_preview=body.decode(errors="replace")[:500],
@@ -125,7 +126,7 @@ async def receive_inbound_email(
     )
     if not is_valid:
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="rejected",
             from_address="",
@@ -142,7 +143,7 @@ async def receive_inbound_email(
 
     if message is None:
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="skipped",
             from_address=from_addr,
@@ -157,7 +158,7 @@ async def receive_inbound_email(
     if conversation_id is None:
         logger.error("Adapter returned message with no conversation_id — skipping")
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="error",
             from_address=from_addr,
@@ -174,7 +175,7 @@ async def receive_inbound_email(
 
     if not email_settings.auto_reply:
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="processed",
             from_address=from_addr,
@@ -195,7 +196,7 @@ async def receive_inbound_email(
     if desk_agent is None or conversation_repo is None:
         logger.warning("DeskAgent or conversation_repo not available — skipping agent reply")
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="error",
             from_address=from_addr,
@@ -271,7 +272,7 @@ async def receive_inbound_email(
                 "channel": "email",
             })
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        webhook_log.record(WebhookLogEntry(
+        await webhook_log.record(WebhookLogEntry(
             provider=provider,
             status="error",
             from_address=from_addr,
@@ -310,7 +311,7 @@ async def receive_inbound_email(
         error = str(exc)
 
     elapsed_ms = (time.monotonic() - start_time) * 1000
-    webhook_log.record(WebhookLogEntry(
+    await webhook_log.record(WebhookLogEntry(
         provider=provider,
         status=status,
         from_address=from_addr,
@@ -356,7 +357,7 @@ async def list_webhook_log(
     limit: int = Query(default=50, ge=1, le=100),
 ) -> dict:
     """Return recent webhook log entries (newest first)."""
-    entries = webhook_log.list(limit=limit)
+    entries = await webhook_log.list(limit=limit)
     return {
         "entries": [
             {
@@ -377,7 +378,7 @@ async def list_webhook_log(
 @router.get("/webhook-log/{entry_id}", dependencies=[AdminSettings])
 async def get_webhook_log_entry(entry_id: str, webhook_log: WebhookLogDep) -> dict:
     """Return a single webhook log entry with full payload."""
-    entry = webhook_log.get(entry_id)
+    entry = await webhook_log.get(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Log entry not found")
     return {
@@ -396,5 +397,5 @@ async def get_webhook_log_entry(entry_id: str, webhook_log: WebhookLogDep) -> di
 @router.delete("/webhook-log", dependencies=[AdminSettings])
 async def clear_webhook_log(webhook_log: WebhookLogDep) -> dict:
     """Clear all webhook log entries."""
-    webhook_log.clear()
+    await webhook_log.clear()
     return {"success": True}

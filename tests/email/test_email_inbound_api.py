@@ -127,6 +127,14 @@ async def client(mock_adapter, mock_settings_repo, mock_desk_agent, mock_convers
         app.state.desk_agent = mock_desk_agent
         app.state.conversation_repo = mock_conversation_repo
 
+        # Provide a mock webhook log (async methods matching WebhookLogRepository)
+        mock_webhook_log = AsyncMock()
+        mock_webhook_log.record = AsyncMock(return_value="log-id")
+        mock_webhook_log.list = AsyncMock(return_value=[])
+        mock_webhook_log.get = AsyncMock(return_value=None)
+        mock_webhook_log.clear = AsyncMock(return_value=0)
+        app.state.webhook_log = mock_webhook_log
+
         # Bypass auth middleware by injecting a user session.
         from flydesk.auth.models import UserSession
 

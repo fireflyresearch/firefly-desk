@@ -24,6 +24,7 @@ from flydesk.audit.logger import AuditLogger
 from flydesk.auth.oidc import OIDCClient
 from flydesk.auth.local_user_repository import LocalUserRepository
 from flydesk.auth.repository import OIDCProviderRepository
+from flydesk.callbacks.delivery_repository import CallbackDeliveryRepository
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.conversation.folder_repository import FolderRepository
 from flydesk.feedback.repository import FeedbackRepository
@@ -48,6 +49,7 @@ from flydesk.settings.repository import SettingsRepository
 from flydesk.tools.custom_repository import CustomToolRepository
 from flydesk.tools.sandbox import SandboxExecutor
 from flydesk.triggers.auto_trigger import AutoTriggerService
+from flydesk.email.webhook_log_repository import WebhookLogRepository
 from flydesk.knowledge.document_source_repository import DocumentSourceRepository
 from flydesk.workflows.engine import WorkflowEngine
 from flydesk.workflows.repository import WorkflowRepository
@@ -75,6 +77,13 @@ def get_audit_logger() -> AuditLogger:
     """
     raise NotImplementedError(
         "get_audit_logger must be overridden via app.dependency_overrides"
+    )
+
+
+def get_callback_delivery_repo() -> CallbackDeliveryRepository:
+    """Provide a CallbackDeliveryRepository instance."""
+    raise NotImplementedError(
+        "get_callback_delivery_repo must be overridden via app.dependency_overrides"
     )
 
 
@@ -430,6 +439,13 @@ def get_workflow_repo() -> WorkflowRepository:
     """Provide a WorkflowRepository instance."""
     raise NotImplementedError(
         "get_workflow_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_webhook_log_repo() -> WebhookLogRepository:
+    """Provide a WebhookLogRepository instance."""
+    raise NotImplementedError(
+        "get_webhook_log_repo must be overridden via app.dependency_overrides"
     )
 
 
