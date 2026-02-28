@@ -15,10 +15,10 @@ import re
 import uuid
 from typing import Any, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.knowledge.models import DocumentChunk, KnowledgeDocument
-from flydesk.knowledge.vector_store import VectorStore
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 
@@ -55,7 +55,7 @@ class KnowledgeIndexer:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         chunking_mode: str = "auto",
-        vector_store: VectorStore | None = None,
+        vector_store: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
@@ -90,13 +90,23 @@ class KnowledgeIndexer:
 
         # 4. Store chunks with embeddings
         if self._vector_store is not None:
-            store_chunks: list[tuple[str, str, list[float], dict]] = []
-            for chunk, embedding in zip(chunks, embeddings):
-                metadata = dict(chunk.metadata)
-                metadata["chunk_index"] = chunk.chunk_index
-                metadata["tags"] = document.tags
-                store_chunks.append((chunk.chunk_id, chunk.content, embedding, metadata))
-            await self._vector_store.store(document.id, store_chunks)
+            from fireflyframework_genai.vectorstores import VectorDocument
+
+            docs = [
+                VectorDocument(
+                    id=chunk.chunk_id,
+                    text=chunk.content,
+                    embedding=embedding,
+                    metadata={
+                        "document_id": document.id,
+                        "chunk_index": chunk.chunk_index,
+                        "tags": document.tags,
+                        **chunk.metadata,
+                    },
+                )
+                for chunk, embedding in zip(chunks, embeddings)
+            ]
+            await self._vector_store.upsert(docs)
         else:
             async with self._session_factory() as session:
                 dialect = session.bind.dialect.name if session.bind else "sqlite"
@@ -282,7 +292,16 @@ class KnowledgeIndexer:
 
         # Delete chunks via vector store if available, otherwise via SQLAlchemy
         if self._vector_store is not None:
-            await self._vector_store.delete(document_id)
+            # genai's delete() expects a list of chunk IDs, so look them up first
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(DocumentChunkRow.id).where(
+                        DocumentChunkRow.document_id == document_id
+                    )
+                )
+                chunk_ids = list(result.scalars().all())
+            if chunk_ids:
+                await self._vector_store.delete(chunk_ids)
         else:
             async with self._session_factory() as session:
                 await session.execute(

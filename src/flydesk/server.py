@@ -365,7 +365,7 @@ async def _init_knowledge(
     from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
     from flydesk.knowledge.embedding_factory import create_embedder, parse_embedding_config
     from flydesk.knowledge.indexer import KnowledgeIndexer
-    from flydesk.knowledge.stores import create_vector_store
+    from flydesk.knowledge.stores import create_genai_vector_store
 
     embed_settings = await settings_repo.get_all_app_settings(category="embedding")
     embed_model = embed_settings.get("embedding_model") or config.embedding_model
@@ -398,7 +398,9 @@ async def _init_knowledge(
     ).lower() in ("true", "1")
 
     try:
-        vector_store = create_vector_store(config, session_factory)
+        vector_store = create_genai_vector_store(
+            config, session_factory=session_factory, embedder=genai_embedder,
+        )
     except Exception:
         logger.warning("Failed to create vector store; falling back to direct SQLAlchemy.", exc_info=True)
         vector_store = None

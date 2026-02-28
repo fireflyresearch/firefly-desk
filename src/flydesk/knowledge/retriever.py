@@ -18,13 +18,13 @@ import json
 import logging
 import math
 import re
+from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.knowledge.indexer import EmbeddingProvider
 from flydesk.knowledge.models import DocumentChunk, RetrievalResult
-from flydesk.knowledge.vector_store import VectorStore
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 _logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class KnowledgeRetriever:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         embedding_provider: EmbeddingProvider,
-        vector_store: VectorStore | None = None,
+        vector_store: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
@@ -82,28 +82,49 @@ class KnowledgeRetriever:
 
         # 2. Delegate to vector store if available
         if self._vector_store is not None and not use_keywords:
+            # Over-fetch when tag_filter is set so post-filtering can still
+            # return up to top_k results.
+            fetch_k = top_k * 3 if tag_filter else top_k
             vs_results = await self._vector_store.search(
-                query_embedding, top_k, tag_filter=tag_filter,
+                query_embedding, top_k=fetch_k,
             )
-            # Fetch document titles from SQLAlchemy for building RetrievalResult
+            # Build RetrievalResult objects from genai SearchResult objects
+            tag_filter_set = set(tag_filter) if tag_filter else None
             results: list[RetrievalResult] = []
             async with self._session_factory() as session:
-                for vsr in vs_results:
-                    doc_row = await session.get(KnowledgeDocumentRow, vsr.document_id)
+                for sr in vs_results:
+                    metadata = dict(sr.document.metadata)
+                    document_id = metadata.get("document_id", "")
+                    chunk_index = metadata.get("chunk_index", 0)
+
+                    # Resolve document title and apply tag filter
+                    doc_row = await session.get(KnowledgeDocumentRow, document_id)
+                    if doc_row is None:
+                        continue
+
+                    if tag_filter_set is not None:
+                        doc_tags = doc_row.tags
+                        if isinstance(doc_tags, str):
+                            doc_tags = json.loads(doc_tags)
+                        if not tag_filter_set.intersection(doc_tags or []):
+                            continue
+
                     title = doc_row.title if doc_row else ""
                     results.append(
                         RetrievalResult(
                             chunk=DocumentChunk(
-                                chunk_id=vsr.chunk_id,
-                                document_id=vsr.document_id,
-                                content=vsr.content,
-                                chunk_index=vsr.chunk_index,
-                                metadata=vsr.metadata,
+                                chunk_id=sr.document.id,
+                                document_id=document_id,
+                                content=sr.document.text,
+                                chunk_index=chunk_index,
+                                metadata=metadata,
                             ),
-                            score=vsr.score,
+                            score=sr.score,
                             document_title=title,
                         )
                     )
+                    if len(results) >= top_k:
+                        break
             return results
 
         # 3. Determine backend and route to appropriate search strategy
