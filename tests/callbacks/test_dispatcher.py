@@ -12,17 +12,15 @@ from flydesk.callbacks.dispatcher import CallbackDispatcher
 @pytest.fixture
 def mock_settings_repo():
     repo = AsyncMock()
-    repo.get_email_settings.return_value = MagicMock(
-        outbound_callbacks=[
-            {
-                "id": "cb-1",
-                "url": "https://example.com/hook",
-                "secret": "test-secret",
-                "events": ["email.received"],
-                "enabled": True,
-            }
-        ]
-    )
+    repo.get_callbacks = AsyncMock(return_value=[
+        {
+            "id": "cb-1",
+            "url": "https://example.com/hook",
+            "secret": "test-secret",
+            "events": ["email.received"],
+            "enabled": True,
+        }
+    ])
     return repo
 
 
@@ -120,11 +118,9 @@ class TestDispatch:
 
     async def test_dispatch_skips_disabled_callbacks(self, dispatcher, mock_settings_repo, mock_http_client):
         """Disabled callbacks should not be dispatched."""
-        mock_settings_repo.get_email_settings.return_value = MagicMock(
-            outbound_callbacks=[
-                {"id": "cb-1", "url": "https://example.com/hook", "secret": "s", "events": [], "enabled": False}
-            ]
-        )
+        mock_settings_repo.get_callbacks = AsyncMock(return_value=[
+            {"id": "cb-1", "url": "https://example.com/hook", "secret": "s", "events": [], "enabled": False}
+        ])
         await dispatcher.dispatch("email.received", {})
         await asyncio.sleep(0.1)
         mock_http_client.post.assert_not_called()

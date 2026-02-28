@@ -188,3 +188,18 @@ class SettingsRepository:
             else:
                 str_value = str(value)
             await self.set_app_setting(key, str_value, category="email")
+
+    # -- Callback Settings --
+
+    async def get_callbacks(self) -> list[dict]:
+        """Return all callback configurations from their own category."""
+        raw = await self.get_app_setting("callbacks_list")
+        if raw:
+            return json.loads(raw)
+        return []
+
+    async def set_callbacks(self, callbacks: list[dict]) -> None:
+        """Persist callback configurations in their own category."""
+        await self.set_app_setting(
+            "callbacks_list", json.dumps(callbacks, default=str), category="callbacks"
+        )

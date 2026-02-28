@@ -66,7 +66,7 @@ class EmailSettings(BaseModel):
     reply_to: str = ""
 
     # Provider
-    provider: str = "resend"  # "resend" | "ses"
+    provider: str = "resend"  # "resend" | "ses" | "sendgrid"
     provider_api_key: str = ""
     provider_region: str = ""
 
@@ -94,3 +94,8 @@ class EmailSettings(BaseModel):
     # Access control
     allowed_tool_ids: list[str] = Field(default_factory=list)
     allowed_workspace_ids: list[str] = Field(default_factory=list)
+
+    # Dev mode
+    dev_authorized_emails: list[str] = Field(default_factory=list)
+    ngrok_auth_token: str = ""
+    tunnel_backend: str = "ngrok"  # "ngrok" | "cloudflared"

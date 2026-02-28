@@ -34,11 +34,7 @@
 		Globe,
 		Copy,
 		ExternalLink,
-		Code,
 		Sparkles,
-		Radio,
-		Power,
-		PowerOff,
 		ImagePlus,
 		Trash2,
 		Upload,
@@ -80,6 +76,8 @@
 		cc_instructions: string;
 		allowed_tool_ids: string[];
 		allowed_workspace_ids: string[];
+		dev_authorized_emails: string[];
+		ngrok_auth_token: string;
 	}
 
 	interface EmailStatus {
@@ -124,6 +122,8 @@
 		cc_instructions: '',
 		allowed_tool_ids: [],
 		allowed_workspace_ids: [],
+		dev_authorized_emails: [],
+		ngrok_auth_token: '',
 	};
 
 	const PROVIDERS: ProviderInfo[] = [
@@ -212,18 +212,6 @@
 	// Webhook URL state
 	let webhookCopied = $state(false);
 
-	// Tunnel state
-	interface TunnelStatus {
-		active: boolean;
-		url: string | null;
-		available: boolean;
-		error: string | null;
-	}
-	let tunnelStatus = $state<TunnelStatus>({ active: false, url: null, available: false, error: null });
-	let tunnelLoading = $state(false);
-	let tunnelUrlCopied = $state(false);
-	let tunnelWebhookCopied = $state(false);
-
 	// Form state -- matches EmailSettings backend model
 	let form = $state<EmailSettingsData>({ ...EMAIL_DEFAULTS });
 
@@ -235,6 +223,9 @@
 
 	// Deliverability collapsible
 	let dnsExpanded = $state(false);
+
+	// Dev authorized emails
+	let devEmailInput = $state('');
 
 	// Signature preview
 	let signaturePreviewHtml = $derived(
@@ -284,7 +275,6 @@
 			status = st;
 
 			loadEmailUsers();
-			loadTunnelStatus();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load email settings';
 		} finally {
@@ -382,8 +372,13 @@
 		validating = true;
 		validateResult = null;
 		try {
-			const res = await apiJson<{ success: boolean; error?: string; details?: any }>('/settings/email/validate', {
+			const res = await apiJson<{ success: boolean; error?: string; details?: any }>('/settings/email/validate-credentials', {
 				method: 'POST',
+				body: JSON.stringify({
+					provider: form.provider,
+					api_key: form.provider_api_key,
+					region: form.provider_region,
+				}),
 			});
 			validateResult = res;
 		} catch (e) {
@@ -508,64 +503,29 @@
 		}
 	}
 
-	// -----------------------------------------------------------------------
-	// Tunnel management
-	// -----------------------------------------------------------------------
-
-	async function loadTunnelStatus() {
-		if (!devMode) return;
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/status');
-		} catch {
-			// Tunnel endpoints not available
-		}
-	}
-
-	async function startTunnel() {
-		tunnelLoading = true;
-		tunnelStatus = { ...tunnelStatus, error: null };
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/start', { method: 'POST' });
-		} catch (e) {
-			tunnelStatus = { ...tunnelStatus, error: e instanceof Error ? e.message : 'Failed to start tunnel' };
-		} finally {
-			tunnelLoading = false;
-		}
-	}
-
-	async function stopTunnel() {
-		tunnelLoading = true;
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/stop', { method: 'POST' });
-		} catch (e) {
-			tunnelStatus = { ...tunnelStatus, error: e instanceof Error ? e.message : 'Failed to stop tunnel' };
-		} finally {
-			tunnelLoading = false;
-		}
-	}
-
-	function copyTunnelUrl() {
-		if (tunnelStatus.url) {
-			navigator.clipboard.writeText(tunnelStatus.url);
-			tunnelUrlCopied = true;
-			setTimeout(() => (tunnelUrlCopied = false), 2000);
-		}
-	}
-
-	function copyTunnelWebhookUrl() {
-		if (tunnelStatus.url) {
-			navigator.clipboard.writeText(`${tunnelStatus.url}/api/email/inbound/${form.provider}`);
-			tunnelWebhookCopied = true;
-			setTimeout(() => (tunnelWebhookCopied = false), 2000);
-		}
-	}
-
 	function copyWebhookUrl() {
 		const url = `${window.location.origin}/api/email/inbound/${form.provider}`;
 		navigator.clipboard.writeText(url);
 		webhookCopied = true;
 		setTimeout(() => (webhookCopied = false), 2000);
 	}
+
+	// -----------------------------------------------------------------------
+	// Dev authorized emails
+	// -----------------------------------------------------------------------
+
+	function addDevEmail() {
+		const email = devEmailInput.trim().toLowerCase();
+		if (email && !form.dev_authorized_emails.includes(email)) {
+			form.dev_authorized_emails = [...form.dev_authorized_emails, email];
+		}
+		devEmailInput = '';
+	}
+
+	function removeDevEmail(email: string) {
+		form.dev_authorized_emails = form.dev_authorized_emails.filter(e => e !== email);
+	}
+
 </script>
 
 <div class="flex h-full flex-col overflow-hidden">
@@ -1521,108 +1481,61 @@
 								</ol>
 							{/if}
 						</div>
+						<!-- Cross-link to Webhooks tunnel -->
+						<div class="mt-3 flex items-center gap-2 rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-2">
+							<Globe size={12} class="text-accent" />
+							<span class="text-[11px] text-text-secondary">
+								Need a tunnel for local development?
+							</span>
+							<a href="/admin/webhooks" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+								Set up in Webhooks
+								<ArrowUpRight size={10} />
+							</a>
+						</div>
 					</section>
 
-					<!-- Dev Tunnel -->
+					<!-- Dev Authorized Emails -->
 					{#if devMode}
 						<section class="rounded-lg border border-accent/30 bg-accent/5 p-5">
 							<h2 class="mb-2 flex items-center gap-2 text-sm font-semibold text-text-primary">
-								<Radio size={16} class="text-accent" />
-								Dev Tunnel (ngrok)
+								<ShieldCheck size={16} class="text-accent" />
+								Dev Authorized Emails
 							</h2>
+							<p class="mb-3 text-xs text-text-secondary">
+								Emails from these addresses will be accepted in dev mode without requiring a registered user account.
+							</p>
 
-							{#if tunnelStatus.available}
-								<p class="mb-3 text-xs text-text-secondary">
-									Expose your local server to the internet for real-time webhook delivery.
-								</p>
+							<div class="flex gap-2">
+								<input
+									type="email"
+									bind:value={devEmailInput}
+									placeholder="dev@example.com"
+									onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDevEmail(); } }}
+									class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none transition-colors focus:border-accent"
+								/>
+								<button
+									type="button"
+									onclick={addDevEmail}
+									disabled={!devEmailInput.trim()}
+									class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+								>
+									Add
+								</button>
+							</div>
 
-								<div class="flex flex-col gap-3">
-									<div class="flex items-center gap-3">
-										{#if tunnelStatus.active}
-											<button
-												type="button"
-												onclick={stopTunnel}
-												disabled={tunnelLoading}
-												class="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-50"
-											>
-												{#if tunnelLoading}
-													<Loader2 size={12} class="animate-spin" />
-												{:else}
-													<PowerOff size={12} />
-												{/if}
-												Stop Tunnel
-											</button>
-											<span class="inline-flex items-center gap-1.5 text-xs text-success">
-												<span class="inline-block h-2 w-2 rounded-full bg-success animate-pulse"></span>
-												Active
-											</span>
-										{:else}
-											<button
-												type="button"
-												onclick={startTunnel}
-												disabled={tunnelLoading}
-												class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-											>
-												{#if tunnelLoading}
-													<Loader2 size={12} class="animate-spin" />
-													Starting…
-												{:else}
-													<Power size={12} />
-													Start Tunnel
-												{/if}
-											</button>
-											<span class="text-xs text-text-secondary">Not running</span>
-										{/if}
-									</div>
-
-									{#if tunnelStatus.error}
-										<div class="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-											{tunnelStatus.error}
-										</div>
-									{/if}
-
-									{#if tunnelStatus.active && tunnelStatus.url}
-										<div class="flex flex-col gap-2">
-											<label class="text-[11px] font-medium text-text-secondary">Tunnel URL</label>
-											<div class="flex items-center gap-2">
-												<code class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary">
-													{tunnelStatus.url}
-												</code>
-												<button
-													type="button"
-													onclick={copyTunnelUrl}
-													class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
-												>
-													{#if tunnelUrlCopied}<CheckCircle size={10} class="text-success" />{:else}<Copy size={10} />{/if}
-												</button>
-											</div>
-										</div>
-
-										<div class="flex flex-col gap-2">
-											<label class="text-[11px] font-medium text-text-secondary">Webhook URL (via tunnel)</label>
-											<div class="flex items-center gap-2">
-												<code class="flex-1 rounded-md border border-success/30 bg-success/5 px-3 py-1.5 text-xs text-success font-medium">
-													{tunnelStatus.url}/api/email/inbound/{form.provider}
-												</code>
-												<button
-													type="button"
-													onclick={copyTunnelWebhookUrl}
-													class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
-												>
-													{#if tunnelWebhookCopied}<CheckCircle size={10} class="text-success" />{:else}<Copy size={10} />{/if}
-												</button>
-											</div>
-										</div>
-									{/if}
+							{#if form.dev_authorized_emails.length > 0}
+								<div class="mt-3 flex flex-wrap gap-1.5">
+									{#each form.dev_authorized_emails as email}
+									<span class="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-xs text-accent">
+									{email}
+									<button type="button" onclick={() => removeDevEmail(email)} class="ml-0.5 rounded-full p-0.5 text-accent/60 transition-colors hover:bg-accent/20 hover:text-accent">
+									×
+									</button>
+									</span>
+									{/each}
 								</div>
 							{:else}
-								<p class="text-[11px] text-text-secondary">
-									Install <a href="https://ngrok.com/download" target="_blank" rel="noopener noreferrer" class="font-medium text-accent underline">ngrok</a> and
-									<code class="rounded bg-surface px-1 text-[10px]">pyngrok</code> to enable tunnel support.
-								</p>
-								<code class="mt-2 block rounded bg-surface px-2 py-1 text-[10px] text-text-secondary">
-									pip install pyngrok && ngrok config add-authtoken YOUR_TOKEN
-								</code>
+								<p class="mt-2 text-[11px] italic text-text-secondary">No dev emails whitelisted.</p>
 							{/if}
 						</section>
 					{/if}

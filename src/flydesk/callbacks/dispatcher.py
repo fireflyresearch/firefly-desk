@@ -50,12 +50,10 @@ class CallbackDispatcher:
     async def dispatch(self, event: str, data: dict[str, Any]) -> None:
         """Send *event* with *data* to all matching callbacks (fire-and-forget)."""
         try:
-            settings = await self._settings_repo.get_email_settings()
+            callbacks = await self._settings_repo.get_callbacks()
         except Exception:
             logger.warning("Failed to load settings for callback dispatch", exc_info=True)
             return
-
-        callbacks = settings.outbound_callbacks or []
 
         for cb in callbacks:
             if not cb.get("enabled", True):
