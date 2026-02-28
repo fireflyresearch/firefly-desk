@@ -40,6 +40,7 @@ from flydesk.api.dashboard import router as dashboard_router
 from flydesk.api.document_sources import router as document_sources_router
 from flydesk.api.email_inbound import router as email_inbound_router
 from flydesk.api.email_settings import router as email_settings_router
+from flydesk.api.webhooks import router as webhooks_router
 from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
@@ -76,6 +77,8 @@ from flydesk.api.deps import (
     get_sandbox_executor,
     get_session_factory,
     get_settings_repo,
+    get_workflow_engine,
+    get_workflow_repo,
     get_workspace_repo,
 )
 from flydesk.api.exports import router as exports_router
@@ -858,6 +861,35 @@ async def _seed_platform_docs(
 
 
 # ---------------------------------------------------------------------------
+# Workflow engine
+# ---------------------------------------------------------------------------
+
+
+async def _init_workflows(
+    app: FastAPI,
+    session_factory: async_sessionmaker,
+) -> dict[str, Any]:
+    """Wire workflow engine, repository, and scheduler."""
+    from flydesk.workflows.repository import WorkflowRepository
+    from flydesk.workflows.engine import WorkflowEngine
+    from flydesk.workflows.scheduler import WorkflowScheduler
+
+    wf_repo = WorkflowRepository(session_factory)
+    wf_engine = WorkflowEngine(wf_repo)
+    wf_scheduler = WorkflowScheduler(wf_repo, wf_engine)
+    await wf_scheduler.start()
+
+    app.dependency_overrides[get_workflow_repo] = lambda: wf_repo
+    app.dependency_overrides[get_workflow_engine] = lambda: wf_engine
+
+    return {
+        "workflow_repo": wf_repo,
+        "workflow_engine": wf_engine,
+        "workflow_scheduler": wf_scheduler,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Lifespan orchestrator
 # ---------------------------------------------------------------------------
 
@@ -934,20 +966,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if hasattr(agent_ctx["memory_store"], "close"):
         ctx.closables.append(agent_ctx["memory_store"])
 
-    # 9. Auth / OIDC
+    # 9. Workflows
+    workflows = await _init_workflows(app, session_factory)
+    ctx.closables.append(workflows["workflow_scheduler"])
+
+    # 10. Auth / OIDC
     _init_auth(app, config, session_factory)
 
-    # 10. Store shared state
+    # 11. Store shared state
     app.dependency_overrides[get_session_factory] = lambda: session_factory
     app.state.config = config
     app.state.session_factory = session_factory
     app.state.conversation_repo = repos["conversation_repo"]
     app.state.started_at = datetime.now(timezone.utc)
 
-    # 11. Ensure default workspace exists
+    # 12. Ensure default workspace exists
     default_ws_id = await _ensure_default_workspace(session_factory)
 
-    # 12. Auto-index platform docs (assigned to default workspace)
+    # 13. Auto-index platform docs (assigned to default workspace)
     await _seed_platform_docs(
         config, knowledge["indexer"], repos["catalog_repo"],
         default_workspace_ids=[default_ws_id],
@@ -1064,5 +1100,6 @@ def create_app() -> FastAPI:
     app.include_router(cloud_import_router)
     app.include_router(email_inbound_router)
     app.include_router(email_settings_router)
+    app.include_router(webhooks_router)
 
     return app

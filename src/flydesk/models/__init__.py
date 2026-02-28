@@ -14,6 +14,7 @@ from flydesk.models.catalog import CredentialRow, ExternalSystemRow, ServiceEndp
 from flydesk.models.custom_tool import CustomToolRow
 from flydesk.models.conversation import ConversationRow, MessageRow
 from flydesk.models.document_source import DocumentSourceRow
+from flydesk.models.email_thread import EmailThreadRow  # noqa: F401
 from flydesk.models.export import ExportRow, ExportTemplateRow
 from flydesk.models.folder import ConversationFolderRow
 from flydesk.models.file_upload import FileUploadRow
@@ -44,6 +45,7 @@ __all__ = [
     "CustomToolRow",
     "DocumentChunkRow",
     "DocumentSourceRow",
+    "EmailThreadRow",
     "EntityRow",
     "ExportRow",
     "ExportTemplateRow",

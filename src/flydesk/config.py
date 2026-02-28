@@ -140,6 +140,13 @@ class DeskConfig(BaseSettings):
     app_logo_url: str | None = None
     accent_color: str = "#2563EB"
 
+    # -- Email Channel --
+    email_enabled: bool = False
+    email_provider: str = "resend"  # "resend" | "ses"
+    email_api_key: str = ""
+    email_from_address: str = "ember@flydesk.ai"
+    email_ses_region: str = "us-east-1"
+
     @property
     def effective_jwt_secret(self) -> str:
         """Return the JWT signing secret, generating one if not configured.
