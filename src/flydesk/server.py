@@ -38,9 +38,11 @@ from flydesk.api.credentials import router as credentials_router
 from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.dashboard import router as dashboard_router
 from flydesk.api.document_sources import router as document_sources_router
+from flydesk.api.callbacks import router as callbacks_router
 from flydesk.api.email_inbound import router as email_inbound_router
 from flydesk.api.email_settings import router as email_settings_router
 from flydesk.api.webhooks import router as webhooks_router
+from flydesk.api.dev_tools import router as dev_tools_router
 from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
@@ -944,6 +946,10 @@ async def _init_email_channel(
         email_port = SESEmailAdapter(
             region=email_settings.provider_region or "us-east-1",
         )
+    elif provider == "sendgrid":
+        from flydesk.email.adapters.sendgrid_adapter import SendGridEmailAdapter
+
+        email_port = SendGridEmailAdapter(api_key=email_settings.provider_api_key)
     else:
         # Default to Resend.
         from flydesk.email.adapters.resend_adapter import ResendEmailAdapter
@@ -1068,6 +1074,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     email_adapter = getattr(app.state, "email_channel_adapter", None)
     if email_adapter is not None:
         app.state.builtin_executor.set_email_port(email_adapter._email_port)
+
+    # Webhook log (in-memory ring buffer for debugging inbound emails)
+    from flydesk.email.webhook_log import WebhookLog
+
+    app.state.webhook_log = WebhookLog()
+
+    # Callback dispatcher for outbound webhooks
+    from flydesk.callbacks.dispatcher import CallbackDispatcher
+
+    app.state.callback_dispatcher = CallbackDispatcher(
+        settings_repo=repos["settings_repo"],
+        http_client=http_client,
+    )
+
+    # Wire callback dispatcher into builtin executor
+    if hasattr(app.state, "builtin_executor"):
+        app.state.builtin_executor.set_callback_dispatcher(app.state.callback_dispatcher)
 
     # 11. Auth / OIDC
     _init_auth(app, config, session_factory)
@@ -1204,7 +1227,9 @@ def create_app() -> FastAPI:
     app.include_router(cloud_import_router)
     app.include_router(email_inbound_router)
     app.include_router(email_settings_router)
+    app.include_router(callbacks_router)
     app.include_router(webhooks_router)
+    app.include_router(dev_tools_router)
     app.include_router(notifications_router)
 
     return app

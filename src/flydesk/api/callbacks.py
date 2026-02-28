@@ -21,7 +21,7 @@ from flydesk.api.deps import get_settings_repo
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.repository import SettingsRepository
 
-router = APIRouter(prefix="/api/settings/callbacks", tags=["callbacks"])
+router = APIRouter(prefix="/api/callbacks", tags=["callbacks"])
 
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
@@ -155,3 +155,21 @@ async def test_callback(callback_id: str, repo: SettingsRepo, request: Request) 
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+@router.get("/delivery-log", dependencies=[AdminSettings])
+async def list_delivery_log(
+    request: Request,
+    limit: int = 50,
+    callback_id: str | None = None,
+    event: str | None = None,
+    status: str | None = None,
+) -> dict:
+    """Return recent callback delivery attempts."""
+    delivery_repo = getattr(request.app.state, "callback_delivery_repo", None)
+    if delivery_repo is None:
+        return {"entries": []}
+    entries = await delivery_repo.list(
+        limit=limit, callback_id=callback_id, event=event, status=status,
+    )
+    return {"entries": entries}

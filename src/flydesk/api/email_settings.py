@@ -10,13 +10,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -280,8 +279,14 @@ async def validate_credentials(body: ValidateCredentialsRequest) -> dict:
             "error": result.error,
             "details": result.metadata,
         }
+    elif body.provider == "sendgrid":
+        if not body.api_key:
+            return {"success": False, "error": "API key is required for SendGrid"}
+        return {"success": True, "error": None, "details": {"provider": "sendgrid"}}
     elif body.provider == "ses":
-        return {"success": False, "error": "SES validation not yet implemented"}
+        if not body.region:
+            return {"success": False, "error": "AWS region is required for SES"}
+        return {"success": True, "error": None, "details": {"provider": "ses", "region": body.region}}
     else:
         return {"success": False, "error": f"Unknown provider: {body.provider}"}
 
@@ -586,53 +591,3 @@ async def disconnect_email(repo: SettingsRepo) -> dict:
     })
     await repo.set_email_settings(updated)
     return {"success": True, "message": "Email channel disconnected."}
-
-
-# ---------------------------------------------------------------------------
-# Dev tunnel management (dev_mode only)
-# ---------------------------------------------------------------------------
-
-
-def _get_tunnel_manager(request: Request):
-    """Lazy-init a TunnelManager singleton on app.state."""
-    from flydesk.email.tunnel import TunnelManager
-
-    if not hasattr(request.app.state, "tunnel_manager"):
-        request.app.state.tunnel_manager = TunnelManager()
-    return request.app.state.tunnel_manager
-
-
-@router.get("/tunnel/status", dependencies=[AdminSettings])
-async def tunnel_status(request: Request) -> dict:
-    """Return tunnel availability and active state."""
-    config = get_config()
-    if not config.dev_mode:
-        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
-
-    manager = _get_tunnel_manager(request)
-    info = manager.status()
-    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
-
-
-@router.post("/tunnel/start", dependencies=[AdminSettings])
-async def tunnel_start(request: Request) -> dict:
-    """Start an ngrok tunnel (dev_mode only)."""
-    config = get_config()
-    if not config.dev_mode:
-        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
-
-    manager = _get_tunnel_manager(request)
-    info = await asyncio.to_thread(manager.start, 8000)
-    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
-
-
-@router.post("/tunnel/stop", dependencies=[AdminSettings])
-async def tunnel_stop(request: Request) -> dict:
-    """Stop the active ngrok tunnel (dev_mode only)."""
-    config = get_config()
-    if not config.dev_mode:
-        return {"active": False, "available": False, "error": "Tunnel is only available in dev mode"}
-
-    manager = _get_tunnel_manager(request)
-    info = await asyncio.to_thread(manager.stop)
-    return {"active": info.active, "url": info.url, "available": info.available, "error": info.error}
