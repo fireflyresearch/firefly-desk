@@ -118,6 +118,25 @@ async def receive_inbound_email(
             from_addr = from_addr or payload_data["data"].get("from", "") or ""
             subject = subject or payload_data["data"].get("subject", "") or ""
 
+    # 2b. Verify webhook signature.
+    is_valid = await adapter._email_port.verify_webhook_signature(
+        headers=dict(request.headers),
+        body=body,
+    )
+    if not is_valid:
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        webhook_log.record(WebhookLogEntry(
+            provider=provider,
+            status="rejected",
+            from_address="",
+            subject="",
+            payload_preview=payload_preview,
+            processing_time_ms=elapsed_ms,
+            error="Invalid webhook signature",
+        ))
+        logger.warning("Rejected inbound email from %s: invalid signature", provider)
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
     # 3. Parse through the adapter.
     message = await adapter.receive({"provider": provider, "payload": body_json})
 
@@ -135,6 +154,19 @@ async def receive_inbound_email(
         return {"status": "skipped", "reason": "unknown_sender"}
 
     conversation_id = message.conversation_id
+    if conversation_id is None:
+        logger.error("Adapter returned message with no conversation_id — skipping")
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        webhook_log.record(WebhookLogEntry(
+            provider=provider,
+            status="error",
+            from_address=from_addr,
+            subject=subject,
+            payload_preview=payload_preview,
+            processing_time_ms=elapsed_ms,
+            error="No conversation_id",
+        ))
+        return {"status": "error", "reason": "no_conversation_id"}
     from_addr = from_addr or getattr(message, "user_id", "")
 
     # 4. Check auto_reply setting.
@@ -177,7 +209,7 @@ async def receive_inbound_email(
     # Build a UserSession for the email sender
     user_session = UserSession(
         user_id=message.user_id,
-        email=message.metadata.get("from_address", message.user_id),
+        email=from_addr or message.user_id,
         display_name=message.metadata.get("from_name", message.user_id),
         roles=["user"],
         permissions=[],
@@ -288,7 +320,7 @@ async def receive_inbound_email(
         error=error,
     ))
 
-    # Dispatch outbound callback for email.received
+    # Dispatch callbacks
     if callback_dispatcher is not None:
         await callback_dispatcher.dispatch("email.received", {
             "from": from_addr,
@@ -296,9 +328,6 @@ async def receive_inbound_email(
             "conversation_id": conversation_id,
             "status": status,
         })
-
-    # Dispatch conversation callbacks
-    if callback_dispatcher is not None:
         if is_new_conversation:
             await callback_dispatcher.dispatch("conversation.created", {
                 "conversation_id": conversation_id,
@@ -310,7 +339,6 @@ async def receive_inbound_email(
             await callback_dispatcher.dispatch("conversation.updated", {
                 "conversation_id": conversation_id,
                 "channel": "email",
-                "message_count": 2,  # user + agent messages
             })
 
     logger.info("Processed inbound email for conversation %s", conversation_id)

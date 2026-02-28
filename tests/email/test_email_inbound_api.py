@@ -56,6 +56,8 @@ def mock_adapter():
     adapter = AsyncMock()
     adapter.receive = AsyncMock(return_value=_make_inbound_message())
     adapter.send = AsyncMock(return_value=None)
+    adapter._email_port = AsyncMock()
+    adapter._email_port.verify_webhook_signature = AsyncMock(return_value=True)
     return adapter
 
 
@@ -375,3 +377,34 @@ class TestSuccessfulProcessing:
         assert data["reason"] == "agent_not_configured"
 
         mock_adapter.send.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Webhook signature verification
+# ---------------------------------------------------------------------------
+
+
+class TestWebhookSignatureVerification:
+    async def test_rejects_invalid_signature(self, client, mock_adapter):
+        """POST with invalid signature returns 401."""
+        mock_adapter._email_port.verify_webhook_signature.return_value = False
+
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "Test"},
+        )
+        assert response.status_code == 401
+        assert "Invalid webhook signature" in response.json()["detail"]
+        # Adapter receive should NOT have been called
+        mock_adapter.receive.assert_not_awaited()
+
+    async def test_valid_signature_continues_processing(self, client, mock_adapter):
+        """POST with valid signature proceeds to adapter.receive()."""
+        mock_adapter._email_port.verify_webhook_signature.return_value = True
+
+        response = await client.post(
+            "/api/email/inbound/resend",
+            json={"from": "user@example.com", "subject": "Test"},
+        )
+        assert response.status_code == 200
+        mock_adapter.receive.assert_awaited_once()
