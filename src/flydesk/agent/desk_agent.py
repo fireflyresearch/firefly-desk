@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from flydesk.agent.confirmation import ConfirmationService
 from flydesk.agent.context import ContextEnricher
-from flydesk.agent.prompt import PromptContext, SystemPromptBuilder
+from flydesk.agent.prompt import PromptContext, SystemPromptBuilder, truncate_to_token_budget
 from flydesk.agent.response import AgentResponse
 from flydesk.api.events import SSEEvent, SSEEventType
 from flydesk.audit.logger import AuditLogger
@@ -892,6 +892,15 @@ class DeskAgent:
         # 2. Prompt assembly
         tool_summaries = self._build_tool_summaries(tools or [])
         knowledge_context = self._format_knowledge_context(enriched)
+
+        # Apply token budget to prevent oversized prompts.
+        from flydesk.config import get_config as _get_desk_config
+
+        _desk_cfg = _get_desk_config()
+        knowledge_context = truncate_to_token_budget(
+            knowledge_context, max_tokens=_desk_cfg.max_knowledge_tokens,
+        )
+
         file_context, multimodal_parts = await self._build_file_context(file_ids)
         conversation_summary = self._format_conversation_history(
             enriched.conversation_history,

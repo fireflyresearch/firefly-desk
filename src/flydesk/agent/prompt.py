@@ -16,6 +16,19 @@ from typing import Any
 from fireflyframework_genai.prompts import PromptRegistry
 
 
+def truncate_to_token_budget(text: str, max_tokens: int) -> str:
+    """Truncate text to approximately fit within a token budget.
+
+    Uses simple 4-chars-per-token estimation.
+    """
+    if max_tokens <= 0:
+        return ""
+    max_chars = max_tokens * 4
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
+
 @dataclass
 class PromptContext:
     """Context needed to build the system prompt."""
