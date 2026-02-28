@@ -49,6 +49,8 @@ from flydesk.tools.custom_repository import CustomToolRepository
 from flydesk.tools.sandbox import SandboxExecutor
 from flydesk.triggers.auto_trigger import AutoTriggerService
 from flydesk.knowledge.document_source_repository import DocumentSourceRepository
+from flydesk.workflows.engine import WorkflowEngine
+from flydesk.workflows.repository import WorkflowRepository
 from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
@@ -390,6 +392,20 @@ def get_settings_repo() -> SettingsRepository:
     """
     raise NotImplementedError(
         "get_settings_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_workflow_engine() -> WorkflowEngine:
+    """Provide a WorkflowEngine instance."""
+    raise NotImplementedError(
+        "get_workflow_engine must be overridden via app.dependency_overrides"
+    )
+
+
+def get_workflow_repo() -> WorkflowRepository:
+    """Provide a WorkflowRepository instance."""
+    raise NotImplementedError(
+        "get_workflow_repo must be overridden via app.dependency_overrides"
     )
 
 
