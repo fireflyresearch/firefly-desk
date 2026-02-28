@@ -130,6 +130,19 @@
 	let signatureView = $state<'visual' | 'source'>('visual');
 	let resettingSignature = $state(false);
 
+	// Signature preview: auto-resize iframe to fit content
+	function resizePreviewIframe(event: Event) {
+		const iframe = event.target as HTMLIFrameElement;
+		try {
+			const body = iframe.contentDocument?.body;
+			if (body) {
+				iframe.style.height = body.scrollHeight + 'px';
+			}
+		} catch {
+			// Sandboxed iframe may throw; ignore
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// Derived
 	// -----------------------------------------------------------------------
@@ -564,6 +577,27 @@
 							{/if}
 						</div>
 					</section>
+
+					<!-- Signature Live Preview -->
+					{#if form.signature_html}
+						<section class="rounded-lg border border-border bg-surface p-5">
+							<h2 class="mb-3 text-sm font-semibold text-text-primary">Preview</h2>
+							<div class="rounded-lg border border-border bg-surface-secondary p-6">
+								<div class="mx-auto max-w-[600px] rounded-md border border-border bg-white shadow-sm">
+									{#key form.signature_html}
+										<iframe
+											srcdoc={form.signature_html}
+											title="Signature preview"
+											class="w-full border-0"
+											style="min-height: 60px;"
+											sandbox=""
+											onload={resizePreviewIframe}
+										></iframe>
+									{/key}
+								</div>
+							</div>
+						</section>
+					{/if}
 
 					<!-- Plain Text Fallback -->
 					<section class="rounded-lg border border-border bg-surface p-5">
