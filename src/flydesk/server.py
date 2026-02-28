@@ -165,6 +165,7 @@ async def _init_database(
         _backfills = [
             "ALTER TABLE conversations ADD COLUMN deleted_at DATETIME",
             "ALTER TABLE conversation_folders ADD COLUMN icon VARCHAR(50) NOT NULL DEFAULT 'folder'",
+            "ALTER TABLE conversations ADD COLUMN channel VARCHAR(50) NOT NULL DEFAULT 'chat'",
         ]
         for sql in _backfills:
             try:
