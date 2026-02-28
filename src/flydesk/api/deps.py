@@ -55,6 +55,7 @@ from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
     from flydesk.catalog.ports import CredentialStore
+    from flydesk.email.channel_adapter import EmailChannelAdapter
     from flydesk.knowledge.analyzer import DocumentAnalyzer
     from flydesk.knowledge.ports import KnowledgeDocumentStore
     from flydesk.security.kms import KMSProvider
@@ -142,6 +143,17 @@ def get_document_source_repo() -> DocumentSourceRepository:
     """
     raise NotImplementedError(
         "get_document_source_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_email_channel_adapter() -> EmailChannelAdapter:
+    """Provide the :class:`EmailChannelAdapter` instance.
+
+    In production this is wired via the lifespan when the email channel
+    is enabled.  In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_email_channel_adapter must be overridden via app.dependency_overrides"
     )
 
 
