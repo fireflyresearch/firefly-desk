@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from flydesk.email.formatter import EmailFormatter
 
 
@@ -91,6 +89,13 @@ class TestFormatResponse:
         fmt = EmailFormatter()
         html = fmt.format_response("Content only.", signature_html="")
         assert "Hi " not in html
+
+    def test_reuse_same_instance_does_not_leak_state(self) -> None:
+        fmt = EmailFormatter()
+        fmt.format_response("**first**", signature_html="")
+        html = fmt.format_response("**second**", signature_html="")
+        assert "<strong>second</strong>" in html
+        assert "first" not in html
 
 
 class TestFormatNotification:

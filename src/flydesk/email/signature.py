@@ -15,7 +15,10 @@ compatibility.
 
 from __future__ import annotations
 
+import re
 from html import escape
+
+_SAFE_EMAIL_RE = re.compile(r'^[^"<>\s]+$')
 
 # Ember brand gradient colours (matches EmberAvatar SVG).
 _GRADIENT_START = "#F68000"
@@ -58,15 +61,17 @@ def build_default_signature(
         email bodies.  Uses only ``<table>`` layout with inline styles
         so it renders correctly across email clients.
     """
+    if not _SAFE_EMAIL_RE.match(from_address):
+        raise ValueError(f"from_address contains unsafe characters: {from_address!r}")
+
     safe_name = escape(agent_name)
     safe_address = escape(from_address)
     safe_company = escape(company_name)
 
     return (
         # Horizontal rule separator
-        '<table cellpadding="0" cellspacing="0" border="0" '
-        'style="border-collapse:collapse;margin-top:16px;'
-        'border-top:1px solid #E5E7EB;padding-top:16px;">'
+        '<table cellpadding="0" cellspacing="0" border="0" width="100%" '
+        'style="border-collapse:collapse;margin-top:16px;">'
         "<tr><td>"
         # Inner signature table: avatar | text
         '<table cellpadding="0" cellspacing="0" border="0" '
@@ -80,7 +85,7 @@ def build_default_signature(
         "border-radius:50%;"
         f"background:linear-gradient(135deg, {_GRADIENT_START}, {_GRADIENT_END});"
         "text-align:center;"
-        "line-height:44px;"
+        "padding-top:4px;"
         '">'
         f"{_ROBOT_SVG}"
         "</div>"

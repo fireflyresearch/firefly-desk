@@ -15,6 +15,7 @@ import pytest
 from flydesk.email.signature import build_default_signature
 
 
+
 class TestDefaultSignature:
     def test_contains_ember_branding(self):
         sig = build_default_signature(
@@ -90,3 +91,33 @@ class TestDefaultSignature:
             agent_name="Ember", from_address="ember@flydesk.ai"
         )
         assert "<strong" in sig or "font-weight" in sig.lower()
+
+    def test_html_special_chars_in_agent_name_are_escaped(self) -> None:
+        sig = build_default_signature(
+            agent_name='<script>alert(1)</script>',
+            from_address="ember@flydesk.ai",
+        )
+        assert "<script>" not in sig
+        assert "&lt;script&gt;" in sig
+
+    def test_html_special_chars_in_company_name_are_escaped(self) -> None:
+        sig = build_default_signature(
+            agent_name="Ember",
+            from_address="ember@flydesk.ai",
+            company_name='<img onerror="alert(1)">',
+        )
+        assert "<img" not in sig
+        assert "&lt;img" in sig
+
+    def test_unsafe_from_address_raises(self) -> None:
+        with pytest.raises(ValueError, match="unsafe characters"):
+            build_default_signature(
+                agent_name="Ember",
+                from_address='" onclick="alert(1)"',
+            )
+
+    def test_outer_table_has_width_attribute(self) -> None:
+        sig = build_default_signature(
+            agent_name="Ember", from_address="ember@flydesk.ai"
+        )
+        assert 'width="100%"' in sig

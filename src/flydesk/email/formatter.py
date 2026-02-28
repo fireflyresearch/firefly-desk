@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from html import escape as _escape
+
 import markdown
 
 # System font stack suitable for email clients.
@@ -109,7 +111,10 @@ class EmailFormatter:
         summary:
             A plain-text description rendered as a paragraph.
         """
-        inner = f"<h2 style=\"margin:0 0 12px;\">{_escape(title)}</h2>\n<p>{_escape(summary)}</p>"
+        inner = (
+            f'<h2 style="margin:0 0 12px;">{_escape(title)}</h2>\n'
+            f"<p>{_escape(summary)}</p>"
+        )
         return _wrap(inner)
 
 
@@ -121,13 +126,3 @@ class EmailFormatter:
 def _wrap(inner_html: str) -> str:
     """Wrap *inner_html* in the shared email template."""
     return _EMAIL_WRAPPER.format(font_stack=_FONT_STACK, content=inner_html)
-
-
-def _escape(text: str) -> str:
-    """Minimal HTML escaping for plain text injected outside of Markdown."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
