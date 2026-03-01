@@ -1457,12 +1457,13 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
     # 7. Save fallback model if specified with the LLM provider
     if body.llm_provider and body.llm_provider.fallback_model:
         try:
-            from flydesk.agent.genai_bridge import _PROVIDER_FALLBACK_MODELS
+            from flydesk.config import get_config
 
+            config = get_config()
             provider_type = body.llm_provider.provider_type
             fallback = body.llm_provider.fallback_model.strip()
             if fallback:
-                _PROVIDER_FALLBACK_MODELS[provider_type] = [fallback]
+                config.llm_fallback_models[provider_type] = [fallback]
                 details["fallback_model"] = fallback
                 logger.info(
                     "Fallback model set for %s: %s", provider_type, fallback

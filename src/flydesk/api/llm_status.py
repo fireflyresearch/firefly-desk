@@ -88,11 +88,12 @@ async def get_llm_status(request: Request, repo: Repo) -> LLMStatus:
     if provider is None:
         return LLMStatus(status="disconnected")
 
-    # Get fallback models
-    from flydesk.agent.genai_bridge import _PROVIDER_FALLBACK_MODELS
+    # Get fallback models from config
+    from flydesk.config import get_config
 
+    config = get_config()
     pt = provider.provider_type.value if hasattr(provider.provider_type, "value") else str(provider.provider_type)
-    fallbacks = _PROVIDER_FALLBACK_MODELS.get(pt, [])
+    fallbacks = config.llm_fallback_models.get(pt, [])
 
     # Quick health check
     status = "connected"
@@ -126,17 +127,18 @@ async def get_llm_status(request: Request, repo: Repo) -> LLMStatus:
 @router.get("/api/admin/llm/fallback", dependencies=[AdminLLM])
 async def get_fallback_config() -> dict[str, list[str]]:
     """Return the current fallback model configuration per provider type."""
-    from flydesk.agent.genai_bridge import _PROVIDER_FALLBACK_MODELS
+    from flydesk.config import get_config
 
-    return dict(_PROVIDER_FALLBACK_MODELS)
+    return dict(get_config().llm_fallback_models)
 
 
 @router.put("/api/admin/llm/fallback", dependencies=[AdminLLM])
 async def update_fallback_config(body: UpdateFallbackRequest) -> dict[str, list[str]]:
     """Update fallback models per provider type (runtime-only, not persisted to DB yet)."""
-    from flydesk.agent.genai_bridge import _PROVIDER_FALLBACK_MODELS
+    from flydesk.config import get_config
 
+    config = get_config()
     for provider_type, models in body.fallback_models.items():
-        _PROVIDER_FALLBACK_MODELS[provider_type] = models
+        config.llm_fallback_models[provider_type] = models
 
-    return dict(_PROVIDER_FALLBACK_MODELS)
+    return dict(config.llm_fallback_models)
