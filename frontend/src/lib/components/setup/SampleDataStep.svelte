@@ -9,6 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { ArrowLeft, ArrowRight, CheckCircle, Loader2 } from 'lucide-svelte';
 	import { apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -67,7 +68,7 @@
 	// State
 	// -----------------------------------------------------------------------
 
-	let defaultsOn = dataChoice === 'sample';
+	let defaultsOn = untrack(() => dataChoice === 'sample');
 	let selected = $state<Record<string, boolean>>(
 		Object.fromEntries(categories.map((c) => [c.id, defaultsOn && c.defaultOn]))
 	);

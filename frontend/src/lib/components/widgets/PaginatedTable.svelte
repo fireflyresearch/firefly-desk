@@ -5,6 +5,8 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
+
 	interface Column {
 		key: string;
 		label: string;
@@ -32,7 +34,7 @@
 	let offset = $state(0);
 	let loading = $state(false);
 	let error = $state('');
-	let totalRows = $state(total_count);
+	let totalRows = $state(untrack(() => total_count));
 	let filterParams = $state('');
 
 	let currentPage = $derived(Math.floor(offset / page_size) + 1);

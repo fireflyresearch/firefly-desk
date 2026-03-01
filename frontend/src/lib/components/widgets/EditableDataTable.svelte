@@ -5,6 +5,8 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
+
 	interface Column {
 		key: string;
 		label: string;
@@ -29,7 +31,7 @@
 		save_method = 'PATCH'
 	}: EditableDataTableProps = $props();
 
-	let rows = $state(structuredClone(initialRows));
+	let rows = $state(untrack(() => structuredClone(initialRows)));
 	let editingCell: { row: number; col: string } | null = $state(null);
 	let editValue = $state('');
 	let dirty = $state(new Set<number>());

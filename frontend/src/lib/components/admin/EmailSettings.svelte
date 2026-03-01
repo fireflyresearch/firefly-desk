@@ -617,7 +617,7 @@
 									<span
 										class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
 											{form.enabled ? 'translate-x-5' : 'translate-x-0'}"
-									/>
+									></span>
 								</button>
 							</div>
 
@@ -1087,7 +1087,7 @@
 									<span
 										class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
 											{form.auto_reply ? 'translate-x-5' : 'translate-x-0'}"
-									/>
+									></span>
 								</button>
 							</div>
 
@@ -1146,7 +1146,7 @@
 									class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors
 										{form.include_greeting ? 'bg-accent' : 'bg-border'}"
 								>
-									<span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {form.include_greeting ? 'translate-x-5' : 'translate-x-0'}" />
+									<span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {form.include_greeting ? 'translate-x-5' : 'translate-x-0'}" ></span>
 								</button>
 							</div>
 
@@ -1163,7 +1163,7 @@
 									class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors
 										{form.include_sign_off ? 'bg-accent' : 'bg-border'}"
 								>
-									<span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {form.include_sign_off ? 'translate-x-5' : 'translate-x-0'}" />
+									<span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform {form.include_sign_off ? 'translate-x-5' : 'translate-x-0'}"></span>
 								</button>
 							</div>
 						</div>

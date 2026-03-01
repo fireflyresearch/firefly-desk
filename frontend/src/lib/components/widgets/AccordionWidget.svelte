@@ -9,6 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { ChevronRight } from 'lucide-svelte';
 
 	interface AccordionSection {
@@ -30,8 +31,7 @@
 		return new Set([val]);
 	}
 
-	// eslint-disable-next-line svelte/state-referenced-locally -- intentional one-time initialization
-	let openSet = $state(resolveDefaults(defaultOpen));
+	let openSet = $state(untrack(() => resolveDefaults(defaultOpen)));
 
 	function toggle(index: number) {
 		// Create a new Set so Svelte detects the mutation

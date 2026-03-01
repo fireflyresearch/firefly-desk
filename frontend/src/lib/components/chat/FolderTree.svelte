@@ -154,7 +154,8 @@
 				<ChevronDown size={12} />
 			{/if}
 			{#if iconMap[folder.icon]}
-				<svelte:component this={iconMap[folder.icon]} size={13} />
+				{@const FolderIcon = iconMap[folder.icon]}
+			<FolderIcon size={13} />
 			{:else}
 				<Folder size={13} />
 			{/if}

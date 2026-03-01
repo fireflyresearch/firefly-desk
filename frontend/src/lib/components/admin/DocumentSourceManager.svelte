@@ -738,6 +738,7 @@
 					</thead>
 					<tbody>
 						{#each sources as source, i}
+						{@const SourceIcon = sourceTypeIcon(source.source_type)}
 							<tr
 								class="border-b border-border last:border-b-0 {i % 2 === 1
 									? 'bg-surface-secondary/50'
@@ -752,7 +753,7 @@
 									<span
 										class="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
 									>
-										<svelte:component this={sourceTypeIcon(source.source_type)} size={12} />
+									<SourceIcon size={12} />
 										{sourceTypeLabel(source.source_type)}
 									</span>
 								</td>
@@ -926,12 +927,13 @@
 										</p>
 										<div class="grid grid-cols-3 gap-2">
 											{#each SOURCE_TYPES as st}
+												{@const StIcon = st.icon}
 												<button
 													type="button"
 													onclick={() => startGuidedSetup(st.value)}
 													class="flex flex-col items-center gap-1.5 rounded-lg border border-border p-3 text-text-secondary transition-all hover:border-accent/40 hover:bg-accent/5 hover:text-accent"
 												>
-													<svelte:component this={st.icon} size={20} />
+												<StIcon size={20} />
 													<span class="text-xs font-medium">{st.label}</span>
 												</button>
 											{/each}

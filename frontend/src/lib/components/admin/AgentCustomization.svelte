@@ -349,7 +349,7 @@
 								<span
 									class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform
 										{form.allow_user_personality_overrides ? 'translate-x-5' : 'translate-x-0'}"
-								/>
+								></span>
 							</button>
 						</div>
 					</div>
