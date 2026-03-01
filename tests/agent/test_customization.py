@@ -350,7 +350,7 @@ class TestDeskAgentCustomizationIntegration:
     @pytest.fixture
     def mock_customization_service(self) -> AsyncMock:
         svc = AsyncMock(spec=AgentCustomizationService)
-        svc.get_profile = AsyncMock(
+        svc.get_profile_for_user = AsyncMock(
             return_value=AgentProfile(
                 name="Atlas",
                 personality="formal, authoritative",
@@ -419,9 +419,9 @@ class TestDeskAgentCustomizationIntegration:
     async def test_prepare_turn_loads_profile(
         self, desk_agent, mock_customization_service, user_session
     ):
-        """_prepare_turn should call get_profile on the customization service."""
+        """_prepare_turn should call get_profile_for_user on the customization service."""
         await desk_agent.run("Hello", user_session, "conv-1")
-        mock_customization_service.get_profile.assert_awaited_once()
+        mock_customization_service.get_profile_for_user.assert_awaited_once_with("user-42")
 
     async def test_prepare_turn_passes_customization_to_prompt_context(
         self, desk_agent, mock_customization_service, user_session
@@ -487,7 +487,7 @@ class TestDeskAgentCustomizationIntegration:
         from flydesk.widgets.parser import ParseResult, WidgetParser
 
         failing_svc = AsyncMock(spec=AgentCustomizationService)
-        failing_svc.get_profile = AsyncMock(side_effect=RuntimeError("DB error"))
+        failing_svc.get_profile_for_user = AsyncMock(side_effect=RuntimeError("DB error"))
 
         context_enricher = MagicMock(spec=ContextEnricher)
         context_enricher.enrich = AsyncMock(

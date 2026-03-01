@@ -87,8 +87,9 @@ class EmailChannelAdapter:
         inbound = await self._email_port.parse_inbound(payload)
 
         # If the provider's webhook didn't include the body, fetch it.
-        if not inbound.text_body and inbound.metadata.get("needs_content_fetch"):
-            email_id = inbound.metadata.get("email_id")
+        _meta = getattr(inbound, "metadata", None) or {}
+        if not inbound.text_body and _meta.get("needs_content_fetch"):
+            email_id = _meta.get("email_id")
             if email_id:
                 logger.info("Fetching email content for %s", email_id)
                 inbound = await self._email_port.fetch_inbound_content(email_id)

@@ -104,7 +104,7 @@ class TestGetEmailSettingsDefaultSignature:
         from flydesk.api.email_settings import get_email_settings
 
         mock_repo.get_email_settings = AsyncMock(
-            return_value=EmailSettings(signature_html="")
+            return_value=EmailSettings(signature_html="", from_address="test@example.com")
         )
         mock_repo.set_email_settings = AsyncMock()
 
@@ -170,7 +170,7 @@ class TestGetDefaultSignature:
         from flydesk.api.email_settings import get_default_signature
 
         mock_repo.get_email_settings = AsyncMock(
-            return_value=EmailSettings()
+            return_value=EmailSettings(from_address="test@example.com")
         )
         mock_repo.set_email_settings = AsyncMock()
 

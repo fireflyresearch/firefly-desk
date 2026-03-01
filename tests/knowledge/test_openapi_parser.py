@@ -204,13 +204,11 @@ class TestOpenAPIParser:
         assert len(docs) == 3
         assert docs[0].title == "Pet Store API -- Overview"
 
-    def test_invalid_json_returns_empty(self, parser: OpenAPIParser):
-        """Malformed JSON returns an overview-only document gracefully."""
-        docs = parser.parse("not valid json at all {{{")
+    def test_invalid_json_raises_value_error(self, parser: OpenAPIParser):
+        """Malformed JSON raises ValueError."""
+        with pytest.raises(ValueError):
+            parser.parse("not valid json at all {{{")
 
-        # Should still return at least the overview (from empty parsed spec)
-        assert len(docs) >= 1
-        assert docs[0].title == "Untitled API -- Overview"
 
     def test_empty_paths(self, parser: OpenAPIParser):
         """Spec with no paths returns only the overview document."""

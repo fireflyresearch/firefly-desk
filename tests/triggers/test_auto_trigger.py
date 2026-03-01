@@ -100,13 +100,13 @@ class TestOnCatalogUpdated:
     """Tests for the on_catalog_updated event hook."""
 
     async def test_schedules_both_triggers(self, trigger, mock_job_runner):
-        """Catalog updates schedule both kg_recompute and process_discovery."""
+        """Catalog updates schedule kg_recompute, process_discovery, and system_discovery."""
         await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
-        # Both trigger types should be submitted (sorted: kg_recompute, process_discovery)
-        assert mock_job_runner.submit.call_count == 2
+        # All three trigger types should be submitted
+        assert mock_job_runner.submit.call_count == 3
         submitted_types = {call.args[0] for call in mock_job_runner.submit.call_args_list}
-        assert submitted_types == {"kg_recompute", "process_discovery"}
+        assert submitted_types == {"kg_recompute", "process_discovery", "system_discovery"}
 
     async def test_no_trigger_when_disabled(self, trigger_disabled, mock_job_runner):
         """No trigger fires when auto_analyze is disabled."""
@@ -119,8 +119,8 @@ class TestOnCatalogUpdated:
         for i in range(3):
             await trigger.on_catalog_updated(f"sys-{i}")
         await asyncio.sleep(0.15)
-        # Both trigger types only once each (debounced and deduplicated via set)
-        assert mock_job_runner.submit.call_count == 2
+        # All three trigger types only once each (debounced and deduplicated via set)
+        assert mock_job_runner.submit.call_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -142,11 +142,11 @@ class TestDebounceLogic:
         await trigger.on_document_indexed("doc-1")
         await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
-        # kg_extract_single (immediate from doc) + kg_recompute + process_discovery (debounced from catalog)
-        assert mock_job_runner.submit.call_count == 3
+        # kg_extract_single (immediate from doc) + kg_recompute + process_discovery + system_discovery (debounced)
+        assert mock_job_runner.submit.call_count == 4
         submitted = [(call.args[0], call.args[1]) for call in mock_job_runner.submit.call_args_list]
         submitted_types = {s[0] for s in submitted}
-        assert submitted_types == {"kg_extract_single", "kg_recompute", "process_discovery"}
+        assert submitted_types == {"kg_extract_single", "kg_recompute", "process_discovery", "system_discovery"}
 
     async def test_timer_reset_on_new_event(self, trigger, mock_job_runner):
         """A new catalog event resets the debounce timer."""
@@ -160,8 +160,8 @@ class TestDebounceLogic:
         mock_job_runner.submit.assert_not_called()
         # Wait for the reset timer to fire
         await asyncio.sleep(0.1)
-        # Both kg_recompute and process_discovery (debounced)
-        assert mock_job_runner.submit.call_count == 2
+        # kg_recompute, process_discovery, and system_discovery (debounced)
+        assert mock_job_runner.submit.call_count == 3
 
     async def test_cancel_pending(self, trigger, mock_job_runner):
         """cancel_pending() prevents scheduled debounced triggers from firing."""
@@ -232,7 +232,7 @@ class TestMultipleCycles:
 
         mock_job_runner.submit.reset_mock()
 
-        # Second cycle: debounced kg_recompute + process_discovery
+        # Second cycle: debounced kg_recompute + process_discovery + system_discovery
         await trigger.on_catalog_updated("sys-1")
         await asyncio.sleep(0.15)
-        assert mock_job_runner.submit.call_count == 2  # kg_recompute + process_discovery
+        assert mock_job_runner.submit.call_count == 3  # kg_recompute + process_discovery + system_discovery

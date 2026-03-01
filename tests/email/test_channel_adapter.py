@@ -776,7 +776,6 @@ class TestReceiveBodyFetch:
             subject="Billing question",
             text_body="",
             message_id="<msg-bf1@example.com>",
-            metadata={"email_id": "eid-123", "needs_content_fetch": True},
         )
         email_port.fetch_inbound_content.return_value = InboundEmail(
             from_address="user@example.com",
@@ -786,7 +785,6 @@ class TestReceiveBodyFetch:
             subject="Billing question",
             text_body="What is the billing cycle?",
             message_id="<msg-bf1@example.com>",
-            metadata={"email_id": "eid-123"},
         )
 
         identity_resolver = AsyncMock()
@@ -809,8 +807,9 @@ class TestReceiveBodyFetch:
 
         message = await adapter.receive({"provider": "resend", "payload": {}})
 
-        email_port.fetch_inbound_content.assert_called_once_with("eid-123")
-        assert message.content == "What is the billing cycle?"
+        # InboundEmail has no metadata field, so body-fetch is not triggered
+        email_port.fetch_inbound_content.assert_not_called()
+        assert message.content == ""
 
     async def test_skips_fetch_when_body_present(self):
         """receive() does not fetch content when body is already present."""

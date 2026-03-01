@@ -313,7 +313,7 @@ class TestDocumentCreate:
     ):
         result = await executor.execute(
             "document_create",
-            {"format": "pptx", "title": "X", "content": {}},
+            {"format": "bin", "title": "X", "content": {}},
         )
         assert "error" in result
         assert "Unsupported" in result["error"]

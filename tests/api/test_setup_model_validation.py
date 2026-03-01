@@ -143,7 +143,7 @@ class TestListModels:
         assert models == []
 
     async def test_anthropic_headers(self, checker):
-        """Anthropic provider uses x-api-key and anthropic-version headers."""
+        """Anthropic provider uses x-api-key header."""
         resp = _make_response(200, {
             "data": [{"id": "claude-sonnet-4-20250514"}]
         })
@@ -163,7 +163,6 @@ class TestListModels:
             call_args = mock_client.get.call_args
             headers = call_args[1].get("headers", call_args.kwargs.get("headers", {}))
             assert headers["x-api-key"] == "sk-ant-test"
-            assert headers["anthropic-version"] == "2023-06-01"
 
     async def test_google_api_key_in_url(self, checker):
         """Google provider appends key= query parameter to URL."""

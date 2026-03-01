@@ -25,12 +25,12 @@ from flydesk.models.knowledge_base import KnowledgeDocumentRow
 class TestDocumentType:
     def test_all_values_present(self):
         """DocumentType enum contains all expected members."""
-        expected = {"manual", "tutorial", "api_spec", "faq", "policy", "reference", "other"}
+        expected = {"manual", "tutorial", "api_spec", "faq", "policy", "reference", "changelog", "readme", "other"}
         assert {dt.value for dt in DocumentType} == expected
 
     def test_member_count(self):
-        """There are exactly 7 document types."""
-        assert len(DocumentType) == 7
+        """There are exactly 9 document types."""
+        assert len(DocumentType) == 9
 
     def test_strenum_behaviour(self):
         """DocumentType members are usable as plain strings."""
