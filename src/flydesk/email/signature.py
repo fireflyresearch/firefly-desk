@@ -51,6 +51,8 @@ def build_default_signature(
         email bodies.  Uses only ``<table>`` layout with inline styles
         so it renders correctly across email clients.
     """
+    if not from_address:
+        return ""
     if not _SAFE_EMAIL_RE.match(from_address):
         raise ValueError(f"from_address contains unsafe characters: {from_address!r}")
 
