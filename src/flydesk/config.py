@@ -16,6 +16,8 @@ from typing import ClassVar, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from flydesk.domain.common import EmailProviderType, VectorStoreType
+
 
 class DeskConfig(BaseSettings):
     """Central configuration for a Firefly Desk deployment.
@@ -93,7 +95,7 @@ class DeskConfig(BaseSettings):
     auto_kg_extract: bool = True
 
     # -- Vector Store --
-    vector_store: Literal["pgvector", "chromadb", "pinecone", "sqlite"] = "sqlite"
+    vector_store: VectorStoreType = VectorStoreType.SQLITE
     chroma_path: str = ""
     chroma_url: str = ""
     pinecone_api_key: str = ""
@@ -150,7 +152,7 @@ class DeskConfig(BaseSettings):
 
     # -- Email Channel --
     email_enabled: bool = False
-    email_provider: str = "resend"  # "resend" | "ses"
+    email_provider: EmailProviderType = EmailProviderType.RESEND
     email_api_key: str = ""
     email_from_address: str = ""
     email_ses_region: str = "us-east-1"
