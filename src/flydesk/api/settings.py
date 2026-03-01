@@ -619,7 +619,7 @@ async def _reinitialize_indexer(app: object, repo: SettingsRepository) -> None:
                 current_indexer = current_indexer_fn()
                 vector_store = getattr(current_indexer, "_vector_store", None)
             except Exception:
-                pass
+                logger.debug("Failed to resolve current indexer vector store", exc_info=True)
 
         new_indexer = KnowledgeIndexer(
             session_factory=session_factory,
@@ -790,7 +790,7 @@ async def _reinitialize_search_provider(app: object, repo: SettingsRepository) -
             try:
                 await old_provider.aclose()
             except Exception:
-                pass
+                logger.debug("Failed to close old search provider", exc_info=True)
 
         state.search_provider = new_provider
 

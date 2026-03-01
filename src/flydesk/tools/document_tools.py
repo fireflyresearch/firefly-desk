@@ -46,7 +46,7 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
             if isinstance(parsed, dict):
                 return parsed
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.debug("Could not parse string value as JSON dict")
     return {}
 
 

@@ -251,7 +251,7 @@ class TransformToolExecutor:
                 ]
                 return {"matches": matches, "count": len(matches)}
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.debug("Data is not JSON; falling back to line-by-line search")
 
         # Fall back to line-by-line text search
         lines = data.splitlines()

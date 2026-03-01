@@ -19,6 +19,8 @@ import logging
 import textwrap
 from typing import TYPE_CHECKING, Any
 
+_logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from flydesk.agent.context import ContextEnricher
     from flydesk.agent.genai_bridge import DeskAgentFactory
@@ -123,7 +125,7 @@ async def _cmd_status(
             else:
                 lines.append("**Fallback Models:** none configured")
         except Exception:
-            pass
+            _logger.debug("Failed to retrieve fallback models", exc_info=True)
 
     return "\n".join(lines)
 
@@ -236,7 +238,7 @@ async def _cmd_context(
             all_memories = await memory_repo.list_for_user(user_id)
             lines.append(f"\n### Saved User Memories: **{len(all_memories)}**")
         except Exception:
-            pass
+            _logger.debug("Failed to list user memories", exc_info=True)
 
     return "\n".join(lines)
 
@@ -310,7 +312,7 @@ async def _cmd_memory(
                         v = working_mem.get(k)
                         lines.append(f"- `{k}` = {str(v)[:100]}")
                 except Exception:
-                    pass
+                    _logger.debug("Failed to inspect working memory", exc_info=True)
         else:
             lines.append("\n### GenAI Memory Manager\n*Not configured.*")
 

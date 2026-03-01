@@ -11,12 +11,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 
 import yaml
 
 from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+
+_logger = logging.getLogger(__name__)
 
 
 class OpenAPIParser:
@@ -204,11 +207,11 @@ class OpenAPIParser:
                 return json.loads(content)  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 # Fallback: try YAML in case the caller mislabelled the format
-                pass
+                _logger.debug("JSON parse failed for spec labelled as JSON; trying YAML")
         try:
             result = yaml.safe_load(content)
             if isinstance(result, dict):
                 return result
         except yaml.YAMLError:
-            pass
+            _logger.debug("YAML parse also failed for spec content")
         raise ValueError("Failed to parse spec as JSON or YAML")

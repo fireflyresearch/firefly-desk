@@ -208,7 +208,7 @@ class AuthResolver:
                 client_id = creds.get("client_id")
                 client_secret = creds.get("client_secret")
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.debug("Credential value is not JSON; treating as raw token")
 
         # If we have client_id + client_secret + token_url, do real exchange
         if client_id and client_secret and auth_config.token_url:
