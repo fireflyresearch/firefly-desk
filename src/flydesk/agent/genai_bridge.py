@@ -202,6 +202,7 @@ class DeskAgentFactory:
         try:
             provider = await self._llm_repo.get_default_provider()
         except Exception:
+            _logger.debug("Failed to fetch LLM provider for fallback models.", exc_info=True)
             return []
 
         if provider is None:

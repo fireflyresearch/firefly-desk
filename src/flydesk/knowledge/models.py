@@ -10,34 +10,11 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-
-class DocumentType(StrEnum):
-    """Classification of knowledge documents."""
-
-    MANUAL = "manual"
-    TUTORIAL = "tutorial"
-    API_SPEC = "api_spec"
-    FAQ = "faq"
-    POLICY = "policy"
-    REFERENCE = "reference"
-    CHANGELOG = "changelog"
-    README = "readme"
-    OTHER = "other"
-
-
-class DocumentStatus(StrEnum):
-    """Lifecycle status of a knowledge document."""
-
-    DRAFT = "draft"
-    INDEXING = "indexing"
-    PUBLISHED = "published"
-    ERROR = "error"
-    ARCHIVED = "archived"
+from flydesk.domain.common import DocumentStatus, DocumentType
 
 
 class KnowledgeDocument(BaseModel):

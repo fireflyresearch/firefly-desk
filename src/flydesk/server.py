@@ -119,6 +119,7 @@ from flydesk.config import DeskConfig, get_config
 from flydesk.db import create_engine_from_url, create_session_factory
 from flydesk.models import Base
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -178,8 +179,10 @@ async def _init_database(
         for sql in _backfills:
             try:
                 await conn.execute(text(sql))
-            except Exception:
+            except (OperationalError, ProgrammingError):
                 pass  # Column already exists
+            except Exception:
+                logger.warning("Unexpected error during backfill: %s", sql, exc_info=True)
 
     session_factory = create_session_factory(engine)
     return engine, session_factory

@@ -20,38 +20,21 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
+
+from flydesk.domain.common import DocumentType
 
 if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Domain types
-# ---------------------------------------------------------------------------
-
-
-class DocumentType(str, Enum):
-    """Broad classification of a knowledge document."""
-
-    api_spec = "api_spec"
-    tutorial = "tutorial"
-    reference = "reference"
-    faq = "faq"
-    policy = "policy"
-    manual = "manual"
-    changelog = "changelog"
-    readme = "readme"
-    other = "other"
-
 
 @dataclass
 class AnalysisResult:
     """Result of analysing a single document."""
 
-    document_type: DocumentType = DocumentType.other
+    document_type: DocumentType = DocumentType.OTHER
     summary: str = ""
     tags: list[str] = field(default_factory=list)
     entities: list[str] = field(default_factory=list)
@@ -102,10 +85,10 @@ _MANUAL_RE = re.compile(r"manual|handbook|playbook", re.IGNORECASE)
 
 # Content-level keyword lists used when filename gives no strong signal.
 _CONTENT_TYPE_KEYWORDS: list[tuple[re.Pattern[str], DocumentType]] = [
-    (re.compile(r"endpoint|request|response|status.?code|curl", re.IGNORECASE), DocumentType.api_spec),
-    (re.compile(r"step\s+\d|tutorial|walk.?through", re.IGNORECASE), DocumentType.tutorial),
-    (re.compile(r"frequently.asked|q\s*[:&]\s*a", re.IGNORECASE), DocumentType.faq),
-    (re.compile(r"policy|compliance|must not|prohibited", re.IGNORECASE), DocumentType.policy),
+    (re.compile(r"endpoint|request|response|status.?code|curl", re.IGNORECASE), DocumentType.API_SPEC),
+    (re.compile(r"step\s+\d|tutorial|walk.?through", re.IGNORECASE), DocumentType.TUTORIAL),
+    (re.compile(r"frequently.asked|q\s*[:&]\s*a", re.IGNORECASE), DocumentType.FAQ),
+    (re.compile(r"policy|compliance|must not|prohibited", re.IGNORECASE), DocumentType.POLICY),
 ]
 
 # Maximum content length sent to the LLM to stay within token limits.
@@ -230,7 +213,7 @@ class DocumentAnalyzer:
         try:
             doc_type = DocumentType(raw_type)
         except ValueError:
-            doc_type = DocumentType.other
+            doc_type = DocumentType.OTHER
 
         return AnalysisResult(
             document_type=doc_type,
@@ -258,21 +241,21 @@ class DocumentAnalyzer:
         )
 
         # Determine document type from filename first, then content.
-        doc_type = DocumentType.other
+        doc_type = DocumentType.OTHER
         if is_openapi:
-            doc_type = DocumentType.api_spec
+            doc_type = DocumentType.API_SPEC
         elif _README_RE.search(fname_lower):
-            doc_type = DocumentType.readme
+            doc_type = DocumentType.README
         elif _CHANGELOG_RE.search(fname_lower):
-            doc_type = DocumentType.changelog
+            doc_type = DocumentType.CHANGELOG
         elif _FAQ_RE.search(fname_lower):
-            doc_type = DocumentType.faq
+            doc_type = DocumentType.FAQ
         elif _POLICY_RE.search(fname_lower):
-            doc_type = DocumentType.policy
+            doc_type = DocumentType.POLICY
         elif _TUTORIAL_RE.search(fname_lower):
-            doc_type = DocumentType.tutorial
+            doc_type = DocumentType.TUTORIAL
         elif _MANUAL_RE.search(fname_lower):
-            doc_type = DocumentType.manual
+            doc_type = DocumentType.MANUAL
         else:
             # Fall back to content keyword scanning.
             for pattern, dtype in _CONTENT_TYPE_KEYWORDS:

@@ -11,8 +11,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 from flydesk.knowledge.graph import Entity, KnowledgeGraph
 from flydesk.knowledge.models import RetrievalResult
@@ -123,6 +126,7 @@ class ContextEnricher:
         try:
             processes = await self._process_repo.list()
         except Exception:
+            _logger.debug("Failed to list processes for context enrichment.", exc_info=True)
             return []
 
         query_lower = message.lower()
@@ -158,4 +162,5 @@ class ContextEnricher:
                     combined.append(m)
             return combined[:10]
         except Exception:
+            _logger.debug("Failed to search user memories.", exc_info=True)
             return []

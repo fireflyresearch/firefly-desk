@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 
 import httpx
+
+_logger = logging.getLogger(__name__)
 
 from flydesk.llm.models import LLMProvider, ProviderHealthStatus, ProviderType
 
@@ -129,4 +132,5 @@ class LLMHealthChecker:
                     return [m.get("name", "") for m in data["models"] if isinstance(m, dict)]
                 return []
         except Exception:
+            _logger.debug("Failed to list models from provider.", exc_info=True)
             return []

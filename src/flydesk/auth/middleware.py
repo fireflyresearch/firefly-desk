@@ -228,7 +228,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 from flydesk.auth.jwt_local import decode_local_jwt
 
                 return decode_local_jwt(token, self._local_jwt_secret), None
-            raise NotImplementedError("Local JWT secret not configured")
+            raise RuntimeError("Local JWT secret not configured")
 
         # OIDC JWT: has kid, RS256/ES256
         # Try dynamic provider resolution first (DB-managed providers)
@@ -248,7 +248,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await self._oidc_client.validate_token(token), None
         if self._token_decoder:
             return self._token_decoder(token), None
-        raise NotImplementedError("No token decoder configured")
+        raise RuntimeError("No token decoder configured")
 
     @staticmethod
     def _extract_claim(claims: dict[str, Any], claim_path: str) -> list[str]:

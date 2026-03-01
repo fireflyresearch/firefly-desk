@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class CallbackEvent(str, Enum):
+class CallbackEvent(StrEnum):
     """Events that can trigger an outbound callback."""
 
     EMAIL_SENT = "email.sent"

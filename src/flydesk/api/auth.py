@@ -176,6 +176,7 @@ def _extract_email_from_id_token(id_token_raw: str | None) -> str | None:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         return payload.get("email")
     except Exception:
+        logger.debug("Failed to decode id_token for email extraction.", exc_info=True)
         return None
 
 
