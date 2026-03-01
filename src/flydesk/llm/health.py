@@ -61,6 +61,7 @@ class LLMHealthChecker:
         if provider.api_key:
             if provider.provider_type == ProviderType.ANTHROPIC:
                 headers["x-api-key"] = provider.api_key
+                headers["anthropic-version"] = "2023-06-01"
             elif provider.provider_type == ProviderType.GOOGLE:
                 # Google uses query parameter, but header works for health check
                 url = f"{url}?key={provider.api_key}"
@@ -113,6 +114,7 @@ class LLMHealthChecker:
         if provider.api_key:
             if provider.provider_type == ProviderType.ANTHROPIC:
                 headers["x-api-key"] = provider.api_key
+                headers["anthropic-version"] = "2023-06-01"
             elif provider.provider_type == ProviderType.GOOGLE:
                 url = f"{url}?key={provider.api_key}"
             else:
