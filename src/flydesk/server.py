@@ -1010,6 +1010,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     config = get_config()
     ctx = _ShutdownContext()
 
+    # 0. Fail-fast validation
+    from flydesk.startup import validate_startup
+
+    validate_startup(embedding_model=config.embedding_model)
+
     # 1. Database
     engine, session_factory = await _init_database(config)
     ctx.closables.append(engine)
