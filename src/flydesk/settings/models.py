@@ -61,7 +61,7 @@ class EmailSettings(BaseModel):
 
     # Identity
     enabled: bool = False
-    from_address: str = "ember@flydesk.ai"
+    from_address: str = ""
     from_display_name: str = "Ember"
     reply_to: str = ""
 
