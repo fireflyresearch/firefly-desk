@@ -104,6 +104,9 @@ async def admin_client(mock_repo):
         app = create_app()
         app.dependency_overrides[get_catalog_repo] = lambda: mock_repo
 
+        from flydesk.api.deps import get_audit_logger
+        app.dependency_overrides[get_audit_logger] = lambda: AsyncMock()
+
         # Inject admin user_session into request state via middleware
         admin_session = _make_user_session(roles=["admin"])
 
@@ -136,6 +139,9 @@ async def non_admin_client(mock_repo):
 
         app = create_app()
         app.dependency_overrides[get_catalog_repo] = lambda: mock_repo
+
+        from flydesk.api.deps import get_audit_logger
+        app.dependency_overrides[get_audit_logger] = lambda: AsyncMock()
 
         viewer_session = _make_user_session(roles=["viewer"])
 

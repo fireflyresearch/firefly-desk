@@ -46,9 +46,13 @@ class FakeLocalUserRepo:
 # ---------------------------------------------------------------------------
 
 def _make_app(repo: FakeLocalUserRepo) -> FastAPI:
+    from unittest.mock import AsyncMock
+    from flydesk.api.deps import get_audit_logger
+
     app = FastAPI()
     app.include_router(auth_router)
     app.dependency_overrides[get_local_user_repo] = lambda: repo
+    app.dependency_overrides[get_audit_logger] = lambda: AsyncMock()
     return app
 
 

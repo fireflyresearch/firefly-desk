@@ -236,6 +236,9 @@ async def client(_domain_fixtures):
         app = create_app()
         app.dependency_overrides[get_oidc_repo] = lambda: repo
 
+        from flydesk.api.deps import get_audit_logger
+        app.dependency_overrides[get_audit_logger] = lambda: AsyncMock()
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac

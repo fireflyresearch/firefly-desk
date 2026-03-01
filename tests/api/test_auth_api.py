@@ -79,6 +79,9 @@ async def client(_auth_fixtures):
         # Override OIDC dependency with our seeded repo
         app.dependency_overrides[get_oidc_repo] = lambda: repo
 
+        from flydesk.api.deps import get_audit_logger
+        app.dependency_overrides[get_audit_logger] = lambda: AsyncMock()
+
         # Provide a default OIDCClient for logout/userinfo
         oidc_client = OIDCClient(
             issuer_url=ISSUER,

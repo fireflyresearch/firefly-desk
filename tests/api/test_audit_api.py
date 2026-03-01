@@ -154,7 +154,14 @@ class TestQueryEvents:
         response = await admin_client.get("/api/audit/events?user_id=user-1")
         assert response.status_code == 200
         mock_audit_logger.query.assert_awaited_once_with(
-            user_id="user-1", event_type=None, limit=50
+            user_id="user-1",
+            event_type=None,
+            risk_level=None,
+            date_from=None,
+            date_to=None,
+            conversation_id=None,
+            offset=0,
+            limit=50,
         )
 
     async def test_query_events_with_event_type_filter(
@@ -164,7 +171,14 @@ class TestQueryEvents:
         response = await admin_client.get("/api/audit/events?event_type=tool_call")
         assert response.status_code == 200
         mock_audit_logger.query.assert_awaited_once_with(
-            user_id=None, event_type="tool_call", limit=50
+            user_id=None,
+            event_type="tool_call",
+            risk_level=None,
+            date_from=None,
+            date_to=None,
+            conversation_id=None,
+            offset=0,
+            limit=50,
         )
 
     async def test_query_events_with_limit(self, admin_client, mock_audit_logger):
@@ -172,7 +186,14 @@ class TestQueryEvents:
         response = await admin_client.get("/api/audit/events?limit=10")
         assert response.status_code == 200
         mock_audit_logger.query.assert_awaited_once_with(
-            user_id=None, event_type=None, limit=10
+            user_id=None,
+            event_type=None,
+            risk_level=None,
+            date_from=None,
+            date_to=None,
+            conversation_id=None,
+            offset=0,
+            limit=10,
         )
 
     async def test_query_events_with_all_filters(
@@ -184,7 +205,14 @@ class TestQueryEvents:
         )
         assert response.status_code == 200
         mock_audit_logger.query.assert_awaited_once_with(
-            user_id="user-1", event_type="tool_call", limit=25
+            user_id="user-1",
+            event_type="tool_call",
+            risk_level=None,
+            date_from=None,
+            date_to=None,
+            conversation_id=None,
+            offset=0,
+            limit=25,
         )
 
 
