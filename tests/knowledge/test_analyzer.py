@@ -87,27 +87,27 @@ class TestHeuristicAnalysis:
     def test_detects_openapi_by_filename(self):
         """Files with 'openapi' in the name are classified as api_spec."""
         result = DocumentAnalyzer._heuristic_analysis("some content", "openapi.yaml")
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.is_openapi is True
 
     def test_detects_openapi_by_swagger_filename(self):
         """Files with 'swagger' in the name are classified as api_spec."""
         result = DocumentAnalyzer._heuristic_analysis("some content", "swagger.json")
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.is_openapi is True
 
     def test_detects_openapi_by_content(self):
         """Content containing OpenAPI markers triggers api_spec classification."""
         content = 'openapi: "3.0.0"\ninfo:\n  title: My API'
         result = DocumentAnalyzer._heuristic_analysis(content, "spec.yaml")
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.is_openapi is True
 
     def test_detects_openapi_by_json_content(self):
         """Content with JSON-style openapi key triggers api_spec classification."""
         content = '{"openapi": "3.0.0", "info": {"title": "My API"}}'
         result = DocumentAnalyzer._heuristic_analysis(content, "api.json")
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.is_openapi is True
 
     def test_detects_readme(self):
@@ -115,7 +115,7 @@ class TestHeuristicAnalysis:
         result = DocumentAnalyzer._heuristic_analysis(
             "# My Project\nSome description.", "README.md"
         )
-        assert result.document_type == DocumentType.readme
+        assert result.document_type == DocumentType.README
         assert result.is_openapi is False
 
     def test_detects_changelog(self):
@@ -123,41 +123,41 @@ class TestHeuristicAnalysis:
         result = DocumentAnalyzer._heuristic_analysis(
             "## v1.0.0\n- Initial release.", "CHANGELOG.md"
         )
-        assert result.document_type == DocumentType.changelog
+        assert result.document_type == DocumentType.CHANGELOG
 
     def test_detects_release_notes(self):
         """Files with 'release-notes' in the name are classified as changelog."""
         result = DocumentAnalyzer._heuristic_analysis(
             "## v2.0\n- Breaking changes.", "release-notes.md"
         )
-        assert result.document_type == DocumentType.changelog
+        assert result.document_type == DocumentType.CHANGELOG
 
     def test_detects_faq_by_filename(self):
         """Files with 'faq' in the name are classified as faq."""
         result = DocumentAnalyzer._heuristic_analysis("Q: What? A: This.", "FAQ.md")
-        assert result.document_type == DocumentType.faq
+        assert result.document_type == DocumentType.FAQ
 
     def test_detects_policy_by_filename(self):
         """Files with 'policy' in the name are classified as policy."""
         result = DocumentAnalyzer._heuristic_analysis("All users must...", "security-policy.md")
-        assert result.document_type == DocumentType.policy
+        assert result.document_type == DocumentType.POLICY
 
     def test_detects_tutorial_by_filename(self):
         """Files with 'tutorial' in the name are classified as tutorial."""
         result = DocumentAnalyzer._heuristic_analysis("Step 1: ...", "getting-started-tutorial.md")
-        assert result.document_type == DocumentType.tutorial
+        assert result.document_type == DocumentType.TUTORIAL
 
     def test_detects_manual_by_filename(self):
         """Files with 'manual' in the name are classified as manual."""
         result = DocumentAnalyzer._heuristic_analysis("Chapter 1", "user-manual.md")
-        assert result.document_type == DocumentType.manual
+        assert result.document_type == DocumentType.MANUAL
 
     def test_unknown_falls_back_to_other(self):
         """Unknown files with no keyword matches fall back to OTHER."""
         result = DocumentAnalyzer._heuristic_analysis(
             "Nothing special here.", "random-notes.md"
         )
-        assert result.document_type == DocumentType.other
+        assert result.document_type == DocumentType.OTHER
         assert result.is_openapi is False
 
     def test_content_keyword_fallback_tutorial(self):
@@ -165,7 +165,7 @@ class TestHeuristicAnalysis:
         result = DocumentAnalyzer._heuristic_analysis(
             "Step 1: Install the tool\nStep 2: Configure it", "guide.txt"
         )
-        assert result.document_type == DocumentType.tutorial
+        assert result.document_type == DocumentType.TUTORIAL
 
     def test_suggested_title_derived_from_filename(self):
         """Suggested title is derived from filename with extension stripped."""
@@ -210,7 +210,7 @@ class TestParseLLMResponse:
         )
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.summary == "An API specification for the widget service."
         assert result.tags == ["api", "widgets"]
         assert result.entities == ["WidgetService", "REST"]
@@ -227,7 +227,7 @@ class TestParseLLMResponse:
         text = f"```json\n{inner}\n```"
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.tutorial
+        assert result.document_type == DocumentType.TUTORIAL
         assert result.summary == "A getting started guide."
 
     def test_plain_code_block(self):
@@ -236,7 +236,7 @@ class TestParseLLMResponse:
         text = f"```\n{inner}\n```"
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.readme
+        assert result.document_type == DocumentType.README
 
     def test_invalid_json_returns_none(self):
         """Malformed JSON returns None."""
@@ -248,14 +248,14 @@ class TestParseLLMResponse:
         text = _make_analysis_response(document_type="unknown_type_xyz")
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.other
+        assert result.document_type == DocumentType.OTHER
 
     def test_missing_fields_use_defaults(self):
         """Missing fields in the JSON use sensible defaults."""
         text = json.dumps({"document_type": "faq"})
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.faq
+        assert result.document_type == DocumentType.FAQ
         assert result.summary == ""
         assert result.tags == []
         assert result.entities == []
@@ -268,7 +268,7 @@ class TestParseLLMResponse:
         text = f"  \n  {inner}  \n  "
         result = DocumentAnalyzer._parse_llm_response(text)
         assert result is not None
-        assert result.document_type == DocumentType.reference
+        assert result.document_type == DocumentType.REFERENCE
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +293,7 @@ class TestAnalyzeLLM:
         mock_agent_factory.create_agent.return_value = mock_agent
 
         result = await analyzer.analyze("openapi: 3.0.0\ninfo: ...", "openapi.yaml")
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.summary == "Widget API docs."
         assert result.is_openapi is True
         assert result.suggested_title == "Widget API"
@@ -302,7 +302,7 @@ class TestAnalyzeLLM:
         """When no LLM is configured, falls back to heuristic."""
         mock_agent_factory.create_agent.return_value = None
         result = await analyzer.analyze("# My README\nStuff here.", "README.md")
-        assert result.document_type == DocumentType.readme
+        assert result.document_type == DocumentType.README
 
     async def test_llm_exception_falls_back(self, analyzer, mock_agent_factory):
         """LLM call that raises falls back to heuristic."""
@@ -311,7 +311,7 @@ class TestAnalyzeLLM:
         mock_agent_factory.create_agent.return_value = mock_agent
 
         result = await analyzer.analyze("# Changelog\n## v1.0", "CHANGELOG.md")
-        assert result.document_type == DocumentType.changelog
+        assert result.document_type == DocumentType.CHANGELOG
 
     async def test_llm_invalid_json_falls_back(self, analyzer, mock_agent_factory):
         """When LLM returns unparseable text, falls back to heuristic."""
@@ -320,7 +320,7 @@ class TestAnalyzeLLM:
 
         result = await analyzer.analyze("openapi: 3.0.0\ninfo: ...", "openapi.yaml")
         # Should fall back to heuristic which detects OpenAPI by filename
-        assert result.document_type == DocumentType.api_spec
+        assert result.document_type == DocumentType.API_SPEC
         assert result.is_openapi is True
 
     async def test_content_truncated_for_llm(self, analyzer, mock_agent_factory):
@@ -342,7 +342,7 @@ class TestAnalyzeLLM:
         mock_agent_factory.create_agent.side_effect = RuntimeError("DB error")
 
         result = await analyzer.analyze("# FAQ\nQ: What?", "faq.md")
-        assert result.document_type == DocumentType.faq
+        assert result.document_type == DocumentType.FAQ
 
 
 # ---------------------------------------------------------------------------
@@ -366,9 +366,9 @@ class TestAnalyzeBatch:
 
         results = await analyzer.analyze_batch(files)
         assert len(results) == 3
-        assert results[0].document_type == DocumentType.readme
-        assert results[1].document_type == DocumentType.changelog
-        assert results[2].document_type == DocumentType.api_spec
+        assert results[0].document_type == DocumentType.README
+        assert results[1].document_type == DocumentType.CHANGELOG
+        assert results[2].document_type == DocumentType.API_SPEC
 
     async def test_batch_calls_progress_callback(self, analyzer, mock_agent_factory):
         """Progress callback is invoked for each file."""

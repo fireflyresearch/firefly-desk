@@ -138,20 +138,15 @@ class TestDashboardStats:
         await conversation_repo.create_conversation(
             Conversation(id="conv-2", user_id="user-b", title="Active 2")
         )
-        # Deleted conversation for user-a
+        # Conversations that will be soft-deleted (create active first to add messages)
         await conversation_repo.create_conversation(
-            Conversation(
-                id="conv-del-1", user_id="user-a", title="Deleted 1", status="deleted"
-            )
+            Conversation(id="conv-del-1", user_id="user-a", title="Deleted 1")
         )
-        # user-c has ONLY deleted conversations -- should not count as active
         await conversation_repo.create_conversation(
-            Conversation(
-                id="conv-del-2", user_id="user-c", title="Deleted 2", status="deleted"
-            )
+            Conversation(id="conv-del-2", user_id="user-c", title="Deleted 2")
         )
 
-        # Add messages to both active and deleted conversations
+        # Add messages to both active and to-be-deleted conversations
         await conversation_repo.add_message(
             Message(
                 id="msg-1",
@@ -170,6 +165,10 @@ class TestDashboardStats:
             ),
             user_id="user-a",
         )
+
+        # Now soft-delete the conversations
+        await conversation_repo.delete_conversation("conv-del-1", user_id="user-a")
+        await conversation_repo.delete_conversation("conv-del-2", user_id="user-c")
 
         response = await ac.get("/api/admin/dashboard/stats")
         assert response.status_code == 200
