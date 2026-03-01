@@ -360,6 +360,7 @@ async def _init_knowledge(
     config: DeskConfig,
     session_factory: async_sessionmaker[AsyncSession],
     settings_repo: Any,
+    llm_repo: Any,
 ) -> dict[str, Any]:
     """Wire embedding provider, knowledge indexer, and vector store."""
     from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
@@ -380,14 +381,43 @@ async def _init_knowledge(
     api_key = embed_key or None
     base_url = embed_url or None
 
-    genai_embedder = create_embedder(
-        provider_name,
-        model_name,
-        dimensions=embed_dims,
-        api_key=api_key,
-        base_url=base_url,
-    )
-    embedding_provider = GenAIEmbeddingAdapter(genai_embedder)
+    # API key resolution: explicit config → LLM repo lookup → env var (genai default)
+    if not api_key and llm_repo:
+        _LLM_PROVIDER_MAP = {
+            "openai": "openai", "voyage": "voyage", "google": "google",
+            "ollama": "ollama", "azure": "azure_openai",
+        }
+        llm_type = _LLM_PROVIDER_MAP.get(provider_name)
+        if llm_type:
+            try:
+                providers = await llm_repo.list_providers()
+                for p in providers:
+                    if p.provider_type.value == llm_type and p.api_key:
+                        api_key = p.api_key
+                        logger.info(
+                            "Using API key from LLM provider '%s' for embeddings.", p.name
+                        )
+                        break
+            except Exception:
+                logger.debug("Failed to fetch LLM providers for embedding key.", exc_info=True)
+
+    try:
+        genai_embedder = create_embedder(
+            provider_name,
+            model_name,
+            dimensions=embed_dims,
+            api_key=api_key,
+            base_url=base_url,
+        )
+        embedding_provider = GenAIEmbeddingAdapter(genai_embedder)
+    except Exception:
+        logger.warning(
+            "Failed to create embedding provider '%s:%s' (missing API key?). "
+            "Embeddings disabled — keyword search only.",
+            provider_name, model_name, exc_info=True,
+        )
+        genai_embedder = None
+        embedding_provider = None
 
     knowledge_settings = await settings_repo.get_all_app_settings(category="knowledge")
     chunk_size = int(knowledge_settings.get("chunk_size", str(config.chunk_size)))
@@ -1039,6 +1069,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     knowledge = await _init_knowledge(
         app, config, session_factory,
         settings_repo=repos["settings_repo"],
+        llm_repo=repos["llm_repo"],
     )
     if knowledge["vector_store"] is not None:
         ctx.closables.append(knowledge["vector_store"])
@@ -1122,7 +1153,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # Wire callback dispatcher into builtin executor
-    if hasattr(app.state, "builtin_executor"):
+    if hasattr(app.state, "builtin_executor") and hasattr(app.state.builtin_executor, "set_callback_dispatcher"):
         app.state.builtin_executor.set_callback_dispatcher(app.state.callback_dispatcher)
 
     # 11. Auth / OIDC
