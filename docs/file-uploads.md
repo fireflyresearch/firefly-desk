@@ -25,18 +25,35 @@ These formats have their content automatically extracted and made available to E
 | YAML | `application/yaml`, `text/yaml` | Direct text reading |
 | CSV | `text/csv` | Direct text reading |
 
-### Binary Formats (storage only)
+### Binary Formats with Content Extraction (Knowledge Base)
 
-These formats are stored and available for download, but their content is not automatically extracted:
+When uploaded through the **Knowledge Base** file import (`POST /api/knowledge/import/file`), the following binary formats have their text content extracted automatically:
+
+| Format | Content Type | Extraction Method |
+|--------|-------------|-------------------|
+| PDF | `application/pdf` | PDF text extraction with page-level parsing |
+| Word documents (DOCX) | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | DOCX paragraph and table extraction |
+| Excel spreadsheets (XLSX) | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | XLSX cell content extraction |
+| PowerPoint (PPTX) | `application/vnd.openxmlformats-officedocument.presentationml.presentation` | PPTX slide text extraction |
+
+The extracted text is chunked, embedded, and indexed like any other knowledge document.
+
+### Binary Formats (chat upload -- storage only)
+
+When uploaded through the **chat interface** (`POST /api/files/upload`), binary formats are stored and available for download but their content is not extracted into the conversation context:
 
 | Format | Content Type | Notes |
 |--------|-------------|-------|
-| PDF | `application/pdf` | Stored for download; text extraction is not currently supported |
+| PDF | `application/pdf` | Stored for download; viewable inline with the PDF preview viewer |
 | Word documents | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | Stored for download |
 | Images | `image/png`, `image/jpeg`, etc. | Stored for download |
 | Archives | `application/zip`, etc. | Stored for download |
 
-Binary files can still be referenced in conversations and downloaded, but Ember will not have access to their textual content unless the content is manually provided.
+Binary files uploaded in chat can still be referenced in conversations and downloaded, but Ember will not have access to their textual content unless the content is manually provided. To make binary document content available to the agent, upload them through the Knowledge Base instead.
+
+### PDF Inline Preview
+
+PDF files now support inline viewing directly in the browser. When a PDF is attached or referenced, the UI renders an embedded PDF viewer instead of only offering a download link. This allows users and administrators to review PDF content without leaving the application.
 
 ## Uploading Files
 
@@ -155,7 +172,7 @@ If an upload fails with a permission error, the `FLYDESK_FILE_STORAGE_PATH` dire
 
 ### Content Not Available to Agent
 
-If Ember cannot access the content of an uploaded file, verify that the file's content type is one of the supported text-based formats. Binary files (PDF, Word, images) are stored but their content is not extracted.
+If Ember cannot access the content of an uploaded file in chat, verify that the file's content type is one of the supported text-based formats. Binary files (PDF, Word, images) uploaded through chat are stored but their content is not extracted into conversation context. For binary document extraction, upload through the Knowledge Base file import instead.
 
 ### Files Missing After Restart
 

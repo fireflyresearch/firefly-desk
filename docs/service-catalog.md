@@ -24,7 +24,7 @@ An external system represents a single backend service -- your CRM, ERP, payment
 | `base_url` | string | Root URL for all endpoints (e.g., `https://api.payments.example.com/v2`). |
 | `auth_config` | object | Authentication configuration. See [Authentication](#authentication-configuration) below. |
 | `health_check_path` | string or null | Optional endpoint the platform pings to monitor availability (e.g., `/health`). |
-| `tags` | array | Categorization labels for filtering and organization (e.g., `["payments", "banking"]`). |
+| `tags` | relation | Many-to-many tag associations managed through a join table. See [System Tags](#system-tags) below. |
 | `status` | enum | Lifecycle state. See [System Status Lifecycle](#system-status-lifecycle) below. |
 | `agent_enabled` | boolean | Whether the agent is allowed to use this system. Defaults to `false` for new systems. |
 | `workspace_id` | string or null | Optional workspace scope for multi-workspace deployments. |
@@ -45,7 +45,7 @@ Content-Type: application/json
     "credential_id": "cred-payment-api-key"
   },
   "health_check_path": "/health",
-  "tags": ["payments", "banking"],
+  "tag_ids": ["tag-uuid-payments", "tag-uuid-banking"],
   "agent_enabled": true
 }
 ```
@@ -275,6 +275,128 @@ The import process:
 
 After import, review the generated endpoints to adjust risk levels, refine `when_to_use` descriptions, and configure authentication. The import gives you a baseline; manual refinement ensures the agent uses each endpoint appropriately.
 
+## Curl Import
+
+You can also register a system and endpoint by pasting a curl command. The deterministic curl parser extracts the method, URL, headers, query parameters, and request body from the command and maps them to catalog fields automatically.
+
+```
+POST /api/catalog/import/curl
+Content-Type: application/json
+
+{
+  "curl_command": "curl -X POST https://api.payments.example.com/v2/charges -H 'Authorization: Bearer tok_123' -H 'Content-Type: application/json' -d '{\"amount\": 5000, \"currency\": \"usd\"}'"
+}
+```
+
+The parser handles common curl flags (`-X`, `-H`, `-d`, `--data`, `-u`, `--url`, query strings) and produces a system and endpoint definition that can be reviewed and saved. This is useful when developers share curl snippets in documentation or Slack and you want to register them quickly without manually filling out every field.
+
+## Credential Mapping
+
+Credential mappings define how a credential value is injected into outbound requests. Previously, credentials were always sent as HTTP headers. With credential mapping, you can target headers, query parameters, path parameters, or body parameters, and optionally apply a transform before injection.
+
+### CredentialMapping Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | The credential field to read (e.g., `api_key`, `token`, `username`, `password`). |
+| `target` | enum | Where to inject the value: `header`, `query_param`, `path_param`, `body_param`. |
+| `field_name` | string | The name of the target field (e.g., `Authorization`, `api_key`, `token`). |
+| `transform` | enum or null | Optional transform to apply before injection: `base64`, `prefix`. |
+
+**Example: API key as a query parameter**
+
+```json
+{
+  "credential_mappings": [
+    {
+      "source": "api_key",
+      "target": "query_param",
+      "field_name": "key",
+      "transform": null
+    }
+  ]
+}
+```
+
+**Example: Basic auth with base64 transform**
+
+```json
+{
+  "credential_mappings": [
+    {
+      "source": "username:password",
+      "target": "header",
+      "field_name": "Authorization",
+      "transform": "base64"
+    }
+  ]
+}
+```
+
+Credential mappings are defined on the endpoint or system auth configuration and are resolved at execution time by `AuthResolver`, which returns a `ResolvedAuth` dataclass containing `headers`, `query_params`, `path_params`, and `body_params` dictionaries. The `ToolExecutor` merges these into the outbound request.
+
+## System Tags
+
+Tags are now managed as first-class entities with a many-to-many relationship to systems, replacing the previous JSON array column. This enables consistent tag reuse, admin-managed tag vocabularies, and efficient filtering.
+
+### Tag Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier, generated automatically. |
+| `name` | string | Tag name, unique across the catalog. |
+
+Tags are created and managed through dedicated CRUD endpoints. Systems are associated with tags through a join table, and the association can be modified without updating the system record itself.
+
+```
+POST /api/catalog/tags
+Content-Type: application/json
+
+{
+  "name": "payments"
+}
+```
+
+To associate tags with a system:
+
+```
+POST /api/catalog/systems/{system_id}/tags
+Content-Type: application/json
+
+{
+  "tag_id": "tag-uuid"
+}
+```
+
+Systems can be filtered by tag through the `GET /api/catalog/systems?tag={tag_name}` query parameter.
+
+## System Documents
+
+Knowledge base documents can be linked to systems to provide the agent with additional context about a system's behavior, integration requirements, or operational procedures. Linked documents are surfaced during agent context enrichment when the agent interacts with the system.
+
+```
+POST /api/catalog/systems/{system_id}/documents
+Content-Type: application/json
+
+{
+  "document_id": "doc-uuid"
+}
+```
+
+To list linked documents:
+
+```
+GET /api/catalog/systems/{system_id}/documents
+```
+
+To remove a link:
+
+```
+DELETE /api/catalog/systems/{system_id}/documents/{document_id}
+```
+
+Linking documents does not copy them; it creates a reference. The same document can be linked to multiple systems.
+
 ## API Reference
 
 ### Systems
@@ -296,11 +418,31 @@ After import, review the generated endpoints to adjust risk levels, refine `when
 | `GET` | `/api/catalog/endpoints/{endpoint_id}` | `catalog:read` | Get a single endpoint by ID. |
 | `DELETE` | `/api/catalog/endpoints/{endpoint_id}` | `catalog:delete` | Remove an endpoint. |
 
+### Tags
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| `GET` | `/api/catalog/tags` | `catalog:read` | List all tags. |
+| `POST` | `/api/catalog/tags` | `catalog:write` | Create a new tag. |
+| `PUT` | `/api/catalog/tags/{tag_id}` | `catalog:write` | Update a tag. |
+| `DELETE` | `/api/catalog/tags/{tag_id}` | `catalog:delete` | Delete a tag. |
+| `POST` | `/api/catalog/systems/{system_id}/tags` | `catalog:write` | Associate a tag with a system. |
+| `DELETE` | `/api/catalog/systems/{system_id}/tags/{tag_id}` | `catalog:write` | Remove a tag association from a system. |
+
+### System Documents
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| `GET` | `/api/catalog/systems/{system_id}/documents` | `catalog:read` | List documents linked to a system. |
+| `POST` | `/api/catalog/systems/{system_id}/documents` | `catalog:write` | Link a knowledge document to a system. |
+| `DELETE` | `/api/catalog/systems/{system_id}/documents/{document_id}` | `catalog:write` | Remove a document link from a system. |
+
 ### Import
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | `POST` | `/api/catalog/import/openapi` | `catalog:write` | Auto-register systems and endpoints from an OpenAPI spec. |
+| `POST` | `/api/catalog/import/curl` | `catalog:write` | Parse a curl command and generate a system/endpoint definition. |
 
 ## Tips
 

@@ -209,6 +209,14 @@ User Message
 
 Context enrichment runs its three retrieval strategies in parallel because they are independent and latency-sensitive. The merged results are deduplicated and formatted into a context section that the LLM treats as authoritative reference material.
 
+### Agent Context Enrichment with System Metadata
+
+When the agent resolves tools from the catalog, `ToolFactory.build_system_context()` enriches the agent's context with system metadata beyond just the endpoint definitions. This includes the system description, tags, and any linked knowledge documents. Linked documents are retrieved and their content is appended to the system context, giving the agent deeper understanding of how the integration works, what its limitations are, and what operational procedures apply. This enrichment happens alongside the standard context enrichment (KG + RAG + memory) and ensures that tool selection and execution are informed by all available system knowledge.
+
+### ResolvedAuth
+
+The `AuthResolver` returns a `ResolvedAuth` dataclass instead of a plain dictionary. `ResolvedAuth` has four typed fields -- `headers`, `query_params`, `path_params`, and `body_params` -- each a dictionary of string key-value pairs. This structured return type replaces the previous approach of returning only headers, enabling credential injection into any part of the outbound request. The `ToolExecutor` merges the `ResolvedAuth` fields into the appropriate locations of the HTTP request before sending.
+
 The tool execution phase may iterate multiple times in a single turn. The LLM can request multiple tool calls, each of which is executed, and the results are fed back to the LLM for further reasoning. The `max_tools_per_turn` configuration (default: 10) prevents runaway loops.
 
 ## Middleware Stack

@@ -171,6 +171,97 @@ Removes a service endpoint from the catalog.
 
 **Response:** `204 No Content`
 
+### POST /api/catalog/import/curl
+
+Parses a curl command and generates a system and endpoint definition. The deterministic parser extracts the HTTP method, URL, headers, query parameters, and request body from the command.
+
+**Required permission:** `catalog:write`
+
+**Request body:**
+```json
+{
+  "curl_command": "curl -X GET https://api.example.com/users -H 'Authorization: Bearer tok_123'"
+}
+```
+
+**Response:** `200 OK` with the parsed system and endpoint definition for review before saving.
+
+### GET /api/catalog/tags
+
+Returns all catalog tags.
+
+**Required permission:** `catalog:read`
+
+### POST /api/catalog/tags
+
+Creates a new catalog tag.
+
+**Required permission:** `catalog:write`
+
+**Response:** `201 Created` with the created tag object.
+
+### PUT /api/catalog/tags/{tag_id}
+
+Updates a catalog tag's name.
+
+**Required permission:** `catalog:write`
+
+### DELETE /api/catalog/tags/{tag_id}
+
+Deletes a catalog tag and removes all system associations.
+
+**Required permission:** `catalog:delete`
+
+**Response:** `204 No Content`
+
+### POST /api/catalog/systems/{system_id}/tags
+
+Associates a tag with a system.
+
+**Required permission:** `catalog:write`
+
+**Request body:**
+```json
+{
+  "tag_id": "tag-uuid"
+}
+```
+
+### DELETE /api/catalog/systems/{system_id}/tags/{tag_id}
+
+Removes a tag association from a system.
+
+**Required permission:** `catalog:write`
+
+**Response:** `204 No Content`
+
+### GET /api/catalog/systems/{system_id}/documents
+
+Returns all knowledge documents linked to a system.
+
+**Required permission:** `catalog:read`
+
+### POST /api/catalog/systems/{system_id}/documents
+
+Links a knowledge base document to a system. The document is referenced by ID; no content is copied.
+
+**Required permission:** `catalog:write`
+
+**Request body:**
+```json
+{
+  "document_id": "doc-uuid"
+}
+```
+
+### DELETE /api/catalog/systems/{system_id}/documents/{document_id}
+
+Removes a document link from a system.
+
+**Required permission:** `catalog:write`
+
+**Response:** `204 No Content`
+
 ## Credentials
 
 ### GET /api/credentials

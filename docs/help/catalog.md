@@ -32,9 +32,36 @@ Each system contains one or more endpoints representing individual API operation
 - **Rate limits and timeouts** -- Protect external systems from excessive calls.
 - **Required permissions** -- RBAC permissions a user must hold to trigger this endpoint.
 
-## OpenAPI Import
+## Adding Systems
 
-Instead of manually creating endpoints, you can import an OpenAPI specification. The parser extracts all paths, methods, parameters, and schemas automatically. You can review and adjust the imported endpoints before activating them.
+The catalog provides a unified wizard with multiple ways to add systems:
+
+- **Curl import** -- Paste a curl command to auto-generate a system and endpoint. The parser extracts the method, URL, headers, query parameters, and body.
+- **Upload docs** -- Upload API documentation files to populate system definitions.
+- **Detect from KB** -- Select knowledge base documents and let the discovery engine identify systems and endpoints.
+- **Manual** -- Fill out the system and endpoint forms directly.
+- **OpenAPI import** -- Import an OpenAPI specification to auto-register all paths, methods, parameters, and schemas.
+
+## Credential Mapping
+
+Credential mappings control how authentication values are injected into API requests. Each mapping specifies a source credential field, a target location (header, query parameter, path parameter, or body parameter), the field name, and an optional transform (base64, prefix). This supports APIs that require authentication in places other than HTTP headers.
+
+## System Tags
+
+Tags are managed from the **Tags** tab in the catalog. Tags are shared across all systems and provide a consistent vocabulary for categorization and filtering. To associate tags with a system, use the system detail view.
+
+## System Documents
+
+You can link knowledge base documents to a system from the system detail view. Linked documents give the agent additional context about the system when it interacts with that integration -- for example, runbooks, API guides, or operational procedures.
+
+## Tabbed Layout
+
+The catalog interface is organized into four tabs:
+
+- **Systems** -- Browse, create, and edit systems and endpoints.
+- **Discovery** -- Run the system discovery engine, optionally providing knowledge documents as input.
+- **Tags** -- Manage the tag vocabulary.
+- **Import** -- Add systems using the unified wizard (curl, upload, KB detect, manual).
 
 ## Tips
 

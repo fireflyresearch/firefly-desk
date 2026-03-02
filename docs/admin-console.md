@@ -33,9 +33,34 @@ The Admin Dashboard provides an at-a-glance overview of platform health and acti
 
 **Route:** `/admin/catalog`
 
-The System Catalog Manager is where administrators register and configure the external systems and endpoints that Ember can interact with. The interface displays all registered systems with their status, endpoint count, and health information. From this view, administrators can add new systems, edit existing system configurations, and manage the endpoints within each system.
+The System Catalog Manager is where administrators register and configure the external systems and endpoints that Ember can interact with. The interface is organized into four tabs: **Systems**, **Discovery**, **Tags**, and **Import**.
 
-When adding or editing a system, the form captures the system name, description, base URL, authentication method, health check path, and tags. When managing endpoints, administrators define the HTTP method, path, parameter schema, risk level, required permissions, and the critical `when_to_use` guidance text that shapes how the agent selects tools.
+### Systems Tab
+
+Displays all registered systems with their status, endpoint count, tags, and health information. From this view, administrators can add new systems, edit existing system configurations, and manage the endpoints within each system.
+
+When adding or editing a system, the form captures the system name, description, base URL, authentication method, health check path, and tag associations. The system detail view also includes a **Documents** section where administrators can link knowledge base documents to the system, providing the agent with additional context about the integration.
+
+When managing endpoints, administrators define the HTTP method, path, parameter schema, risk level, required permissions, and the critical `when_to_use` guidance text that shapes how the agent selects tools. The endpoint editor also includes a **Credential Mapping** section where administrators configure how credential values are injected into outbound requests -- targeting headers, query parameters, path parameters, or body parameters with optional transforms (base64, prefix).
+
+### Discovery Tab
+
+Triggers and manages the LLM-driven system relationship discovery engine, which can also accept knowledge documents as input for richer discovery.
+
+### Tags Tab
+
+Provides CRUD management for the catalog tag vocabulary. Tags are first-class entities with a many-to-many relationship to systems (replacing the previous JSON tags column). Administrators can create, rename, and delete tags from this tab. Tag associations with systems are managed from the system detail view.
+
+### Import Tab
+
+Provides a unified wizard for adding systems with multiple entry methods:
+
+- **Curl import** -- Paste a curl command and the deterministic parser extracts method, URL, headers, query parameters, and request body into a system/endpoint definition.
+- **Upload docs** -- Upload documentation files that describe an API.
+- **Detect from KB** -- Select existing knowledge base documents to auto-detect system definitions.
+- **Manual** -- Traditional form-based system and endpoint creation.
+
+This replaces the previous fragmented entry points with a single method picker.
 
 The System Catalog Manager is the primary way that Firefly Desk's capabilities grow. Every new system registered here immediately becomes available to Ember in subsequent conversations, without any code deployment or agent retraining. This is why the catalog metadata, particularly the descriptions and `when_to_use` fields, deserves careful attention: the quality of these descriptions directly determines the quality of the agent's tool selection.
 
