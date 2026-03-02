@@ -35,6 +35,7 @@ from flydesk.widgets.parser import WidgetParser
 if TYPE_CHECKING:
     from flydesk.agent.customization import AgentCustomizationService
     from flydesk.agent.genai_bridge import DeskAgentFactory
+    from flydesk.agent.router.router import ModelRouter
     from flydesk.catalog.repository import CatalogRepository
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.feedback.repository import FeedbackRepository
@@ -158,6 +159,7 @@ class DeskAgent:
         feedback_repo: FeedbackRepository | None = None,
         custom_tool_repo: CustomToolRepository | None = None,
         sandbox_executor: SandboxExecutor | None = None,
+        model_router: ModelRouter | None = None,
     ) -> None:
         self._context_enricher = context_enricher
         self._prompt_builder = prompt_builder
@@ -179,6 +181,7 @@ class DeskAgent:
         self._feedback_repo = feedback_repo
         self._custom_tool_repo = custom_tool_repo
         self._sandbox_executor = sandbox_executor
+        self._model_router = model_router
 
     # ------------------------------------------------------------------
     # Public API
@@ -1005,6 +1008,42 @@ class DeskAgent:
             custom_tools=custom_tools,
         )
 
+    async def _route_model(
+        self,
+        message: str,
+        tools: list[object] | None,
+    ) -> tuple[str | None, object | None]:
+        """Determine which model to use via the router.
+
+        Returns (model_override, routing_decision) or (None, None) if routing
+        is disabled or fails.
+        """
+        if self._model_router is None:
+            return None, None
+        try:
+            tool_names = []
+            if tools:
+                for t in tools:
+                    name = getattr(t, "name", None) or getattr(t, "tool_name", "")
+                    if name:
+                        tool_names.append(name)
+            decision = await self._model_router.route(
+                message=message,
+                tool_count=len(tools or []),
+                tool_names=tool_names,
+                turn_count=0,
+            )
+            if decision is not None:
+                _logger.info(
+                    "Router: tier=%s model=%s confidence=%.2f (%s)",
+                    decision.tier, decision.model_string,
+                    decision.confidence, decision.reasoning,
+                )
+                return decision.model_string, decision
+        except Exception:
+            _logger.debug("Model router failed; using default model.", exc_info=True)
+        return None, None
+
     async def _stream_llm(
         self,
         message: str,
@@ -1036,7 +1075,12 @@ class DeskAgent:
                 yield chunk
             return
 
-        agent = await self._agent_factory.create_agent(system_prompt, tools=tools)
+        # Route to cost-appropriate model if router is configured
+        model_override, routing_decision = await self._route_model(message, tools)
+
+        agent = await self._agent_factory.create_agent(
+            system_prompt, tools=tools, model_override=model_override,
+        )
         if agent is None:
             for chunk in self._echo_fallback_chunks(message):
                 yield chunk
@@ -1080,6 +1124,16 @@ class DeskAgent:
                             self._extract_stream_usage(stream, agent, usage_out)
                             # Also extract tool call info from the message history
                             self._extract_tool_calls(stream, usage_out)
+
+                        if usage_out is not None and routing_decision is not None:
+                            usage_out["routing"] = {
+                                "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
+                                "confidence": routing_decision.confidence,
+                                "reasoning": routing_decision.reasoning,
+                                "model_used": routing_decision.model_string,
+                                "classifier_model": routing_decision.classifier_model,
+                                "classifier_latency_ms": routing_decision.classifier_latency_ms,
+                            }
 
                     # pydantic-ai's run_stream only handles the first model turn.
                     # If the model called tools, the follow-up response (with tool
@@ -1287,7 +1341,12 @@ class DeskAgent:
         if self._agent_factory is None:
             return self._echo_fallback(message)
 
-        agent = await self._agent_factory.create_agent(system_prompt, tools=tools)
+        # Route to cost-appropriate model if router is configured
+        model_override, routing_decision = await self._route_model(message, tools)
+
+        agent = await self._agent_factory.create_agent(
+            system_prompt, tools=tools, model_override=model_override,
+        )
         if agent is None:
             return self._echo_fallback(message)
 
@@ -1297,6 +1356,15 @@ class DeskAgent:
                 result = await agent.run(message, conversation_id=conversation_id)
                 if usage_out is not None:
                     usage_out.update(self._extract_result_usage(result, agent))
+                    if routing_decision is not None:
+                        usage_out["routing"] = {
+                            "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
+                            "confidence": routing_decision.confidence,
+                            "reasoning": routing_decision.reasoning,
+                            "model_used": routing_decision.model_string,
+                            "classifier_model": routing_decision.classifier_model,
+                            "classifier_latency_ms": routing_decision.classifier_latency_ms,
+                        }
                 return str(result.output)
             except _BUDGET_EXCEEDED_ERROR as exc:
                 _logger.warning("Budget exceeded during LLM call: %s", exc)

@@ -796,7 +796,9 @@ class TestDeskAgentCallLlm:
         mock_agent_factory.create_agent.return_value = mock_agent
 
         await desk_agent_with_factory._call_llm("user message", "system prompt text", "conv-1")
-        mock_agent_factory.create_agent.assert_awaited_once_with("system prompt text", tools=None)
+        mock_agent_factory.create_agent.assert_awaited_once_with(
+            "system prompt text", tools=None, model_override=None,
+        )
 
     async def test_call_llm_returns_agent_output(
         self, desk_agent_with_factory, mock_agent_factory
