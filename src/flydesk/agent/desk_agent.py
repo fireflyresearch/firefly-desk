@@ -85,7 +85,7 @@ _LLM_FALLBACK_RETRIES = 2
 # call that produces the final answer after tool results are available.
 _LLM_STREAM_TIMEOUT = 300
 # Timeout for the follow-up LLM call after tool execution (seconds).
-_LLM_FOLLOWUP_TIMEOUT = 120
+_LLM_FOLLOWUP_TIMEOUT = 240
 # Retry config for the follow-up call (longer delays for rate-limit recovery).
 _FOLLOWUP_MAX_RETRIES = 3
 _FOLLOWUP_RETRY_BASE_DELAY = 15.0  # seconds (rate limits are per-minute)
@@ -127,6 +127,45 @@ def _friendly_error_message(exc: Exception) -> str:
         "Please check your LLM provider configuration in Admin > LLM Providers.\n\n"
         f"Error: {exc}"
     )
+
+
+_FOLLOWUP_MAX_CONTENT_CHARS = 4_000  # Max chars per tool-return part in follow-up
+
+
+def _truncate_message_history(messages: list, max_chars: int = _FOLLOWUP_MAX_CONTENT_CHARS) -> None:
+    """Truncate large text content in message history in-place.
+
+    This prevents the follow-up LLM call from sending enormous tool results
+    that would exceed token limits or trigger rate-limit errors.  Only
+    ``tool-return`` and ``user-prompt`` parts are touched.
+    """
+    import json as _json
+
+    for msg in messages:
+        parts = getattr(msg, "parts", None)
+        if not parts:
+            continue
+        for part in parts:
+            kind = getattr(part, "part_kind", "")
+            if kind == "tool-return":
+                content = part.content
+                if isinstance(content, str):
+                    text = content
+                elif content is not None:
+                    try:
+                        text = _json.dumps(content, default=str, ensure_ascii=False)
+                    except Exception:
+                        continue
+                else:
+                    continue
+                if len(text) > max_chars:
+                    part.content = text[:max_chars] + "\n\n[... tool output truncated for follow-up]"
+            elif kind == "user-prompt":
+                content = getattr(part, "content", None)
+                # User prompts can be very large when they include file context
+                user_limit = max_chars * 3  # More generous for user prompts
+                if isinstance(content, str) and len(content) > user_limit:
+                    part.content = content[:user_limit] + "\n\n[... content truncated]"
 
 
 class DeskAgent:
@@ -836,6 +875,9 @@ class DeskAgent:
 
         uploads: list[FileUpload] = []
         parts: list[str] = []
+        max_per_file = 4_000
+        max_total = 12_000  # Total budget across all files
+        total_chars = 0
         for file_id in file_ids:
             upload = await self._file_repo.get(file_id)
             if upload is None:
@@ -843,13 +885,21 @@ class DeskAgent:
             uploads.append(upload)
             text = upload.extracted_text or ""
             if text:
-                max_ctx = 4_000
-                if len(text) > max_ctx:
-                    text = text[:max_ctx]
+                remaining = max_total - total_chars
+                if remaining <= 0:
+                    parts.append(
+                        f"- [{upload.filename}]: [content omitted — total file "
+                        "context budget reached; use document_read to access]"
+                    )
+                    continue
+                limit = min(max_per_file, remaining)
+                if len(text) > limit:
+                    text = text[:limit]
                     text += (
                         "\n\n[... truncated — use the document_read tool with "
                         "page_start/page_end to read specific sections]"
                     )
+                total_chars += len(text)
                 parts.append(f"- [{upload.filename}]: {text}")
 
         text_context = "\n".join(parts)
@@ -1330,6 +1380,10 @@ class DeskAgent:
             _logger.debug("Failed to extract message history for follow-up.", exc_info=True)
             return
 
+        # Truncate large content in tool results to keep the follow-up
+        # call within reasonable token limits.
+        _truncate_message_history(message_history)
+
         # Make a follow-up run() call with the accumulated history so the LLM
         # sees the tool results and produces the final answer.
         # Includes retry with exponential backoff for transient / rate-limit errors.
@@ -1720,10 +1774,13 @@ class DeskAgent:
             parts.append("Entities:\n" + "\n".join(entity_lines))
 
         if enriched.knowledge_snippets:
-            snippet_lines = [
-                f"- [{s.document_title}]: {s.chunk.content}"
-                for s in enriched.knowledge_snippets
-            ]
+            max_chunk = 2_000
+            snippet_lines = []
+            for s in enriched.knowledge_snippets:
+                content = s.chunk.content
+                if len(content) > max_chunk:
+                    content = content[:max_chunk] + " [... truncated]"
+                snippet_lines.append(f"- [{s.document_title}]: {content}")
             parts.append("Knowledge:\n" + "\n".join(snippet_lines))
 
         return "\n\n".join(parts)

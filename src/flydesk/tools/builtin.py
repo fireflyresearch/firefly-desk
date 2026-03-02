@@ -662,14 +662,17 @@ class BuiltinToolExecutor:
 
         try:
             snippets = await self._knowledge_retriever.retrieve(query, top_k=top_k)
-            results = [
-                {
+            max_chunk = 2_000  # Cap individual chunk size to control LLM input
+            results = []
+            for s in snippets:
+                content = s.chunk.content
+                if len(content) > max_chunk:
+                    content = content[:max_chunk] + "\n[... chunk truncated]"
+                results.append({
                     "document_title": s.document_title,
-                    "content": s.chunk.content,
+                    "content": content,
                     "score": round(s.score, 3) if hasattr(s, "score") else None,
-                }
-                for s in snippets
-            ]
+                })
             return {"query": query, "results": results, "count": len(results)}
         except Exception as exc:
             return {"error": f"Knowledge search failed: {exc}", "results": []}
