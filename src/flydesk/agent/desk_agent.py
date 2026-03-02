@@ -839,6 +839,13 @@ class DeskAgent:
             uploads.append(upload)
             text = upload.extracted_text or ""
             if text:
+                max_ctx = 12_000
+                if len(text) > max_ctx:
+                    text = text[:max_ctx]
+                    text += (
+                        "\n\n[... truncated — use the document_read tool with "
+                        "page_start/page_end to read specific sections]"
+                    )
                 parts.append(f"- [{upload.filename}]: {text}")
 
         text_context = "\n".join(parts)
@@ -1731,5 +1738,13 @@ async def _build_multimodal_parts(
             raw = await storage.retrieve(upload.storage_path)
             parts.append(BinaryContent(data=raw, media_type=upload.content_type))
         elif upload.extracted_text:
-            parts.append(f"[{upload.filename}]: {upload.extracted_text}")
+            text = upload.extracted_text
+            max_ctx = 12_000
+            if len(text) > max_ctx:
+                text = text[:max_ctx]
+                text += (
+                    "\n\n[... truncated — use the document_read tool with "
+                    "page_start/page_end to read specific sections]"
+                )
+            parts.append(f"[{upload.filename}]: {text}")
     return parts
