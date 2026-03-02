@@ -25,6 +25,9 @@
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
+	// Props for partial rendering when used in tabbed layout
+	let { hideEmbedding = false, embeddingOnly = false }: { hideEmbedding?: boolean; embeddingOnly?: boolean } = $props();
+
 	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
@@ -463,6 +466,7 @@
 </script>
 
 <div class="flex h-full flex-col gap-4 overflow-y-auto p-6">
+	{#if !embeddingOnly}
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div>
@@ -749,7 +753,9 @@
 			</div>
 		</div>
 	{/if}
+	{/if}
 
+	{#if !embeddingOnly}
 	<!-- Fallback Models Configuration -->
 	<div class="rounded-lg border border-border bg-surface">
 		<button
@@ -879,9 +885,12 @@
 			</div>
 		{/if}
 	</div>
+	{/if}
 
+	{#if !hideEmbedding}
 	<!-- Embedding Configuration Section -->
 	<div class="rounded-lg border border-border bg-surface">
+		{#if !embeddingOnly}
 		<button
 			type="button"
 			onclick={() => (embeddingExpanded = !embeddingExpanded)}
@@ -902,9 +911,10 @@
 				<ChevronDown size={16} class="text-text-secondary" />
 			{/if}
 		</button>
+		{/if}
 
-		{#if embeddingExpanded}
-			<div class="border-t border-border px-4 py-4">
+		{#if embeddingExpanded || embeddingOnly}
+			<div class="{embeddingOnly ? '' : 'border-t border-border'} px-4 py-4">
 				<p class="mb-3 text-xs text-text-secondary">
 					Embeddings power semantic search in the knowledge base. Configure a provider
 					and model to enable vector-based retrieval. Without embeddings, keyword search
@@ -1054,4 +1064,5 @@
 			</div>
 		{/if}
 	</div>
+	{/if}
 </div>
