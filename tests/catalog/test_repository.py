@@ -38,7 +38,6 @@ def sample_system() -> ExternalSystem:
         description="A test CRM system",
         base_url="https://api.test.com",
         auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="cred-1"),
-        tags=["crm"],
         status=SystemStatus.ACTIVE,
     )
 

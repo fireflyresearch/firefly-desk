@@ -556,7 +556,6 @@ class SystemDiscoveryEngine:
                     status=SystemStatus.DRAFT,
                     auth_config=AuthConfig(auth_type=auth_type),
                     agent_enabled=False,
-                    tags=disc_sys.tags,
                     metadata={
                         "source": "auto_discovered",
                         "confidence": disc_sys.confidence,

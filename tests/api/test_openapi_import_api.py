@@ -360,7 +360,7 @@ class TestConfirmImport:
         created_system = mock_repo.create_system.call_args[0][0]
         assert created_system.status.value == "draft"
         assert created_system.name == "Pet Store API"
-        assert "openapi-import" in created_system.tags
+        assert created_system.tags == []
 
         # Two endpoints created
         assert mock_repo.create_endpoint.await_count == 2

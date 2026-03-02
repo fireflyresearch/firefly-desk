@@ -83,7 +83,7 @@ class ExternalSystem(BaseModel):
     base_url: str
     auth_config: AuthConfig | None = None
     health_check_path: str | None = None
-    tags: list[str] = Field(default_factory=list)
+    tags: list[SystemTag] = Field(default_factory=list)
     status: SystemStatus = SystemStatus.DRAFT
     metadata: dict[str, Any] = Field(default_factory=dict)
     agent_enabled: bool = False

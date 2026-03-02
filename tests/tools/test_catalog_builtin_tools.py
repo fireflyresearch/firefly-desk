@@ -124,15 +124,16 @@ class TestCreateCatalogSystem:
         assert created_system.metadata == {"source": "agent_tool"}
         assert created_system.agent_enabled is False
 
-    async def test_tags_parsed_from_csv(self, executor, catalog_repo):
-        """Comma-separated tags string is parsed into a list."""
+    async def test_tags_stored_in_metadata(self, executor, catalog_repo):
+        """Comma-separated tags string is stored in metadata as suggested_tags."""
         await executor.execute(
             "create_catalog_system",
             {"name": "Tagged System", "tags": "crm,production, sales "},
         )
         catalog_repo.create_system.assert_awaited_once()
         created_system: ExternalSystem = catalog_repo.create_system.call_args[0][0]
-        assert created_system.tags == ["crm", "production", "sales"]
+        assert created_system.tags == []
+        assert created_system.metadata["suggested_tags"] == ["crm", "production", "sales"]
 
     async def test_empty_tags_string_gives_empty_list(self, executor, catalog_repo):
         """Empty tags string results in empty tags list."""
@@ -142,6 +143,7 @@ class TestCreateCatalogSystem:
         )
         created_system: ExternalSystem = catalog_repo.create_system.call_args[0][0]
         assert created_system.tags == []
+        assert "suggested_tags" not in created_system.metadata
 
     async def test_auth_type_validated_invalid(self, executor):
         """Invalid auth_type returns an error listing valid values."""
@@ -228,14 +230,14 @@ class TestUpdateCatalogSystem:
         assert updated.description == "New description"
         assert updated.name == "System sys-1"  # unchanged
 
-    async def test_valid_update_changes_tags(self, executor, catalog_repo):
-        """Updating tags parses CSV and replaces existing tags."""
+    async def test_tags_not_updated_via_builtin(self, executor, catalog_repo):
+        """Tags are managed via the join table, not updated inline."""
         await executor.execute(
             "update_catalog_system",
             {"system_id": "sys-1", "tags": "new-tag, another"},
         )
         updated: ExternalSystem = catalog_repo.update_system.call_args[0][0]
-        assert updated.tags == ["new-tag", "another"]
+        assert updated.tags == []  # tags managed via join table
 
     async def test_fields_not_provided_are_unchanged(self, executor, catalog_repo):
         """When only one field is provided, other fields remain unchanged."""

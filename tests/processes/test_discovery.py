@@ -385,7 +385,7 @@ class TestContextGathering:
         system.description = "Customer management"
         system.base_url = "https://crm.example.com"
         system.status = "active"
-        system.tags = ["crm"]
+        system.tags = []
 
         endpoint = MagicMock()
         endpoint.id = "ep-1"

@@ -48,7 +48,6 @@ def _sample_system(system_id: str = "sys-1") -> ExternalSystem:
         description="A test system",
         base_url="https://api.example.com",
         auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="cred-1"),
-        tags=["test"],
         status=SystemStatus.ACTIVE,
         metadata={"env": "test"},
     )

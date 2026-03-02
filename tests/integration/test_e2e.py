@@ -74,7 +74,6 @@ def _core_banking_system() -> ExternalSystem:
             scopes=["accounts.read", "accounts.write", "transactions.read"],
         ),
         health_check_path="/health",
-        tags=["banking", "core"],
         status=SystemStatus.ACTIVE,
         metadata={"owner": "platform-team"},
     )
@@ -91,7 +90,6 @@ def _payment_gateway_system() -> ExternalSystem:
             credential_id="payment-gw-key",
         ),
         health_check_path="/ping",
-        tags=["payments", "external"],
         status=SystemStatus.ACTIVE,
         metadata={"owner": "payments-team"},
     )

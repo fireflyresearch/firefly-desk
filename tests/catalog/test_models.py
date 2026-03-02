@@ -22,7 +22,6 @@ class TestExternalSystem:
                 credential_id="cred-sf-001",
                 token_url="https://login.salesforce.com/services/oauth2/token",
             ),
-            tags=["crm", "customers"],
         )
         assert system.id == "crm-salesforce"
         assert system.status == SystemStatus.DRAFT

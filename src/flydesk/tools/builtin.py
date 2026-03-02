@@ -725,7 +725,7 @@ class BuiltinToolExecutor:
         tags_raw = arguments.get("tags", "")
         auth_type_raw = arguments.get("auth_type", "none")
 
-        # Parse comma-separated tags
+        # Parse comma-separated tags (stored in metadata for later tag assignment)
         tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
 
         # Validate auth_type
@@ -736,15 +736,17 @@ class BuiltinToolExecutor:
             return {"error": f"Invalid auth_type '{auth_type_raw}'. Valid values: {valid}"}
 
         system_id = str(uuid.uuid4())
+        metadata: dict[str, Any] = {"source": "agent_tool"}
+        if tags:
+            metadata["suggested_tags"] = tags
         system = ExternalSystem(
             id=system_id,
             name=name,
             description=description,
             base_url=base_url,
             auth_config=AuthConfig(auth_type=auth_type),
-            tags=tags,
             status=SystemStatus.DRAFT,
-            metadata={"source": "agent_tool"},
+            metadata=metadata,
             agent_enabled=False,
         )
 
@@ -769,11 +771,10 @@ class BuiltinToolExecutor:
         if existing is None:
             return {"error": f"System '{system_id}' not found"}
 
-        # Patch only the fields that were provided
+        # Patch only the fields that were provided (tags are managed via the join table)
         name = arguments.get("name")
         description = arguments.get("description")
         base_url = arguments.get("base_url")
-        tags_raw = arguments.get("tags")
 
         updated = existing.model_copy(
             update={
@@ -782,11 +783,6 @@ class BuiltinToolExecutor:
                     "name": name.strip() if name is not None else None,
                     "description": description if description is not None else None,
                     "base_url": base_url if base_url is not None else None,
-                    "tags": (
-                        [t.strip() for t in tags_raw.split(",") if t.strip()]
-                        if tags_raw is not None
-                        else None
-                    ),
                 }.items()
                 if v is not None
             }

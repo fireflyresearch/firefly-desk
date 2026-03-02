@@ -39,7 +39,6 @@ class TestCatalogORM:
         assert "base_url" in columns
         assert "auth_config" in columns
         assert "status" in columns
-        assert "tags" in columns
 
     def test_endpoint_row_has_expected_columns(self):
         columns = {c.name for c in ServiceEndpointRow.__table__.columns}

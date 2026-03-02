@@ -298,15 +298,15 @@ class TestToExternalSystems:
         assert systems[0].name == "Payment Gateway"
         assert systems[0].description == "Handles all payment processing"
 
-    def test_tags_preserved(self):
-        """Tags from the discovered system are passed through."""
+    def test_tags_not_passed_through(self):
+        """Discovered string tags are not passed to ExternalSystem (managed via join table)."""
         disc_result = SystemDiscoveryResult(
             systems=[
                 DiscoveredSystem(name="Tagged", tags=["payments", "api"])
             ]
         )
         systems = SystemDiscoveryEngine._to_external_systems(disc_result)
-        assert systems[0].tags == ["payments", "api"]
+        assert systems[0].tags == []
 
     def test_metadata_source_is_auto_discovered(self):
         """Metadata source field is set to 'auto_discovered'."""

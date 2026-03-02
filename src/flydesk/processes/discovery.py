@@ -431,7 +431,7 @@ class ProcessDiscoveryEngine:
                         description=sys.description,
                         base_url=sys.base_url,
                         status=str(sys.status),
-                        tags=sys.tags,
+                        tags=[t.name for t in sys.tags],
                         endpoints=ep_dicts,
                     )
                 )

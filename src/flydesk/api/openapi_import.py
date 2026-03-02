@@ -161,7 +161,6 @@ async def confirm_import(body: ConfirmRequest, repo: Repo) -> ConfirmResponse:
         description=spec_info.get("description", ""),
         base_url=spec_info.get("base_url", ""),
         auth_config=AuthConfig(auth_type=auth_type) if auth_type != AuthType.NONE else None,
-        tags=["openapi-import"],
         status=SystemStatus.DRAFT,
         metadata={
             "openapi_version": spec_info.get("version", ""),

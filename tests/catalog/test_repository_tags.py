@@ -37,7 +37,6 @@ def _make_system(system_id: str, name: str) -> ExternalSystem:
         description=f"Description for {name}",
         base_url="https://api.test.com",
         auth_config=AuthConfig(auth_type=AuthType.API_KEY, credential_id="cred-1"),
-        tags=["test"],
         status=SystemStatus.ACTIVE,
     )
 

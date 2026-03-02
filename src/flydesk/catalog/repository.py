@@ -66,13 +66,14 @@ class CatalogRepository:
                 base_url=system.base_url,
                 auth_config=_to_json(system.auth_config.model_dump()) if system.auth_config else None,
                 health_check_path=system.health_check_path,
-                tags=_to_json(system.tags),
                 agent_enabled=system.agent_enabled,
                 status=system.status.value,
                 metadata_=_to_json(system.metadata),
                 workspace_id=system.workspace_id,
             )
             session.add(row)
+            for tag in system.tags:
+                session.add(SystemTagAssociationRow(system_id=system.id, tag_id=tag.id))
             await session.commit()
 
     async def get_system(self, system_id: str) -> ExternalSystem | None:
@@ -144,7 +145,6 @@ class CatalogRepository:
             row.base_url = system.base_url
             row.auth_config = _to_json(system.auth_config.model_dump()) if system.auth_config else None
             row.health_check_path = system.health_check_path
-            row.tags = _to_json(system.tags)
             row.agent_enabled = system.agent_enabled
             row.status = system.status.value
             row.metadata_ = _to_json(system.metadata)
@@ -606,7 +606,7 @@ class CatalogRepository:
             base_url=row.base_url,
             auth_config=AuthConfig(**_from_json(row.auth_config)) if row.auth_config else None,
             health_check_path=row.health_check_path,
-            tags=_from_json(row.tags),
+            tags=[],
             status=SystemStatus(row.status),
             metadata=_from_json(row.metadata_),
             agent_enabled=row.agent_enabled,
