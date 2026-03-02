@@ -29,6 +29,7 @@ class SSEEventType(StrEnum):
     CONTENT_REPLACE = "content_replace"
     TITLE = "title"
     USAGE = "usage"
+    ROUTING = "routing"
     ERROR = "error"
     DONE = "done"
     JOB_PROGRESS = "job_progress"

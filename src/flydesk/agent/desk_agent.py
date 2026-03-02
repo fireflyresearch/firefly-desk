@@ -214,12 +214,25 @@ class DeskAgent:
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
         adapted = await self._adapt_tools(tools, session, conversation_id)
+        model_override, routing_decision = await self._route_model(message, adapted)
         usage_data: dict[str, Any] = {}
         t0 = time.monotonic()
         raw_text = await self._call_llm(
-            message, system_prompt, conversation_id, tools=adapted, usage_out=usage_data,
+            message, system_prompt, conversation_id, tools=adapted,
+            usage_out=usage_data, model_override=model_override,
         )
         latency_ms = round((time.monotonic() - t0) * 1000)
+
+        # Attach routing metadata to usage data
+        if routing_decision is not None:
+            usage_data["routing"] = {
+                "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
+                "confidence": routing_decision.confidence,
+                "reasoning": routing_decision.reasoning,
+                "model_used": routing_decision.model_string,
+                "classifier_model": routing_decision.classifier_model,
+                "classifier_latency_ms": routing_decision.classifier_latency_ms,
+            }
 
         # 4. Post-processing: parse widget directives
         parse_result = self._widget_parser.parse(raw_text)
@@ -310,12 +323,24 @@ class DeskAgent:
         # Adapt catalog tools for genai tool-use
         adapted = await self._adapt_tools(tools, session, conversation_id)
 
+        # Route to cost-appropriate model
+        model_override, routing_decision = await self._route_model(message, adapted)
+        if routing_decision is not None:
+            yield SSEEvent(
+                event=SSEEventType.ROUTING,
+                data={
+                    "tier": routing_decision.tier.value,
+                    "model": routing_decision.model_string,
+                },
+            )
+
         # Stream tokens from the LLM (real streaming or chunked fallback)
         full_text = ""
         usage_data: dict[str, Any] = {}
         t0 = time.monotonic()
         async for token in self._stream_llm(
-            message, system_prompt, conversation_id, tools=adapted, usage_out=usage_data,
+            message, system_prompt, conversation_id, tools=adapted,
+            usage_out=usage_data, model_override=model_override,
         ):
             full_text += token
             yield SSEEvent(
@@ -323,6 +348,17 @@ class DeskAgent:
                 data={"content": token},
             )
         latency_ms = round((time.monotonic() - t0) * 1000)
+
+        # Attach routing metadata to usage data
+        if routing_decision is not None:
+            usage_data["routing"] = {
+                "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
+                "confidence": routing_decision.confidence,
+                "reasoning": routing_decision.reasoning,
+                "model_used": routing_decision.model_string,
+                "classifier_model": routing_decision.classifier_model,
+                "classifier_latency_ms": routing_decision.classifier_latency_ms,
+            }
 
         # Post-processing: parse widget directives from full response
         parse_result = self._widget_parser.parse(full_text)
@@ -1051,6 +1087,7 @@ class DeskAgent:
         conversation_id: str | None = None,
         tools: list[object] | None = None,
         usage_out: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream tokens from the LLM via FireflyAgent.run_stream().
 
@@ -1066,6 +1103,8 @@ class DeskAgent:
                 usage data after the stream completes.  Keys:
                 ``input_tokens``, ``output_tokens``, ``total_tokens``,
                 ``cost_usd``, ``model``.
+            model_override: Optional model string from the router to use instead
+                of the default model.
 
         Yields:
             Individual token strings as they arrive from the model.
@@ -1074,9 +1113,6 @@ class DeskAgent:
             for chunk in self._echo_fallback_chunks(message):
                 yield chunk
             return
-
-        # Route to cost-appropriate model if router is configured
-        model_override, routing_decision = await self._route_model(message, tools)
 
         agent = await self._agent_factory.create_agent(
             system_prompt, tools=tools, model_override=model_override,
@@ -1124,16 +1160,6 @@ class DeskAgent:
                             self._extract_stream_usage(stream, agent, usage_out)
                             # Also extract tool call info from the message history
                             self._extract_tool_calls(stream, usage_out)
-
-                        if usage_out is not None and routing_decision is not None:
-                            usage_out["routing"] = {
-                                "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
-                                "confidence": routing_decision.confidence,
-                                "reasoning": routing_decision.reasoning,
-                                "model_used": routing_decision.model_string,
-                                "classifier_model": routing_decision.classifier_model,
-                                "classifier_latency_ms": routing_decision.classifier_latency_ms,
-                            }
 
                     # pydantic-ai's run_stream only handles the first model turn.
                     # If the model called tools, the follow-up response (with tool
@@ -1327,6 +1353,7 @@ class DeskAgent:
         conversation_id: str | None = None,
         tools: list[object] | None = None,
         usage_out: dict[str, Any] | None = None,
+        model_override: str | None = None,
     ) -> str:
         """Call the LLM via FireflyAgent.
 
@@ -1337,12 +1364,11 @@ class DeskAgent:
             tools: Adapted genai tools for the FireflyAgent.
             usage_out: Optional mutable dict that will be populated with token
                 usage data after the call completes.
+            model_override: Optional model string from the router to use instead
+                of the default model.
         """
         if self._agent_factory is None:
             return self._echo_fallback(message)
-
-        # Route to cost-appropriate model if router is configured
-        model_override, routing_decision = await self._route_model(message, tools)
 
         agent = await self._agent_factory.create_agent(
             system_prompt, tools=tools, model_override=model_override,
@@ -1356,15 +1382,6 @@ class DeskAgent:
                 result = await agent.run(message, conversation_id=conversation_id)
                 if usage_out is not None:
                     usage_out.update(self._extract_result_usage(result, agent))
-                    if routing_decision is not None:
-                        usage_out["routing"] = {
-                            "tier": routing_decision.tier.value if hasattr(routing_decision, 'tier') else str(routing_decision.tier),
-                            "confidence": routing_decision.confidence,
-                            "reasoning": routing_decision.reasoning,
-                            "model_used": routing_decision.model_string,
-                            "classifier_model": routing_decision.classifier_model,
-                            "classifier_latency_ms": routing_decision.classifier_latency_ms,
-                        }
                 return str(result.output)
             except _BUDGET_EXCEEDED_ERROR as exc:
                 _logger.warning("Budget exceeded during LLM call: %s", exc)
