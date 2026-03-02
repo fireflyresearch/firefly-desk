@@ -1387,8 +1387,10 @@ class DeskAgent:
         # call within reasonable token limits.
         _truncate_message_history(message_history)
 
-        # Make a follow-up run() call with the accumulated history so the LLM
+        # Make a follow-up call with the accumulated history so the LLM
         # sees the tool results and produces the final answer.
+        # Uses run_stream() for real-time token streaming instead of
+        # blocking until the full response is ready.
         # Includes retry with exponential backoff for transient / rate-limit errors.
         inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
         last_exc: Exception | None = None
@@ -1396,26 +1398,24 @@ class DeskAgent:
         for attempt in range(_FOLLOWUP_MAX_RETRIES):
             try:
                 async with asyncio.timeout(_LLM_FOLLOWUP_TIMEOUT):
-                    result = await inner_agent.run(
+                    async with inner_agent.run_stream(
                         "Based on the tool results above, provide a complete answer.",
                         message_history=message_history,
-                    )
-                follow_up_text = str(result.output) if hasattr(result, "output") else str(result.data)
+                    ) as stream_result:
+                        yield "\n\n"
+                        async for delta in stream_result.stream_text(delta=True):
+                            yield delta
 
-                if follow_up_text:
-                    yield "\n\n"
-                    for i in range(0, len(follow_up_text), _STREAM_CHUNK_SIZE):
-                        yield follow_up_text[i : i + _STREAM_CHUNK_SIZE]
-
-                    if usage_out is not None:
-                        try:
-                            fu_usage = result.usage() if callable(getattr(result, "usage", None)) else None
-                            if fu_usage:
-                                usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
-                                usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
-                                usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
-                        except Exception:
-                            _logger.debug("Failed to extract follow-up usage.", exc_info=True)
+                        # Extract usage from the streamed result
+                        if usage_out is not None:
+                            try:
+                                fu_usage = stream_result.usage()
+                                if fu_usage:
+                                    usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
+                                    usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
+                                    usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
+                            except Exception:
+                                _logger.debug("Failed to extract follow-up usage.", exc_info=True)
                 return  # success
             except TimeoutError:
                 _logger.warning("Follow-up LLM call timed out after %ds", _LLM_FOLLOWUP_TIMEOUT)
@@ -1432,6 +1432,7 @@ class DeskAgent:
                         "Follow-up rate limited (attempt %d/%d), retrying in %.1fs: %s",
                         attempt + 1, _FOLLOWUP_MAX_RETRIES, delay, exc,
                     )
+                    yield f" ⏳"
                     await asyncio.sleep(delay)
                     continue
                 break
