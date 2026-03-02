@@ -28,3 +28,5 @@ class TestResolvedAuth:
         ra = ResolvedAuth()
         assert ra.headers == {}
         assert ra.query_params == {}
+        assert ra.path_params == {}
+        assert ra.body_params == {}
