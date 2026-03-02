@@ -913,6 +913,14 @@ class DeskAgent:
                 catalog_tool_count, len(builtin_tools), len(tools),
             )
 
+        # Build system context preambles for enriching the prompt
+        system_contexts_text = ""
+        if self._catalog_repo is not None and tools:
+            try:
+                system_contexts_text = await self._build_system_contexts(tools)
+            except Exception:
+                _logger.debug("Failed to build system contexts.", exc_info=True)
+
         # Resolve knowledge tag filter from access scopes (admin bypasses)
         knowledge_tag_filter: list[str] | None = None
         if not admin_user and scopes.knowledge_tags:
@@ -1003,6 +1011,7 @@ class DeskAgent:
             language=language,
             feedback_context=feedback_context,
             email_enabled=email_enabled,
+            system_contexts=system_contexts_text,
         )
         system_prompt = self._prompt_builder.build(prompt_context)
 
@@ -1610,6 +1619,57 @@ class DeskAgent:
             }
             for tool in tools
         ]
+
+    async def _build_system_contexts(self, tools: list[ToolDefinition]) -> str:
+        """Build per-system context preambles for the agent prompt.
+
+        Collects tags, linked documents, and system metadata for each
+        system referenced by the active tools and formats them using
+        :meth:`ToolFactory.build_system_context`.
+        """
+        # Determine which system IDs are in use
+        system_ids = {t.system_id for t in tools if t.system_id}
+        if not system_ids or self._catalog_repo is None:
+            return ""
+
+        # Fetch system objects, tags, and linked documents in bulk
+        systems_list, _ = await self._catalog_repo.list_systems()
+        systems_by_id = {s.id: s for s in systems_list if s.id in system_ids}
+        if not systems_by_id:
+            return ""
+
+        all_tags = await self._catalog_repo.list_all_system_tags()
+        all_docs_map = await self._catalog_repo.list_all_system_documents()
+
+        # Resolve linked document IDs to KnowledgeDocument objects
+        from flydesk.knowledge.models import KnowledgeDocument
+
+        doc_ids_needed: set[str] = set()
+        for sid in system_ids:
+            for sd in all_docs_map.get(sid, []):
+                doc_ids_needed.add(sd.document_id)
+
+        kb_docs_by_id: dict[str, KnowledgeDocument] = {}
+        for doc_id in doc_ids_needed:
+            doc = await self._catalog_repo.get_knowledge_document(doc_id)
+            if doc is not None:
+                kb_docs_by_id[doc_id] = doc
+
+        # Build context for each system
+        context_parts: list[str] = []
+        for sid in sorted(systems_by_id):
+            system = systems_by_id[sid]
+            # Attach tags to system for context building
+            system_with_tags = system.model_copy(update={"tags": all_tags.get(sid, [])})
+            linked_docs = [
+                kb_docs_by_id[sd.document_id]
+                for sd in all_docs_map.get(sid, [])
+                if sd.document_id in kb_docs_by_id
+            ]
+            ctx = ToolFactory.build_system_context(system_with_tags, linked_docs)
+            context_parts.append(ctx)
+
+        return "\n\n".join(context_parts)
 
     @staticmethod
     def _format_knowledge_context(enriched: object) -> str:

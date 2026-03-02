@@ -555,6 +555,35 @@ class CatalogRepository:
                 for r in result.scalars().all()
             ]
 
+    # -- Bulk lookups for agent enrichment --
+
+    async def list_all_system_tags(self) -> dict[str, list[SystemTag]]:
+        """Return tags grouped by system_id for all systems."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(SystemTagAssociationRow.system_id, SystemTagRow)
+                .join(SystemTagRow, SystemTagAssociationRow.tag_id == SystemTagRow.id)
+            )
+            groups: dict[str, list[SystemTag]] = {}
+            for row in result.all():
+                system_id = row[0]
+                tag_row = row[1]
+                groups.setdefault(system_id, []).append(
+                    SystemTag(id=tag_row.id, name=tag_row.name, color=tag_row.color, description=tag_row.description)
+                )
+            return groups
+
+    async def list_all_system_documents(self) -> dict[str, list[SystemDocument]]:
+        """Return linked documents grouped by system_id for all systems."""
+        async with self._session_factory() as session:
+            result = await session.execute(select(SystemDocumentRow))
+            groups: dict[str, list[SystemDocument]] = {}
+            for row in result.scalars().all():
+                groups.setdefault(row.system_id, []).append(
+                    SystemDocument(system_id=row.system_id, document_id=row.document_id, role=row.role)
+                )
+            return groups
+
     # -- System Documents --
 
     async def link_document(self, system_id: str, document_id: str, role: str = "reference") -> None:

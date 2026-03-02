@@ -53,6 +53,7 @@ class PromptContext:
     language: str = "en"
     feedback_context: str = ""
     email_enabled: bool = False
+    system_contexts: str = ""
 
 
 class SystemPromptBuilder:
@@ -116,6 +117,12 @@ class SystemPromptBuilder:
             )
         if context.email_enabled:
             sections.append(self._registry.get("email_composing").render())
+        if context.system_contexts:
+            sections.append(
+                "# System Context\n\n"
+                "The following describes the external systems whose tools are available.\n\n"
+                + context.system_contexts
+            )
 
         return "\n\n".join(sections)
 
