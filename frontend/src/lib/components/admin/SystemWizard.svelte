@@ -1,9 +1,8 @@
 <!--
   SystemWizard.svelte - Multi-step wizard for creating/editing external systems.
 
-  4-step wizard: Basics, Authentication, Agent Access, Review & Create.
-  Displayed as a modal overlay with step indicators, validation, and
-  dynamic auth fields based on selected auth type.
+  Unified wizard with method picker (Step 0), then 4-step flow: Basics,
+  Authentication, Agent Access, Review & Create.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -19,7 +18,11 @@
 		Shield,
 		Activity,
 		Plus,
-		Trash2
+		Trash2,
+		Terminal,
+		FileUp,
+		Sparkles,
+		Wrench
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { apiJson } from '$lib/services/api.js';
@@ -126,7 +129,15 @@
 	// State
 	// -----------------------------------------------------------------------
 
-	let currentStep = $state(0);
+	// Method picker state (Step 0 for new systems)
+	let wizardMethod: 'curl' | 'upload' | 'detect' | 'manual' | null = $state(isEditMode ? 'manual' : null);
+	let curlCommand = $state('');
+	let curlParsing = $state(false);
+	let curlError = $state('');
+	let pendingFiles: File[] = $state([]);
+
+	// currentStep: -1 = method picker, 0-3 = normal steps
+	let currentStep = $state(isEditMode ? 0 : -1);
 	let saving = $state(false);
 	let error = $state('');
 	let credentials = $state<Credential[]>([]);
@@ -213,6 +224,90 @@
 	});
 
 	// -----------------------------------------------------------------------
+	// Method picker actions
+	// -----------------------------------------------------------------------
+
+	function selectMethod(method: 'curl' | 'upload' | 'detect' | 'manual') {
+		wizardMethod = method;
+		if (method === 'manual') {
+			currentStep = 0;
+		}
+		// For 'curl', 'upload', 'detect' — stay on step -1 to show the sub-flow
+	}
+
+	async function parseCurl() {
+		if (!curlCommand.trim()) return;
+		curlParsing = true;
+		curlError = '';
+		try {
+			const result = await apiJson<{
+				method: string;
+				url: string;
+				headers: Record<string, string>;
+				body: string | null;
+				query_params: Record<string, string>;
+			}>('/catalog/import/curl', {
+				method: 'POST',
+				body: JSON.stringify({ command: curlCommand })
+			});
+
+			// Extract hostname for the name
+			try {
+				const urlObj = new URL(result.url);
+				const hostname = urlObj.hostname.replace(/^(api|www)\./, '');
+				const baseName = hostname.split('.')[0];
+				name = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+
+				// Determine base URL (scheme + host + optional base path)
+				const pathParts = urlObj.pathname.split('/').filter(Boolean);
+				if (pathParts.length > 1) {
+					// Use first path segment as version/base prefix
+					baseUrl = `${urlObj.origin}/${pathParts[0]}`;
+				} else {
+					baseUrl = urlObj.origin;
+				}
+			} catch {
+				baseUrl = result.url;
+			}
+
+			// Set auth from headers
+			if (result.headers['Authorization'] || result.headers['authorization']) {
+				const authHeader = result.headers['Authorization'] || result.headers['authorization'];
+				if (authHeader.startsWith('Bearer ')) {
+					authType = 'bearer';
+				} else if (authHeader.startsWith('Basic ')) {
+					authType = 'basic';
+				}
+			}
+
+			// Pre-fill description
+			description = `API imported from curl command`;
+
+			// Move to Step 1 (Basics) with pre-filled data
+			currentStep = 0;
+		} catch (e) {
+			curlError = e instanceof Error ? e.message : 'Failed to parse curl command';
+		} finally {
+			curlParsing = false;
+		}
+	}
+
+	function handleFileUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		if (input.files) {
+			pendingFiles = [...pendingFiles, ...Array.from(input.files)];
+		}
+	}
+
+	function removePendingFile(index: number) {
+		pendingFiles = pendingFiles.filter((_, i) => i !== index);
+	}
+
+	function proceedFromUpload() {
+		currentStep = 0;
+	}
+
+	// -----------------------------------------------------------------------
 	// Credential mapping helpers
 	// -----------------------------------------------------------------------
 
@@ -248,6 +343,10 @@
 	function goPrev() {
 		if (currentStep > 0) {
 			currentStep -= 1;
+		} else if (currentStep === 0 && !isEditMode) {
+			// Go back to method picker
+			currentStep = -1;
+			wizardMethod = null;
 		}
 	}
 
@@ -392,7 +491,11 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between border-b border-border px-6 py-4">
 			<h2 class="text-base font-semibold text-text-primary">
-				{isEditMode ? 'Edit System' : 'New System'}
+				{#if currentStep === -1}
+					New System
+				{:else}
+					{isEditMode ? 'Edit System' : 'New System'}
+				{/if}
 			</h2>
 			<button
 				type="button"
@@ -403,39 +506,41 @@
 			</button>
 		</div>
 
-		<!-- Step indicators -->
-		<div class="flex items-center gap-2 border-b border-border px-6 py-3">
-			{#each STEPS as stepLabel, i}
-				{@const active = i === currentStep}
-				{@const complete = isStepComplete(i)}
-				{@const clickable = i <= currentStep || (i === currentStep + 1 && isStepValid(currentStep))}
+		<!-- Step indicators (only show during normal steps, not method picker) -->
+		{#if currentStep >= 0}
+			<div class="flex items-center gap-2 border-b border-border px-6 py-3">
+				{#each STEPS as stepLabel, i}
+					{@const active = i === currentStep}
+					{@const complete = isStepComplete(i)}
+					{@const clickable = i <= currentStep || (i === currentStep + 1 && isStepValid(currentStep))}
 
-				{#if i > 0}
-					<div class="h-px flex-1 {i <= currentStep ? 'bg-accent' : 'bg-border'}"></div>
-				{/if}
+					{#if i > 0}
+						<div class="h-px flex-1 {i <= currentStep ? 'bg-accent' : 'bg-border'}"></div>
+					{/if}
 
-				<button
-					type="button"
-					onclick={() => goToStep(i)}
-					disabled={!clickable}
-					class="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors
-						{active ? 'text-accent' : complete ? 'text-success' : 'text-text-secondary'}
-						{clickable ? 'cursor-pointer hover:bg-surface-hover' : 'cursor-default opacity-50'}"
-				>
-					<span
-						class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold
-							{active ? 'bg-accent text-white' : complete ? 'bg-success text-white' : 'bg-surface-secondary text-text-secondary'}"
+					<button
+						type="button"
+						onclick={() => goToStep(i)}
+						disabled={!clickable}
+						class="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors
+							{active ? 'text-accent' : complete ? 'text-success' : 'text-text-secondary'}
+							{clickable ? 'cursor-pointer hover:bg-surface-hover' : 'cursor-default opacity-50'}"
 					>
-						{#if complete}
-							<Check size={12} />
-						{:else}
-							{i + 1}
-						{/if}
-					</span>
-					<span class="hidden sm:inline">{stepLabel}</span>
-				</button>
-			{/each}
-		</div>
+						<span
+							class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold
+								{active ? 'bg-accent text-white' : complete ? 'bg-success text-white' : 'bg-surface-secondary text-text-secondary'}"
+						>
+							{#if complete}
+								<Check size={12} />
+							{:else}
+								{i + 1}
+							{/if}
+						</span>
+						<span class="hidden sm:inline">{stepLabel}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 
 		<!-- Error banner -->
 		{#if error}
@@ -446,12 +551,244 @@
 
 		<!-- Step content -->
 		<div class="flex-1 overflow-y-auto px-6 py-5">
+
+			<!-- Step 0: Method Picker (new systems only) -->
+			{#if currentStep === -1}
+				{#if wizardMethod === null}
+					<div class="flex flex-col gap-4">
+						<p class="text-sm text-text-secondary">
+							Choose how you want to set up this new system.
+						</p>
+
+						<div class="grid grid-cols-2 gap-3">
+							<!-- Paste Curl Command -->
+							<button
+								type="button"
+								onclick={() => selectMethod('curl')}
+								class="flex flex-col items-start gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-accent hover:bg-accent/5"
+							>
+								<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
+									<Terminal size={18} class="text-accent" />
+								</div>
+								<div>
+									<h3 class="text-sm font-semibold text-text-primary">Paste Curl Command</h3>
+									<p class="mt-0.5 text-xs text-text-secondary">
+										Parse a curl command to extract URL, headers, and auth info.
+									</p>
+								</div>
+							</button>
+
+							<!-- Upload Documentation -->
+							<button
+								type="button"
+								onclick={() => selectMethod('upload')}
+								class="flex flex-col items-start gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-accent hover:bg-accent/5"
+							>
+								<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10">
+									<FileUp size={18} class="text-success" />
+								</div>
+								<div>
+									<h3 class="text-sm font-semibold text-text-primary">Upload Documentation</h3>
+									<p class="mt-0.5 text-xs text-text-secondary">
+										Upload API docs or specs to be linked after system creation.
+									</p>
+								</div>
+							</button>
+
+							<!-- Detect from KB -->
+							<button
+								type="button"
+								onclick={() => selectMethod('detect')}
+								class="flex flex-col items-start gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-accent hover:bg-accent/5"
+							>
+								<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-warning/10">
+									<Sparkles size={18} class="text-warning" />
+								</div>
+								<div>
+									<h3 class="text-sm font-semibold text-text-primary">Detect from KB</h3>
+									<p class="mt-0.5 text-xs text-text-secondary">
+										Auto-discover systems from your knowledge base documents.
+									</p>
+								</div>
+							</button>
+
+							<!-- Manual Setup -->
+							<button
+								type="button"
+								onclick={() => selectMethod('manual')}
+								class="flex flex-col items-start gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-accent hover:bg-accent/5"
+							>
+								<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-text-secondary/10">
+									<Wrench size={18} class="text-text-secondary" />
+								</div>
+								<div>
+									<h3 class="text-sm font-semibold text-text-primary">Manual Setup</h3>
+									<p class="mt-0.5 text-xs text-text-secondary">
+										Manually configure all system details from scratch.
+									</p>
+								</div>
+							</button>
+						</div>
+					</div>
+
+				<!-- Curl sub-flow -->
+				{:else if wizardMethod === 'curl'}
+					<div class="flex flex-col gap-4">
+						<p class="text-sm text-text-secondary">
+							Paste a curl command below. We will parse it to extract the URL, headers, and authentication details.
+						</p>
+
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-text-secondary">Curl Command</span>
+							<textarea
+								bind:value={curlCommand}
+								placeholder={"curl -X GET 'https://api.example.com/v1/users' \\\n  -H 'Authorization: Bearer token123' \\\n  -H 'Content-Type: application/json'"}
+								rows={6}
+								class="rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
+							></textarea>
+						</label>
+
+						{#if curlError}
+							<div class="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+								{curlError}
+							</div>
+						{/if}
+
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => { wizardMethod = null; }}
+								class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onclick={parseCurl}
+								disabled={curlParsing || !curlCommand.trim()}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+							>
+								{#if curlParsing}
+									<Loader2 size={14} class="animate-spin" />
+								{/if}
+								Parse & Continue
+							</button>
+						</div>
+					</div>
+
+				<!-- Upload sub-flow -->
+				{:else if wizardMethod === 'upload'}
+					<div class="flex flex-col gap-4">
+						<p class="text-sm text-text-secondary">
+							Upload API documentation files. These will be available for linking after the system is created.
+						</p>
+
+						<label
+							class="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 transition-colors hover:border-accent hover:bg-accent/5"
+						>
+							<FileUp size={24} class="text-text-secondary" />
+							<span class="text-sm text-text-secondary">Click to upload files</span>
+							<span class="text-xs text-text-secondary/60">OpenAPI specs, API docs, etc.</span>
+							<input
+								type="file"
+								multiple
+								accept=".json,.yaml,.yml,.md,.txt,.html,.pdf"
+								onchange={handleFileUpload}
+								class="hidden"
+							/>
+						</label>
+
+						{#if pendingFiles.length > 0}
+							<div class="flex flex-col gap-1.5">
+								<span class="text-xs font-medium text-text-secondary">Uploaded files ({pendingFiles.length})</span>
+								{#each pendingFiles as file, i}
+									<div class="flex items-center gap-2 rounded-md border border-border bg-surface-secondary/30 px-3 py-2">
+										<span class="flex-1 truncate text-xs text-text-primary">{file.name}</span>
+										<span class="text-[10px] text-text-secondary">{(file.size / 1024).toFixed(1)} KB</span>
+										<button
+											type="button"
+											onclick={() => removePendingFile(i)}
+											class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+										>
+											<X size={12} />
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => { wizardMethod = null; pendingFiles = []; }}
+								class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onclick={proceedFromUpload}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+							>
+								Continue to Setup
+								<ChevronRight size={14} />
+							</button>
+						</div>
+					</div>
+
+				<!-- Detect sub-flow -->
+				{:else if wizardMethod === 'detect'}
+					<div class="flex flex-col gap-4">
+						<div class="rounded-lg border border-border bg-surface-secondary/30 p-6 text-center">
+							<Sparkles size={32} class="mx-auto mb-3 text-warning" />
+							<h3 class="text-sm font-semibold text-text-primary">Knowledge Base Detection</h3>
+							<p class="mt-2 text-xs text-text-secondary">
+								System detection scans your knowledge base documents to automatically discover
+								external systems. Use the <strong>Detect Systems</strong> button in the catalog
+								view to trigger a full detection scan.
+							</p>
+						</div>
+
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => { wizardMethod = null; }}
+								class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onclick={onClose}
+								class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
+							>
+								Close & Use Detect
+							</button>
+							<button
+								type="button"
+								onclick={() => { wizardMethod = null; }}
+								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+							>
+								Choose Another Method
+							</button>
+						</div>
+					</div>
+				{/if}
+
 			<!-- Step 1: Basics -->
-			{#if currentStep === 0}
+			{:else if currentStep === 0}
 				<div class="flex flex-col gap-4">
 					<p class="text-sm text-text-secondary">
 						Define the basic information about this external system.
 					</p>
+
+					{#if pendingFiles.length > 0}
+						<div class="rounded-md border border-accent/30 bg-accent/5 px-3 py-2">
+							<span class="text-xs font-medium text-accent">
+								{pendingFiles.length} file(s) staged for linking after save
+							</span>
+						</div>
+					{/if}
 
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-text-secondary">Name <span class="text-danger">*</span></span>
@@ -933,7 +1270,7 @@
 		<!-- Footer navigation -->
 		<div class="flex items-center justify-between border-t border-border px-6 py-4">
 			<div>
-				{#if currentStep > 0}
+				{#if currentStep >= 0}
 					<button
 						type="button"
 						onclick={goPrev}
@@ -946,38 +1283,48 @@
 			</div>
 
 			<div class="flex items-center gap-2">
-				<button
-					type="button"
-					onclick={onClose}
-					class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
-				>
-					Cancel
-				</button>
-
-				{#if currentStep < STEPS.length - 1}
+				{#if currentStep === -1}
 					<button
 						type="button"
-						onclick={goNext}
-						disabled={!isStepValid(currentStep)}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+						onclick={onClose}
+						class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
 					>
-						Next
-						<ChevronRight size={14} />
+						Cancel
 					</button>
 				{:else}
 					<button
 						type="button"
-						onclick={submit}
-						disabled={saving || !isStepValid(3)}
-						class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+						onclick={onClose}
+						class="rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover"
 					>
-						{#if saving}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<Save size={14} />
-						{/if}
-						{isEditMode ? 'Update System' : 'Create System'}
+						Cancel
 					</button>
+
+					{#if currentStep < STEPS.length - 1}
+						<button
+							type="button"
+							onclick={goNext}
+							disabled={!isStepValid(currentStep)}
+							class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+						>
+							Next
+							<ChevronRight size={14} />
+						</button>
+					{:else}
+						<button
+							type="button"
+							onclick={submit}
+							disabled={saving || !isStepValid(3)}
+							class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+						>
+							{#if saving}
+								<Loader2 size={14} class="animate-spin" />
+							{:else}
+								<Save size={14} />
+							{/if}
+							{isEditMode ? 'Update System' : 'Create System'}
+						</button>
+					{/if}
 				{/if}
 			</div>
 		</div>

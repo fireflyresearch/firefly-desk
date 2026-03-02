@@ -15,7 +15,6 @@
 		ChevronDown,
 		ChevronRight,
 		Loader2,
-		FileUp,
 		Sparkles,
 		X,
 		CheckCircle2,
@@ -29,7 +28,6 @@
 	import { parseSSEStream } from '$lib/services/sse.js';
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
-	import OpenAPIImportWizard from './OpenAPIImportWizard.svelte';
 	import SystemTagManager from './SystemTagManager.svelte';
 
 	// -----------------------------------------------------------------------
@@ -116,9 +114,6 @@
 	let showForm = $state(false);
 	let saving = $state(false);
 	let editingSystemFull = $state<SystemFull | null>(null);
-
-	// OpenAPI Import Wizard state
-	let showImportWizard = $state(false);
 
 	// Endpoint Wizard state
 	let showEndpointWizard = $state(false);
@@ -692,14 +687,6 @@
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				onclick={() => showImportWizard = true}
-				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover"
-			>
-				<FileUp size={16} />
-				Import from OpenAPI
-			</button>
-			<button
-				type="button"
 				onclick={triggerDetectSystems}
 				disabled={isDetecting}
 				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -862,14 +849,6 @@
 			editingEndpoint={editingEndpoint}
 			onClose={closeEndpointWizard}
 			onSaved={onEndpointSaved}
-		/>
-	{/if}
-
-	<!-- OpenAPI Import Wizard modal -->
-	{#if showImportWizard}
-		<OpenAPIImportWizard
-			onClose={() => showImportWizard = false}
-			onImported={() => { showImportWizard = false; loadSystems(); }}
 		/>
 	{/if}
 
@@ -1347,6 +1326,7 @@
 												</button>
 											</div>
 										{/if}
+
 									</td>
 								</tr>
 							{/if}
