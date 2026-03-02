@@ -120,3 +120,13 @@ class SystemTagAssociationRow(Base):
 
     system_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     tag_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+
+class SystemDocumentRow(Base):
+    """ORM row for the ``system_documents`` join table."""
+
+    __tablename__ = "system_documents"
+
+    system_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="reference")

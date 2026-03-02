@@ -148,3 +148,11 @@ class SystemTag(BaseModel):
     name: str
     color: str | None = None
     description: str | None = None
+
+
+class SystemDocument(BaseModel):
+    """Links a knowledge document to an external system."""
+
+    system_id: str
+    document_id: str
+    role: str = "reference"  # "reference", "api_spec", "setup_guide", "changelog"
