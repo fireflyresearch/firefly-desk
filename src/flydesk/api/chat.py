@@ -183,10 +183,22 @@ async def _generate_title(
         if len(msgs) > 2:
             return None
 
+        # Use the cheapest model (FAST tier) for title generation if routing is configured
+        model_override = None
+        routing_config_repo = getattr(request.app.state, "routing_config_repo", None)
+        if routing_config_repo is not None:
+            try:
+                routing_config = await routing_config_repo.get_config()
+                if routing_config and routing_config.enabled:
+                    model_override = routing_config.tier_mappings.get("fast")
+            except Exception:
+                pass  # Non-fatal
+
         agent = await agent_factory.create_agent(
             "You are a conversation title generator. Given the user's first message, "
             "generate a short, descriptive title (3-7 words) that captures the intent. "
             "Return ONLY the title text. No quotes, no trailing punctuation.",
+            model_override=model_override,
         )
         if agent is None:
             return None
