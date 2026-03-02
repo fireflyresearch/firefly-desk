@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any
 from flydesk.catalog.enums import RiskLevel
 
 if TYPE_CHECKING:
-    from flydesk.catalog.models import ServiceEndpoint
+    from flydesk.catalog.models import ExternalSystem, ServiceEndpoint, SystemTag
+    from flydesk.knowledge.models import KnowledgeDocument
     from flydesk.rbac.models import AccessScopes
 
 
@@ -36,6 +37,29 @@ class ToolDefinition:
 
 class ToolFactory:
     """Generates tool definitions from catalog endpoints, filtered by user permissions."""
+
+    @staticmethod
+    def build_system_context(
+        system: ExternalSystem,
+        linked_docs: list[KnowledgeDocument],
+        max_doc_chars: int = 500,
+    ) -> str:
+        """Build a markdown context preamble for a system's tools."""
+        parts = [f"## {system.name}"]
+        if system.description:
+            parts.append(system.description)
+        parts.append(f"Base URL: {system.base_url}")
+        if system.tags:
+            tag_names = ", ".join(t.name for t in system.tags)
+            parts.append(f"Tags: {tag_names}")
+        if linked_docs:
+            parts.append("\n### Reference Documents")
+            for doc in linked_docs:
+                summary = doc.content[:max_doc_chars]
+                if len(doc.content) > max_doc_chars:
+                    summary += "..."
+                parts.append(f"**{doc.title}**: {summary}")
+        return "\n".join(parts)
 
     def build_tool_definitions(
         self,
