@@ -1215,6 +1215,7 @@ class DeskAgent:
             _logger.debug("Could not inspect agent tools.", exc_info=True)
 
         last_exc: Exception | None = None
+        stream_ref: object | None = None
         for attempt in range(_LLM_MAX_RETRIES):
             try:
                 async with asyncio.timeout(_LLM_STREAM_TIMEOUT):
@@ -1230,14 +1231,16 @@ class DeskAgent:
                             self._extract_stream_usage(stream, agent, usage_out)
                             # Also extract tool call info from the message history
                             self._extract_tool_calls(stream, usage_out)
+                        stream_ref = stream
 
-                    # pydantic-ai's run_stream only handles the first model turn.
-                    # If the model called tools, the follow-up response (with tool
-                    # results) was never generated.  Detect this and do a follow-up
-                    # run() with the accumulated message history so the model can
-                    # produce the actual answer.
+                # pydantic-ai's run_stream only handles the first model turn.
+                # If the model called tools, the follow-up response (with tool
+                # results) was never generated.  Run the follow-up OUTSIDE the
+                # stream timeout so its own retry/backoff logic has a full
+                # time budget (important for rate-limit recovery).
+                if stream_ref is not None:
                     async for token in self._follow_up_after_tool_calls(
-                        stream, agent, conversation_id, usage_out,
+                        stream_ref, agent, conversation_id, usage_out,
                     ):
                         yield token
 
