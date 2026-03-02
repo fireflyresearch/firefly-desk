@@ -8,15 +8,16 @@
  * Licensed under the Apache License, Version 2.0.
  */
 
-import { apiJson } from './api.js';
+import { apiFetch, apiJson } from './api.js';
 
 export interface Job {
 	id: string;
 	job_type: string;
-	status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+	status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 	progress_pct: number;
 	progress_message: string;
 	result: any;
+	has_checkpoint: boolean;
 	error: string | null;
 	created_at: string | null;
 	started_at: string | null;
@@ -42,4 +43,16 @@ export async function fetchJobs(filters?: JobFilters): Promise<Job[]> {
 
 export async function fetchJob(id: string): Promise<Job> {
 	return apiJson<Job>(`/jobs/${id}`);
+}
+
+export async function pauseJob(id: string): Promise<void> {
+	await apiJson(`/jobs/${id}/pause`, { method: 'POST' });
+}
+
+export async function resumeJob(id: string): Promise<void> {
+	await apiJson(`/jobs/${id}/resume`, { method: 'POST' });
+}
+
+export async function cancelJob(id: string): Promise<void> {
+	await apiFetch(`/jobs/${id}`, { method: 'DELETE' });
 }

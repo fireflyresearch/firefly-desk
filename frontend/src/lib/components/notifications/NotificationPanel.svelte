@@ -9,7 +9,7 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Bell, X, CheckCircle, AlertCircle, Loader2, Clock, Activity } from 'lucide-svelte';
+	import { Bell, X, CheckCircle, AlertCircle, Loader2, Clock, Pause, Activity } from 'lucide-svelte';
 	import {
 		fetchNotifications,
 		dismissNotification,
@@ -87,7 +87,8 @@
 			pending: 'Pending',
 			running: 'Running',
 			completed: 'Completed',
-			failed: 'Failed'
+			failed: 'Failed',
+			paused: 'Paused'
 		};
 		return labels[status];
 	}
@@ -148,6 +149,8 @@
 									<Loader2 size={16} class="animate-spin text-amber-500" />
 								{:else if notification.status === 'completed'}
 									<CheckCircle size={16} class="text-green-500" />
+								{:else if notification.status === 'paused'}
+									<Pause size={16} class="text-blue-500" />
 								{:else if notification.status === 'failed'}
 									<AlertCircle size={16} class="text-red-500" />
 								{/if}
@@ -167,7 +170,9 @@
 												? 'border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
 												: notification.status === 'completed'
 													? 'border border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400'
-													: 'border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400'}"
+													: notification.status === 'paused'
+														? 'border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400'
+														: 'border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400'}"
 									>
 										{statusLabel(notification.status)}
 									</span>

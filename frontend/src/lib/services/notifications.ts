@@ -18,8 +18,9 @@ export interface AppNotification {
 	id: string;
 	type: 'job' | 'workflow' | 'email';
 	title: string;
-	status: 'pending' | 'running' | 'completed' | 'failed';
+	status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 	progress?: number | null;
+	started_at: string | null;
 	created_at: string | null;
 	updated_at: string | null;
 }
