@@ -79,6 +79,7 @@ from flydesk.api.deps import (
     get_oidc_repo,
     get_process_repo,
     get_role_repo,
+    get_routing_config_repo,
     get_sandbox_executor,
     get_session_factory,
     get_settings_repo,
@@ -664,6 +665,15 @@ async def _init_agent(  # noqa: PLR0913
 
     agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
 
+    # Model Router (opt-in via database config)
+    from flydesk.agent.router.classifier import ComplexityClassifier
+    from flydesk.agent.router.config import RoutingConfigRepository
+    from flydesk.agent.router.router import ModelRouter
+
+    routing_config_repo = RoutingConfigRepository(session_factory)
+    classifier = ComplexityClassifier(agent_factory)
+    model_router = ModelRouter(classifier=classifier, config_repo=routing_config_repo)
+
     # Discovery engines (process + system)
     from flydesk.jobs.handlers import ProcessDiscoveryHandler
     from flydesk.processes.discovery import ProcessDiscoveryEngine
@@ -749,12 +759,15 @@ async def _init_agent(  # noqa: PLR0913
         feedback_repo=feedback_repo,
         custom_tool_repo=custom_tool_repo,
         sandbox_executor=sandbox_executor,
+        model_router=model_router,
     )
     app.state.desk_agent = desk_agent
     app.state.context_enricher = context_enricher
     app.state.agent_factory = agent_factory
     app.state.llm_repo = llm_repo
     app.state.settings_repo = settings_repo
+    app.state.routing_config_repo = routing_config_repo
+    app.dependency_overrides[get_routing_config_repo] = lambda: routing_config_repo
 
     return {
         "auto_trigger": auto_trigger,
