@@ -13,8 +13,13 @@ from sqlalchemy import String as SAString, cast, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.catalog.enums import SystemStatus
-from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
-from flydesk.models.catalog import ExternalSystemRow, ServiceEndpointRow
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint, SystemTag
+from flydesk.models.catalog import (
+    ExternalSystemRow,
+    ServiceEndpointRow,
+    SystemTagAssociationRow,
+    SystemTagRow,
+)
 
 
 def _to_json(value: Any) -> str | None:
@@ -83,6 +88,7 @@ class CatalogRepository:
         workspace_id: str | None = None,
         status: SystemStatus | None = None,
         search: str | None = None,
+        tag_ids: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ExternalSystem], int]:
@@ -101,6 +107,21 @@ class CatalogRepository:
                 pattern = f"%{search}%"
                 stmt = stmt.where(ExternalSystemRow.name.ilike(pattern))
                 count_stmt = count_stmt.where(ExternalSystemRow.name.ilike(pattern))
+            if tag_ids:
+                stmt = stmt.where(
+                    ExternalSystemRow.id.in_(
+                        select(SystemTagAssociationRow.system_id).where(
+                            SystemTagAssociationRow.tag_id.in_(tag_ids)
+                        )
+                    )
+                )
+                count_stmt = count_stmt.where(
+                    ExternalSystemRow.id.in_(
+                        select(SystemTagAssociationRow.system_id).where(
+                            SystemTagAssociationRow.tag_id.in_(tag_ids)
+                        )
+                    )
+                )
 
             total_result = await session.execute(count_stmt)
             total = total_result.scalar() or 0
@@ -462,6 +483,76 @@ class CatalogRepository:
                 tags=_from_json(row.tags) if row.tags else [],
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
+
+    # -- Tags --
+
+    async def create_tag(self, tag: SystemTag) -> None:
+        """Persist a new system tag."""
+        async with self._session_factory() as session:
+            row = SystemTagRow(id=tag.id, name=tag.name, color=tag.color, description=tag.description)
+            session.add(row)
+            await session.commit()
+
+    async def list_tags(self) -> list[SystemTag]:
+        """Return all tags ordered by name."""
+        async with self._session_factory() as session:
+            result = await session.execute(select(SystemTagRow).order_by(SystemTagRow.name))
+            return [
+                SystemTag(id=r.id, name=r.name, color=r.color, description=r.description)
+                for r in result.scalars().all()
+            ]
+
+    async def update_tag(self, tag: SystemTag) -> None:
+        """Update an existing tag."""
+        async with self._session_factory() as session:
+            await session.execute(
+                update(SystemTagRow)
+                .where(SystemTagRow.id == tag.id)
+                .values(name=tag.name, color=tag.color, description=tag.description)
+            )
+            await session.commit()
+
+    async def delete_tag(self, tag_id: str) -> None:
+        """Delete a tag and all its associations."""
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(SystemTagAssociationRow).where(SystemTagAssociationRow.tag_id == tag_id)
+            )
+            await session.execute(delete(SystemTagRow).where(SystemTagRow.id == tag_id))
+            await session.commit()
+
+    # -- Tag Associations --
+
+    async def assign_tag(self, system_id: str, tag_id: str) -> None:
+        """Associate a tag with a system."""
+        async with self._session_factory() as session:
+            session.add(SystemTagAssociationRow(system_id=system_id, tag_id=tag_id))
+            await session.commit()
+
+    async def remove_tag(self, system_id: str, tag_id: str) -> None:
+        """Remove a tag association from a system."""
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(SystemTagAssociationRow).where(
+                    SystemTagAssociationRow.system_id == system_id,
+                    SystemTagAssociationRow.tag_id == tag_id,
+                )
+            )
+            await session.commit()
+
+    async def list_system_tags(self, system_id: str) -> list[SystemTag]:
+        """Return all tags associated with a specific system."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(SystemTagRow)
+                .join(SystemTagAssociationRow, SystemTagRow.id == SystemTagAssociationRow.tag_id)
+                .where(SystemTagAssociationRow.system_id == system_id)
+                .order_by(SystemTagRow.name)
+            )
+            return [
+                SystemTag(id=r.id, name=r.name, color=r.color, description=r.description)
+                for r in result.scalars().all()
+            ]
 
     # -- Mapping helpers --
 
