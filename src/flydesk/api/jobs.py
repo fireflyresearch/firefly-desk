@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
-# Permission guard: any authenticated user can view/manage their own jobs.
+# Permission guards
 JobsRead = require_permission("jobs:read")
-JobsCancel = require_permission("jobs:cancel")
+JobsManage = require_permission("jobs:manage")
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +38,7 @@ JobsCancel = require_permission("jobs:cancel")
 # ---------------------------------------------------------------------------
 
 JobRepo = Annotated[JobRepository, Depends(get_job_repo)]
+Runner = Annotated[JobRunner, Depends(get_job_runner)]
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ async def get_job(job_id: str, repo: JobRepo) -> dict:
     return _job_to_dict(job)
 
 
-@router.delete("/{job_id}", dependencies=[JobsCancel], status_code=204)
+@router.delete("/{job_id}", dependencies=[JobsManage], status_code=204)
 async def cancel_job(job_id: str, repo: JobRepo) -> None:
     """Cancel a pending or running job."""
     job = await repo.get(job_id)
@@ -97,6 +98,36 @@ async def cancel_job(job_id: str, repo: JobRepo) -> None:
         )
 
     await repo.update_status(job_id, JobStatus.CANCELLED)
+
+
+@router.post("/{job_id}/pause", dependencies=[JobsManage])
+async def pause_job(job_id: str, repo: JobRepo, runner: Runner) -> dict:
+    """Request pause for a running job."""
+    job = await repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.RUNNING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot pause job in '{job.status.value}' state (must be running)",
+        )
+    runner.request_pause(job_id)
+    return {"status": "pause_requested", "job_id": job_id}
+
+
+@router.post("/{job_id}/resume", dependencies=[JobsManage])
+async def resume_job(job_id: str, repo: JobRepo, runner: Runner) -> dict:
+    """Resume a paused job."""
+    job = await repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.PAUSED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot resume job in '{job.status.value}' state (must be paused)",
+        )
+    await runner.resume(job_id)
+    return {"status": "resumed", "job_id": job_id}
 
 
 @router.get("/{job_id}/stream", dependencies=[JobsRead])
@@ -203,6 +234,7 @@ def _job_to_dict(job: Job) -> dict:
         "progress_message": job.progress_message,
         "result": job.result,
         "error": job.error,
+        "has_checkpoint": job.checkpoint is not None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,

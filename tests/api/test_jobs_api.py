@@ -227,6 +227,62 @@ class TestJobsCancelAPI:
         assert response.status_code == 404
 
 
+class TestJobsPauseAPI:
+    async def test_pause_running_job(self, client):
+        """POST /api/jobs/{id}/pause accepts running jobs."""
+        ac, repo, runner = client
+        await repo.create(_make_job("j-1", status=JobStatus.RUNNING))
+        response = await ac.post("/api/jobs/j-1/pause")
+        assert response.status_code == 200
+        assert runner.is_pause_requested("j-1")
+
+    async def test_pause_non_running_returns_409(self, client):
+        """POST /api/jobs/{id}/pause rejects non-running jobs."""
+        ac, repo, runner = client
+        await repo.create(_make_job("j-1", status=JobStatus.PENDING))
+        response = await ac.post("/api/jobs/j-1/pause")
+        assert response.status_code == 409
+
+    async def test_pause_not_found(self, client):
+        ac, repo, runner = client
+        response = await ac.post("/api/jobs/nonexistent/pause")
+        assert response.status_code == 404
+
+
+class TestJobsResumeAPI:
+    async def test_resume_paused_job(self, client):
+        """POST /api/jobs/{id}/resume re-enqueues paused jobs."""
+        ac, repo, runner = client
+        await repo.create(_make_job("j-1", status=JobStatus.PAUSED))
+        response = await ac.post("/api/jobs/j-1/resume")
+        assert response.status_code == 200
+        job = await repo.get("j-1")
+        assert job.status == JobStatus.PENDING
+
+    async def test_resume_non_paused_returns_409(self, client):
+        """POST /api/jobs/{id}/resume rejects non-paused jobs."""
+        ac, repo, runner = client
+        await repo.create(_make_job("j-1", status=JobStatus.RUNNING))
+        response = await ac.post("/api/jobs/j-1/resume")
+        assert response.status_code == 409
+
+    async def test_resume_not_found(self, client):
+        ac, repo, runner = client
+        response = await ac.post("/api/jobs/nonexistent/resume")
+        assert response.status_code == 404
+
+
+class TestCancelExtendedToPaused:
+    async def test_cancel_paused_job(self, client):
+        """DELETE /api/jobs/{id} cancels paused jobs."""
+        ac, repo, runner = client
+        await repo.create(_make_job("j-1", status=JobStatus.PAUSED))
+        response = await ac.delete("/api/jobs/j-1")
+        assert response.status_code == 204
+        job = await repo.get("j-1")
+        assert job.status == JobStatus.CANCELLED
+
+
 class TestJobsStreamAPI:
     async def test_stream_not_found(self, client):
         """GET /api/jobs/{id}/stream returns 404 for unknown jobs."""

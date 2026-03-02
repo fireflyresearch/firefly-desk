@@ -73,7 +73,8 @@ CredentialsWrite = require_permission("credentials:write")
 
 # Jobs
 JobsRead = require_permission("jobs:read")
-JobsCancel = require_permission("jobs:cancel")
+JobsManage = require_permission("jobs:manage")
+JobsCancel = JobsManage  # backward compat alias
 
 # Processes
 ProcessesRead = require_permission("processes:read")

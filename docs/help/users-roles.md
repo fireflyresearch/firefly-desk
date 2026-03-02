@@ -26,7 +26,7 @@ Permissions follow a `resource:action` pattern. The full set includes:
 - `exports:create`, `exports:download`, `exports:delete`, `exports:templates` -- Export operations.
 - `audit:read` -- View the audit log.
 - `credentials:read`, `credentials:write` -- Credential vault access.
-- `jobs:read`, `jobs:cancel` -- Background job monitoring.
+- `jobs:read`, `jobs:manage` -- Background job monitoring and control.
 - `processes:read`, `processes:write` -- Business process management.
 - `admin:users`, `admin:roles`, `admin:settings`, `admin:sso`, `admin:llm`, `admin:dashboard`, `admin:git_providers` -- Administrative functions.
 
