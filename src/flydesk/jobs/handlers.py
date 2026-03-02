@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Protocol, runtime_checkable
 
 from flydesk.knowledge.indexer import KnowledgeIndexer
@@ -29,6 +30,25 @@ logger = logging.getLogger(__name__)
 # Type alias for the progress callback passed to handlers.
 ProgressCallback = Callable[[int, str], Coroutine[Any, Any, None]]
 
+# Callback that the runner provides; handler checks before each work unit.
+ShouldPauseCallback = Callable[[], bool]
+
+
+@dataclass
+class ExecutionResult:
+    """Return type for job handlers.
+
+    If ``checkpoint`` is not None, the handler paused and the runner should
+    save the checkpoint and set status to PAUSED.
+    """
+
+    result: dict
+    checkpoint: dict | None = None
+
+    @property
+    def is_paused(self) -> bool:
+        return self.checkpoint is not None
+
 
 @runtime_checkable
 class JobHandler(Protocol):
@@ -38,9 +58,11 @@ class JobHandler(Protocol):
         job_id: The unique identifier of the running job.
         payload: Arbitrary JSON-serialisable dict with handler-specific data.
         on_progress: Async callback ``(pct, message)`` to report progress.
+        checkpoint: Optional checkpoint dict from a previous paused run.
+        should_pause: Callback to check whether a pause has been requested.
 
     Returns:
-        A result dict to persist with the completed job.
+        A result dict or an ``ExecutionResult`` to persist with the completed job.
     """
 
     async def execute(
@@ -48,7 +70,9 @@ class JobHandler(Protocol):
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
-    ) -> dict: ...
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
+    ) -> dict | ExecutionResult: ...
 
 
 class IndexingJobHandler:
