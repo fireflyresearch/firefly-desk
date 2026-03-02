@@ -22,13 +22,15 @@
 		AlertCircle,
 		Search,
 		Settings,
-		Save
+		Save,
+		Tag
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
 	import OpenAPIImportWizard from './OpenAPIImportWizard.svelte';
+	import SystemTagManager from './SystemTagManager.svelte';
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -45,12 +47,18 @@
 		protocol_type?: string;
 	}
 
+	interface TagRef {
+		id: string;
+		name: string;
+		color: string | null;
+	}
+
 	interface System {
 		id: string;
 		name: string;
 		base_url: string;
 		status: string;
-		tags: string[];
+		tags: TagRef[];
 		workspace_id?: string | null;
 	}
 
@@ -68,7 +76,7 @@
 			auth_params?: Record<string, string> | null;
 		};
 		health_check_path: string | null;
-		tags: string[];
+		tags: TagRef[];
 		status: string;
 		agent_enabled: boolean;
 		metadata: Record<string, unknown>;
@@ -89,6 +97,12 @@
 	let pageSize = $state(20);
 	let searchTerm = $state('');
 	let statusFilter = $state('');
+
+	// Tag filtering
+	let allTags = $state<TagRef[]>([]);
+	let selectedTagIds = $state<string[]>([]);
+	let showTagManager = $state(false);
+	let showTagFilter = $state(false);
 
 	// Checkbox selection
 	let selectedIds = $state<Set<string>>(new Set());
@@ -173,6 +187,14 @@
 		}
 	}
 
+	async function loadAllTags() {
+		try {
+			allTags = await apiJson<TagRef[]>('/catalog/tags');
+		} catch {
+			// Tags are optional
+		}
+	}
+
 	async function loadDiscoverySettings() {
 		loadingDiscoverySettings = true;
 		try {
@@ -226,6 +248,7 @@
 			params.set('offset', String((currentPage - 1) * pageSize));
 			if (searchTerm.trim()) params.set('search', searchTerm.trim());
 			if (statusFilter) params.set('status', statusFilter);
+			if (selectedTagIds.length) params.set('tag_ids', selectedTagIds.join(','));
 
 			const result = await apiJson<{ items: System[]; total: number }>(
 				`/catalog/systems?${params.toString()}`
@@ -255,6 +278,7 @@
 		loadSystems();
 		loadWorkspaces();
 		loadDiscoverySettings();
+		loadAllTags();
 	});
 
 	// -----------------------------------------------------------------------
@@ -288,6 +312,70 @@
 	function onStatusFilterChange() {
 		currentPage = 1;
 		loadSystems();
+	}
+
+	function toggleTagFilter(tagId: string) {
+		if (selectedTagIds.includes(tagId)) {
+			selectedTagIds = selectedTagIds.filter((id) => id !== tagId);
+		} else {
+			selectedTagIds = [...selectedTagIds, tagId];
+		}
+		currentPage = 1;
+		loadSystems();
+	}
+
+	function clearTagFilter() {
+		selectedTagIds = [];
+		currentPage = 1;
+		loadSystems();
+	}
+
+	// System tag assignment helpers
+	let assigningTagSystemId = $state<string | null>(null);
+	let systemTags = $state<TagRef[]>([]);
+	let loadingSystemTags = $state(false);
+
+	async function loadSystemTags(systemId: string) {
+		loadingSystemTags = true;
+		try {
+			systemTags = await apiJson<TagRef[]>(`/catalog/systems/${systemId}/tags`);
+		} catch {
+			systemTags = [];
+		} finally {
+			loadingSystemTags = false;
+		}
+	}
+
+	function toggleTagAssignment(systemId: string) {
+		if (assigningTagSystemId === systemId) {
+			assigningTagSystemId = null;
+		} else {
+			assigningTagSystemId = systemId;
+			loadSystemTags(systemId);
+		}
+	}
+
+	async function assignTag(systemId: string, tagId: string) {
+		try {
+			await apiJson(`/catalog/systems/${systemId}/tags`, {
+				method: 'POST',
+				body: JSON.stringify({ tag_id: tagId })
+			});
+			await loadSystemTags(systemId);
+			await loadSystems();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to assign tag';
+		}
+	}
+
+	async function removeTag(systemId: string, tagId: string) {
+		try {
+			await apiFetch(`/catalog/systems/${systemId}/tags/${tagId}`, { method: 'DELETE' });
+			await loadSystemTags(systemId);
+			await loadSystems();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to remove tag';
+		}
 	}
 
 	let totalPages = $derived(Math.ceil(totalSystems / pageSize) || 1);
@@ -785,6 +873,28 @@
 		/>
 	{/if}
 
+	<!-- Manage Tags collapsible section -->
+	<div class="shrink-0 rounded-lg border border-border bg-surface">
+		<button
+			type="button"
+			onclick={() => (showTagManager = !showTagManager)}
+			class="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover"
+		>
+			<Tag size={14} />
+			Manage Tags
+			<ChevronRight
+				size={14}
+				class="ml-auto transition-transform {showTagManager ? 'rotate-90' : ''}"
+			/>
+		</button>
+
+		{#if showTagManager}
+			<div class="border-t border-border px-4 py-3">
+				<SystemTagManager onTagsChanged={loadAllTags} />
+			</div>
+		{/if}
+	</div>
+
 	<!-- Search & filter bar -->
 	<div class="flex shrink-0 items-center gap-2">
 		<div class="relative flex-1">
@@ -809,6 +919,57 @@
 			<option value="deprecated">Deprecated</option>
 			<option value="degraded">Degraded</option>
 		</select>
+
+		<!-- Tag filter dropdown -->
+		<div class="relative">
+			<button
+				type="button"
+				onclick={() => (showTagFilter = !showTagFilter)}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-surface-hover {selectedTagIds.length > 0 ? 'border-accent/50' : ''}"
+			>
+				<Tag size={12} />
+				Tags
+				{#if selectedTagIds.length > 0}
+					<span class="rounded-full bg-accent px-1.5 text-[10px] font-medium text-white">{selectedTagIds.length}</span>
+				{/if}
+			</button>
+
+			{#if showTagFilter}
+				<div class="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-surface shadow-lg">
+					<div class="max-h-48 overflow-y-auto p-2">
+						{#each allTags as tag}
+							<label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-hover">
+								<input
+									type="checkbox"
+									checked={selectedTagIds.includes(tag.id)}
+									onchange={() => toggleTagFilter(tag.id)}
+									class="accent-accent"
+								/>
+								<span
+									class="inline-block h-2 w-2 rounded-full"
+									style="background-color: {tag.color ?? '#6366f1'};"
+								></span>
+								<span class="text-text-primary">{tag.name}</span>
+							</label>
+						{/each}
+						{#if allTags.length === 0}
+							<p class="px-2 py-1.5 text-xs text-text-secondary">No tags available</p>
+						{/if}
+					</div>
+					{#if selectedTagIds.length > 0}
+						<div class="border-t border-border px-2 py-1.5">
+							<button
+								type="button"
+								onclick={clearTagFilter}
+								class="w-full rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+							>
+								Clear filter
+							</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Bulk action bar -->
@@ -971,9 +1132,14 @@
 										<div class="flex flex-wrap gap-1">
 											{#each system.tags as tag}
 												<span
-													class="rounded bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary"
+													class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+													style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
 												>
-													{tag}
+													<span
+														class="inline-block h-1.5 w-1.5 rounded-full"
+														style="background-color: {tag.color ?? '#6366f1'};"
+													></span>
+													{tag.name}
 												</span>
 											{/each}
 										</div>
@@ -1023,10 +1189,77 @@
 								</td>
 							</tr>
 
-							<!-- Expanded endpoints -->
+							<!-- Expanded endpoints & tags -->
 							{#if expanded}
 								<tr class="bg-surface-secondary/30">
 									<td colspan="8" class="px-8 py-3">
+										<!-- Tag assignment -->
+										<div class="mb-3">
+											<div class="flex items-center gap-2 mb-2">
+												<span class="text-xs font-medium text-text-secondary">Tags:</span>
+												<button
+													type="button"
+													onclick={() => toggleTagAssignment(system.id)}
+													class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
+												>
+													<Plus size={10} />
+													{assigningTagSystemId === system.id ? 'Done' : 'Manage'}
+												</button>
+											</div>
+
+											<div class="flex flex-wrap items-center gap-1.5">
+												{#each system.tags as tag}
+													<span
+														class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+														style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
+													>
+														<span
+															class="inline-block h-1.5 w-1.5 rounded-full"
+															style="background-color: {tag.color ?? '#6366f1'};"
+														></span>
+														{tag.name}
+														{#if assigningTagSystemId === system.id}
+															<button
+																type="button"
+																onclick={() => removeTag(system.id, tag.id)}
+																class="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+																title="Remove tag"
+															>
+																<X size={10} />
+															</button>
+														{/if}
+													</span>
+												{/each}
+												{#if system.tags.length === 0 && assigningTagSystemId !== system.id}
+													<span class="text-xs text-text-secondary">No tags assigned</span>
+												{/if}
+											</div>
+
+											{#if assigningTagSystemId === system.id}
+												<div class="mt-2 flex flex-wrap gap-1.5">
+													{#each allTags.filter((t) => !system.tags.some((st) => st.id === t.id)) as tag}
+														<button
+															type="button"
+															onclick={() => assignTag(system.id, tag.id)}
+															class="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+														>
+															<span
+																class="inline-block h-1.5 w-1.5 rounded-full"
+																style="background-color: {tag.color ?? '#6366f1'};"
+															></span>
+															<Plus size={10} />
+															{tag.name}
+														</button>
+													{/each}
+													{#if allTags.filter((t) => !system.tags.some((st) => st.id === t.id)).length === 0}
+														<span class="text-xs text-text-secondary">All tags assigned</span>
+													{/if}
+												</div>
+											{/if}
+										</div>
+
+										<hr class="mb-3 border-border/50" />
+
 										{#if endpointCache[system.id] && endpointCache[system.id].length > 0}
 											<table class="w-full text-left text-xs">
 												<thead>
