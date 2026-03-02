@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass, field as dc_field
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -31,6 +32,16 @@ if TYPE_CHECKING:
     from flydesk.security.kms import KMSProvider
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ResolvedAuth:
+    """Resolved authentication data for an outgoing request."""
+
+    headers: dict[str, str] = dc_field(default_factory=dict)
+    query_params: dict[str, str] = dc_field(default_factory=dict)
+    path_params: dict[str, str] = dc_field(default_factory=dict)
+    body_params: dict[str, Any] = dc_field(default_factory=dict)
 
 
 class _TokenCache:
