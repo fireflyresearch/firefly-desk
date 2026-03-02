@@ -24,6 +24,7 @@ import httpx
 
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
+from flydesk.tools.auth_resolver import ResolvedAuth
 from flydesk.tools.executor import _parse_response
 from flydesk.tools.factory import ToolDefinition
 
@@ -1137,20 +1138,19 @@ class BuiltinToolExecutor:
 
         return system
 
-    async def _resolve_auth_headers(self, system: ExternalSystem) -> dict[str, str]:
-        """Resolve authentication headers for the given system.
+    async def _resolve_auth(self, system: ExternalSystem) -> ResolvedAuth:
+        """Resolve authentication data for the given system.
 
         Uses the :class:`AuthResolver` from the attached :class:`ToolExecutor`
-        when available, otherwise returns empty headers.
+        when available, otherwise returns an empty :class:`ResolvedAuth`.
         """
         if system.auth_config is None:
-            return {}
+            return ResolvedAuth()
 
         if self._tool_executor is None:
-            return {}
+            return ResolvedAuth()
 
-        resolved = await self._tool_executor._auth_resolver.resolve_headers(system)
-        return resolved.headers
+        return await self._tool_executor._auth_resolver.resolve_headers(system)
 
     async def _execute_http_request(
         self, request_kwargs: dict[str, Any]
@@ -1198,7 +1198,7 @@ class BuiltinToolExecutor:
         if not path:
             return {"error": "path is required"}
 
-        auth_headers = await self._resolve_auth_headers(system)
+        auth_headers = (await self._resolve_auth(system)).headers
 
         # Build URL
         base = system.base_url.rstrip("/")
@@ -1243,7 +1243,7 @@ class BuiltinToolExecutor:
         variables = arguments.get("variables", {})
         operation_name = arguments.get("operation_name")
 
-        auth_headers = await self._resolve_auth_headers(system)
+        auth_headers = (await self._resolve_auth(system)).headers
 
         # GraphQL endpoint is the system base_url itself
         url = system.base_url.rstrip("/")
@@ -1280,7 +1280,7 @@ class BuiltinToolExecutor:
         if not body_xml:
             return {"error": "body_xml is required"}
 
-        auth_headers = await self._resolve_auth_headers(system)
+        auth_headers = (await self._resolve_auth(system)).headers
 
         # Use optional path or fall back to system base_url
         path = arguments.get("path", "").strip()
@@ -1331,7 +1331,7 @@ class BuiltinToolExecutor:
 
         body = arguments.get("body", {})
 
-        auth_headers = await self._resolve_auth_headers(system)
+        auth_headers = (await self._resolve_auth(system)).headers
 
         base = system.base_url.rstrip("/")
         url = f"{base}/{service}/{method}"
@@ -1388,7 +1388,7 @@ class BuiltinToolExecutor:
             if k.lower() not in _SENSITIVE_HEADERS
         }
 
-        auth_headers = await self._resolve_auth_headers(system)
+        auth_headers = (await self._resolve_auth(system)).headers
 
         # Convert http(s):// to ws(s):// scheme
         base = system.base_url.rstrip("/")

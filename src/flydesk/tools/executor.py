@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from flydesk.audit.models import AuditEvent, AuditEventType
-from flydesk.tools.auth_resolver import AuthResolver
+from flydesk.tools.auth_resolver import AuthResolver, ResolvedAuth
 
 if TYPE_CHECKING:
     from flydesk.catalog.ports import CredentialStore
@@ -471,9 +471,9 @@ class ToolExecutor:
             )
         )
 
-        # Resolve auth headers (with optional SSO claim forwarding).
+        # Resolve auth (with optional SSO claim forwarding).
         if system.auth_config is None:
-            auth_headers: dict[str, str] = {}
+            resolved_auth = ResolvedAuth()
         else:
             _user_session_obj = (
                 user_session
@@ -486,7 +486,6 @@ class ToolExecutor:
                     user_session=_user_session_obj,
                     sso_mappings=self._sso_mappings or None,
                 )
-                auth_headers = resolved_auth.headers
             except Exception as exc:
                 return ToolResult(
                     call_id=call.call_id,
@@ -503,7 +502,7 @@ class ToolExecutor:
             self._rate_limiter.configure(endpoint.id, endpoint.rate_limit)
 
         # Build protocol-specific request.
-        request_kwargs = self._build_request(endpoint, system, call, auth_headers)
+        request_kwargs = self._build_request(endpoint, system, call, resolved_auth)
 
         # Execute the HTTP request with retry and rate limiting.
         try:
@@ -580,10 +579,18 @@ class ToolExecutor:
     # Protocol-specific request builders
     # ------------------------------------------------------------------
 
-    def _resolve_url(self, endpoint: Any, system: Any, call: ToolCall) -> str:
+    def _resolve_url(
+        self,
+        endpoint: Any,
+        system: Any,
+        call: ToolCall,
+        resolved_auth: ResolvedAuth | None = None,
+    ) -> str:
         """Build URL with path-parameter substitution and enforcement."""
         path = endpoint.path
-        path_params = call.arguments.get("path", {})
+        # Auth-sourced path params are merged first; call args take precedence.
+        auth_path = resolved_auth.path_params if resolved_auth else {}
+        path_params = {**auth_path, **call.arguments.get("path", {})}
         for param_name, param_value in path_params.items():
             value = str(param_value)
             # Reject path parameter values containing URL schemes or traversal
@@ -613,35 +620,44 @@ class ToolExecutor:
         endpoint: Any,
         system: Any,
         call: ToolCall,
-        auth_headers: dict[str, str],
+        resolved_auth: ResolvedAuth,
     ) -> dict[str, Any]:
         """Build protocol-specific HTTP request kwargs."""
         protocol = getattr(endpoint, "protocol_type", "rest")
 
         if protocol == "graphql":
-            return self._build_graphql_request(endpoint, system, call, auth_headers)
+            return self._build_graphql_request(endpoint, system, call, resolved_auth)
         if protocol == "soap":
-            return self._build_soap_request(endpoint, system, call, auth_headers)
+            return self._build_soap_request(endpoint, system, call, resolved_auth)
         if protocol == "grpc":
-            return self._build_grpc_request(endpoint, system, call, auth_headers)
-        return self._build_rest_request(endpoint, system, call, auth_headers)
+            return self._build_grpc_request(endpoint, system, call, resolved_auth)
+        return self._build_rest_request(endpoint, system, call, resolved_auth)
 
     def _build_rest_request(
         self,
         endpoint: Any,
         system: Any,
         call: ToolCall,
-        auth_headers: dict[str, str],
+        resolved_auth: ResolvedAuth,
     ) -> dict[str, Any]:
         """Build HTTP request kwargs for a REST endpoint."""
-        url = self._resolve_url(endpoint, system, call)
-        query_params = call.arguments.get("query", {})
+        url = self._resolve_url(endpoint, system, call, resolved_auth)
+
+        # Merge auth query params with call args (call args take precedence).
+        query_params = {**resolved_auth.query_params, **call.arguments.get("query", {})}
         body = call.arguments.get("body")
+
+        # Merge auth body params into the body (call args take precedence).
+        if resolved_auth.body_params:
+            if isinstance(body, dict):
+                body = {**resolved_auth.body_params, **body}
+            elif body is None:
+                body = dict(resolved_auth.body_params)
 
         kwargs: dict[str, Any] = {
             "method": endpoint.method.value,
             "url": url,
-            "headers": auth_headers,
+            "headers": resolved_auth.headers,
             "timeout": endpoint.timeout_seconds,
         }
         if query_params:
@@ -655,15 +671,19 @@ class ToolExecutor:
         endpoint: Any,
         system: Any,
         call: ToolCall,
-        auth_headers: dict[str, str],
+        resolved_auth: ResolvedAuth,
     ) -> dict[str, Any]:
         """Build HTTP request kwargs for a GraphQL endpoint.
 
         Sends a POST with ``{"query": ..., "variables": ..., "operationName": ...}``
         regardless of the endpoint's declared HTTP method.
         """
-        url = self._resolve_url(endpoint, system, call)
+        url = self._resolve_url(endpoint, system, call, resolved_auth)
         variables = call.arguments.get("body", {})
+
+        # Merge auth body params into variables (call args take precedence).
+        if resolved_auth.body_params:
+            variables = {**resolved_auth.body_params, **variables}
 
         graphql_body: dict[str, Any] = {"query": endpoint.graphql_query or ""}
         if variables:
@@ -671,20 +691,27 @@ class ToolExecutor:
         if endpoint.graphql_operation_name:
             graphql_body["operationName"] = endpoint.graphql_operation_name
 
-        return {
+        kwargs: dict[str, Any] = {
             "method": "POST",
             "url": url,
-            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "headers": {**resolved_auth.headers, "Content-Type": "application/json"},
             "json": graphql_body,
             "timeout": endpoint.timeout_seconds,
         }
+
+        # Merge auth query params if present.
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            kwargs["params"] = query_params
+
+        return kwargs
 
     def _build_soap_request(
         self,
         endpoint: Any,
         system: Any,
         call: ToolCall,
-        auth_headers: dict[str, str],
+        resolved_auth: ResolvedAuth,
     ) -> dict[str, Any]:
         """Build HTTP request kwargs for a SOAP endpoint.
 
@@ -692,22 +719,23 @@ class ToolExecutor:
         call arguments, sets ``Content-Type: text/xml`` and optional ``SOAPAction``
         header.
         """
-        url = self._resolve_url(endpoint, system, call)
+        url = self._resolve_url(endpoint, system, call, resolved_auth)
 
         body_template = endpoint.soap_body_template or ""
-        body_params = call.arguments.get("body", {})
+        # Auth body params are substituted first; call args take precedence.
+        body_params = {**resolved_auth.body_params, **call.arguments.get("body", {})}
         soap_body = body_template
         for key, value in body_params.items():
             soap_body = soap_body.replace("{" + key + "}", str(value))
 
         headers = {
-            **auth_headers,
+            **resolved_auth.headers,
             "Content-Type": "text/xml; charset=utf-8",
         }
         if endpoint.soap_action:
             headers["SOAPAction"] = endpoint.soap_action
 
-        return {
+        kwargs: dict[str, Any] = {
             "method": "POST",
             "url": url,
             "headers": headers,
@@ -715,12 +743,19 @@ class ToolExecutor:
             "timeout": endpoint.timeout_seconds,
         }
 
+        # Merge auth query params if present.
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            kwargs["params"] = query_params
+
+        return kwargs
+
     def _build_grpc_request(
         self,
         endpoint: Any,
         system: Any,
         call: ToolCall,
-        auth_headers: dict[str, str],
+        resolved_auth: ResolvedAuth,
     ) -> dict[str, Any]:
         """Build HTTP request kwargs for gRPC via JSON transcoding (gRPC-Web).
 
@@ -734,10 +769,21 @@ class ToolExecutor:
 
         body = call.arguments.get("body", {})
 
-        return {
+        # Merge auth body params into body (call args take precedence).
+        if resolved_auth.body_params:
+            body = {**resolved_auth.body_params, **body}
+
+        kwargs: dict[str, Any] = {
             "method": "POST",
             "url": url,
-            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "headers": {**resolved_auth.headers, "Content-Type": "application/json"},
             "json": body,
             "timeout": endpoint.timeout_seconds,
         }
+
+        # Merge auth query params if present.
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            kwargs["params"] = query_params
+
+        return kwargs

@@ -25,6 +25,7 @@ from flydesk.catalog.models import (
     RetryPolicy,
     ServiceEndpoint,
 )
+from flydesk.tools.auth_resolver import ResolvedAuth
 from flydesk.tools.executor import (
     ToolCall,
     ToolExecutor,
@@ -1115,3 +1116,319 @@ class TestURLEnforcement:
         )
         with pytest.raises(ValueError, match="URL does not match system base_url"):
             executor._resolve_url(endpoint, system, call)
+
+
+# ---------------------------------------------------------------------------
+# ResolvedAuth wiring tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolvedAuthWiring:
+    """Verify that all ResolvedAuth fields are wired into HTTP requests."""
+
+    def test_rest_auth_query_params_merged(self):
+        """Auth query params appear in REST request when no call query args."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1", arguments={},
+        )
+        resolved = ResolvedAuth(
+            headers={"Authorization": "Bearer tok"},
+            query_params={"api_key": "abc123"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["params"] == {"api_key": "abc123"}
+
+    def test_rest_call_query_params_override_auth(self):
+        """Call query args take precedence over auth query params."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"query": {"api_key": "from_call", "extra": "yes"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            query_params={"api_key": "from_auth", "tenant": "t1"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["params"]["api_key"] == "from_call"
+        assert kwargs["params"]["tenant"] == "t1"
+        assert kwargs["params"]["extra"] == "yes"
+
+    def test_rest_auth_body_params_merged_into_dict_body(self):
+        """Auth body params are merged when call provides a dict body."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders", method=HttpMethod.POST)
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"name": "Order1"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tenant_id": "t1"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["json"]["name"] == "Order1"
+        assert kwargs["json"]["tenant_id"] == "t1"
+
+    def test_rest_call_body_overrides_auth_body(self):
+        """Call body fields take precedence over auth body params."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders", method=HttpMethod.POST)
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"tenant_id": "from_call"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tenant_id": "from_auth"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["json"]["tenant_id"] == "from_call"
+
+    def test_rest_auth_body_params_used_when_no_call_body(self):
+        """Auth body params become the body when call has no body."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders", method=HttpMethod.POST)
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1", arguments={},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tenant_id": "t1"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["json"] == {"tenant_id": "t1"}
+
+    def test_rest_no_body_when_no_auth_body_and_no_call_body(self):
+        """No 'json' key when neither auth nor call provides body."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1", arguments={},
+        )
+        resolved = ResolvedAuth(headers={})
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert "json" not in kwargs
+
+    def test_rest_auth_path_params_merged(self):
+        """Auth path params are substituted into the URL."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/tenants/{tenant_id}/orders/{id}")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"path": {"id": "123"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            path_params={"tenant_id": "acme"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert "/tenants/acme/orders/123" in kwargs["url"]
+
+    def test_rest_call_path_params_override_auth(self):
+        """Call path args take precedence over auth path params."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/tenants/{tenant_id}")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"path": {"tenant_id": "from_call"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            path_params={"tenant_id": "from_auth"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert "/tenants/from_call" in kwargs["url"]
+
+    def test_graphql_auth_body_params_become_variables(self):
+        """Auth body params merge into GraphQL variables."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/graphql")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.GRAPHQL,
+            "graphql_query": "query($tid: ID!) { tenant(id: $tid) { name } }",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"name": "test"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tid": "t1"},
+        )
+        kwargs = executor._build_graphql_request(endpoint, system, call, resolved)
+        assert kwargs["json"]["variables"]["tid"] == "t1"
+        assert kwargs["json"]["variables"]["name"] == "test"
+
+    def test_graphql_auth_query_params_added(self):
+        """Auth query params appear in GraphQL request."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/graphql")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.GRAPHQL,
+            "graphql_query": "{ health }",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1", arguments={},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            query_params={"api_key": "abc"},
+        )
+        kwargs = executor._build_graphql_request(endpoint, system, call, resolved)
+        assert kwargs["params"] == {"api_key": "abc"}
+
+    def test_soap_auth_body_params_substituted(self):
+        """Auth body params are substituted into SOAP body template."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/soap")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.SOAP,
+            "soap_body_template": "<Req><TenantId>{tenant_id}</TenantId><UserId>{user_id}</UserId></Req>",
+            "soap_action": "DoSomething",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"user_id": "u1"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tenant_id": "t1"},
+        )
+        kwargs = executor._build_soap_request(endpoint, system, call, resolved)
+        assert b"<TenantId>t1</TenantId>" in kwargs["content"]
+        assert b"<UserId>u1</UserId>" in kwargs["content"]
+
+    def test_soap_call_body_overrides_auth(self):
+        """Call body takes precedence over auth body in SOAP template substitution."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/soap")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.SOAP,
+            "soap_body_template": "<Req><Tid>{tid}</Tid></Req>",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"tid": "from_call"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tid": "from_auth"},
+        )
+        kwargs = executor._build_soap_request(endpoint, system, call, resolved)
+        assert b"<Tid>from_call</Tid>" in kwargs["content"]
+
+    def test_grpc_auth_body_params_merged(self):
+        """Auth body params merge into gRPC JSON body."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/grpc")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.GRPC,
+            "grpc_service": "svc.Svc",
+            "grpc_method_name": "Do",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"user_id": "u1"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tenant_id": "t1"},
+        )
+        kwargs = executor._build_grpc_request(endpoint, system, call, resolved)
+        assert kwargs["json"]["user_id"] == "u1"
+        assert kwargs["json"]["tenant_id"] == "t1"
+
+    def test_grpc_call_body_overrides_auth(self):
+        """Call body takes precedence over auth body in gRPC."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/grpc")
+        endpoint = endpoint.model_copy(update={
+            "protocol_type": ProtocolType.GRPC,
+            "grpc_service": "svc.Svc",
+            "grpc_method_name": "Do",
+        })
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1",
+            arguments={"body": {"tid": "from_call"}},
+        )
+        resolved = ResolvedAuth(
+            headers={},
+            body_params={"tid": "from_auth"},
+        )
+        kwargs = executor._build_grpc_request(endpoint, system, call, resolved)
+        assert kwargs["json"]["tid"] == "from_call"
+
+    def test_headers_always_passed_through(self):
+        """Auth headers are always set on the request."""
+        executor = _make_executor()
+        system = _make_system()
+        endpoint = _make_endpoint(path="/orders")
+        call = ToolCall(
+            call_id="c1", tool_name="t1", endpoint_id="ep-1", arguments={},
+        )
+        resolved = ResolvedAuth(
+            headers={"Authorization": "Bearer tok", "X-Custom": "val"},
+        )
+        kwargs = executor._build_rest_request(endpoint, system, call, resolved)
+        assert kwargs["headers"]["Authorization"] == "Bearer tok"
+        assert kwargs["headers"]["X-Custom"] == "val"
+
+    async def test_end_to_end_auth_wiring(
+        self, executor: ToolExecutor, http_client, catalog_repo, credential_store,
+    ):
+        """Full round-trip: ResolvedAuth fields appear in the actual HTTP request."""
+        # Set up a system with no auth so we can mock the resolver.
+        system = _make_system()
+        system = system.model_copy(update={
+            "auth_config": AuthConfig(
+                auth_type=AuthType.BEARER,
+                credential_id="cred-1",
+            ),
+        })
+        catalog_repo.get_system.return_value = system
+        endpoint = _make_endpoint(
+            path="/tenants/{tenant_id}/orders",
+            method=HttpMethod.POST,
+        )
+        catalog_repo.get_endpoint.return_value = endpoint
+
+        call = _make_call(
+            "c1",
+            arguments={
+                "path": {"tenant_id": "acme"},
+                "body": {"name": "Order1"},
+                "query": {"page": "1"},
+                "_method": "POST",
+                "_system_id": "sys-1",
+            },
+        )
+        result = await executor._execute_single(call, "user-1", "conv-1")
+
+        assert result.success is True
+        kwargs = http_client.request.call_args.kwargs
+        # Verify auth headers were included
+        assert "Authorization" in kwargs["headers"]
+        # Verify path param substitution
+        assert "/tenants/acme/orders" in kwargs["url"]
+        # Verify query params
+        assert kwargs["params"]["page"] == "1"
+        # Verify body
+        assert kwargs["json"]["name"] == "Order1"
