@@ -17,7 +17,9 @@
 		Loader2,
 		Check,
 		Shield,
-		Activity
+		Activity,
+		Plus,
+		Trash2
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { apiJson } from '$lib/services/api.js';
@@ -27,6 +29,13 @@
 	// Types
 	// -----------------------------------------------------------------------
 
+	type CredentialMapping = {
+		source: string;
+		target: 'header' | 'query' | 'path' | 'body';
+		field_name: string;
+		transform?: string | null;
+	};
+
 	interface AuthConfig {
 		auth_type: string;
 		credential_id?: string;
@@ -34,6 +43,14 @@
 		scopes?: string[] | null;
 		auth_headers?: Record<string, string> | null;
 		auth_params?: Record<string, string> | null;
+		credential_mappings?: CredentialMapping[];
+		static_headers?: Record<string, string> | null;
+	}
+
+	interface TagRef {
+		id: string;
+		name: string;
+		color: string | null;
 	}
 
 	interface SystemPayload {
@@ -43,7 +60,7 @@
 		base_url: string;
 		auth_config: AuthConfig;
 		health_check_path: string | null;
-		tags: string[];
+		tags: (string | TagRef)[];
 		status: string;
 		agent_enabled: boolean;
 		metadata: Record<string, unknown>;
@@ -119,7 +136,11 @@
 	let description = $state(_init?.description ?? '');
 	let baseUrl = $state(_init?.base_url ?? '');
 	let status = $state(_init?.status ?? 'active');
-	let tags = $state(_init?.tags?.join(', ') ?? '');
+	let tags = $state(
+		_init?.tags
+			?.map((t) => (typeof t === 'string' ? t : t.name))
+			.join(', ') ?? ''
+	);
 	let healthCheckPath = $state(_init?.health_check_path ?? '');
 	let workspaceId = $state(_init?.workspace_id ?? '');
 	let protocolType = $state((_init?.metadata?.protocol_type as string) ?? 'rest');
@@ -129,6 +150,18 @@
 	let credentialId = $state(_init?.auth_config?.credential_id ?? '');
 	let tokenUrl = $state(_init?.auth_config?.token_url ?? '');
 	let scopes = $state(_init?.auth_config?.scopes?.join(', ') ?? '');
+
+	// Credential mappings
+	let credentialMappings = $state<CredentialMapping[]>(
+		_init?.auth_config?.credential_mappings?.map((m) => ({ ...m })) ?? []
+	);
+
+	// Static headers
+	let staticHeaders = $state<{ key: string; value: string }[]>(
+		_init?.auth_config?.static_headers
+			? Object.entries(_init.auth_config.static_headers).map(([key, value]) => ({ key, value }))
+			: []
+	);
 
 	// Step 3: Agent Access
 	let agentEnabled = $state(_init?.agent_enabled ?? false);
@@ -180,6 +213,29 @@
 	});
 
 	// -----------------------------------------------------------------------
+	// Credential mapping helpers
+	// -----------------------------------------------------------------------
+
+	function addMapping() {
+		credentialMappings = [
+			...credentialMappings,
+			{ source: '$value', target: 'header', field_name: '', transform: null }
+		];
+	}
+
+	function removeMapping(index: number) {
+		credentialMappings = credentialMappings.filter((_, i) => i !== index);
+	}
+
+	function addStaticHeader() {
+		staticHeaders = [...staticHeaders, { key: '', value: '' }];
+	}
+
+	function removeStaticHeader(index: number) {
+		staticHeaders = staticHeaders.filter((_, i) => i !== index);
+	}
+
+	// -----------------------------------------------------------------------
 	// Navigation
 	// -----------------------------------------------------------------------
 
@@ -223,6 +279,31 @@
 					.split(',')
 					.map((s) => s.trim())
 					.filter(Boolean);
+			}
+
+			// Include credential mappings (filter out incomplete rows)
+			const validMappings = credentialMappings.filter(
+				(m) => m.source.trim() && m.field_name.trim()
+			);
+			if (validMappings.length > 0) {
+				authConfig.credential_mappings = validMappings.map((m) => ({
+					source: m.source.trim(),
+					target: m.target,
+					field_name: m.field_name.trim(),
+					transform: m.transform || null
+				}));
+			}
+
+			// Include static headers (filter out incomplete rows)
+			const validHeaders = staticHeaders.filter(
+				(h) => h.key.trim() && h.value.trim()
+			);
+			if (validHeaders.length > 0) {
+				const headersObj: Record<string, string> = {};
+				for (const h of validHeaders) {
+					headersObj[h.key.trim()] = h.value.trim();
+				}
+				authConfig.static_headers = headersObj;
 			}
 		}
 
@@ -556,6 +637,135 @@
 								{/if}
 							</span>
 						</label>
+
+						<!-- Credential Mappings -->
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs font-medium text-text-secondary">Credential Mappings</span>
+								<button
+									type="button"
+									onclick={addMapping}
+									class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+								>
+									<Plus size={12} />
+									Add Mapping
+								</button>
+							</div>
+							<p class="text-[10px] text-text-secondary/60">
+								Define how credential values are mapped to API request fields.
+								Use <code class="rounded bg-surface-secondary px-1 py-0.5 font-mono">$value</code> for
+								the raw credential value, or a JSON field name for structured credentials.
+							</p>
+
+							{#if credentialMappings.length > 0}
+								<div class="flex flex-col gap-2">
+									{#each credentialMappings as mapping, i}
+										<div class="flex items-start gap-2 rounded-lg border border-border/50 bg-surface-secondary/30 p-2.5">
+											<div class="grid flex-1 grid-cols-2 gap-2">
+												<label class="flex flex-col gap-0.5">
+													<span class="text-[10px] text-text-secondary">Source</span>
+													<input
+														type="text"
+														bind:value={mapping.source}
+														placeholder="$value or field_name"
+														class="rounded border border-border bg-surface px-2 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent"
+													/>
+												</label>
+												<label class="flex flex-col gap-0.5">
+													<span class="text-[10px] text-text-secondary">Target</span>
+													<select
+														bind:value={mapping.target}
+														class="rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary outline-none focus:border-accent"
+													>
+														<option value="header">Header</option>
+														<option value="query">Query Parameter</option>
+														<option value="path">Path Parameter</option>
+														<option value="body">Body Field</option>
+													</select>
+												</label>
+												<label class="flex flex-col gap-0.5">
+													<span class="text-[10px] text-text-secondary">Field Name</span>
+													<input
+														type="text"
+														bind:value={mapping.field_name}
+														placeholder="e.g. Authorization, api_key"
+														class="rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary outline-none focus:border-accent"
+													/>
+												</label>
+												<label class="flex flex-col gap-0.5">
+													<span class="text-[10px] text-text-secondary">Transform</span>
+													<select
+														bind:value={mapping.transform}
+														class="rounded border border-border bg-surface px-2 py-1 text-xs text-text-primary outline-none focus:border-accent"
+													>
+														<option value={null}>None</option>
+														<option value="base64">Base64 Encode</option>
+														<option value="prefix:Bearer ">Prefix: Bearer</option>
+														<option value="prefix:Basic ">Prefix: Basic</option>
+														<option value="prefix:Token ">Prefix: Token</option>
+													</select>
+												</label>
+											</div>
+											<button
+												type="button"
+												onclick={() => removeMapping(i)}
+												class="mt-4 rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+												title="Remove mapping"
+											>
+												<Trash2 size={14} />
+											</button>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<!-- Static Headers -->
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs font-medium text-text-secondary">Static Headers</span>
+								<button
+									type="button"
+									onclick={addStaticHeader}
+									class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+								>
+									<Plus size={12} />
+									Add Header
+								</button>
+							</div>
+							<p class="text-[10px] text-text-secondary/60">
+								Headers sent with every request to this system, independent of credential mappings.
+							</p>
+
+							{#if staticHeaders.length > 0}
+								<div class="flex flex-col gap-2">
+									{#each staticHeaders as header, i}
+										<div class="flex items-center gap-2">
+											<input
+												type="text"
+												bind:value={header.key}
+												placeholder="Header name"
+												class="w-40 rounded border border-border bg-surface px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+											/>
+											<input
+												type="text"
+												bind:value={header.value}
+												placeholder="Header value"
+												class="flex-1 rounded border border-border bg-surface px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+											/>
+											<button
+												type="button"
+												onclick={() => removeStaticHeader(i)}
+												class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+												title="Remove header"
+											>
+												<Trash2 size={14} />
+											</button>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
 					{/if}
 				</div>
 
@@ -675,6 +885,18 @@
 										{#if authType === 'oauth2' && scopes.trim()}
 											<span class="text-text-secondary">Scopes:</span>
 											<span class="text-text-primary">{scopes}</span>
+										{/if}
+										{#if credentialMappings.filter((m) => m.source.trim() && m.field_name.trim()).length > 0}
+											<span class="text-text-secondary">Mappings:</span>
+											<span class="text-text-primary">
+												{credentialMappings.filter((m) => m.source.trim() && m.field_name.trim()).length} credential mapping(s)
+											</span>
+										{/if}
+										{#if staticHeaders.filter((h) => h.key.trim() && h.value.trim()).length > 0}
+											<span class="text-text-secondary">Static Headers:</span>
+											<span class="text-text-primary">
+												{staticHeaders.filter((h) => h.key.trim() && h.value.trim()).length} static header(s)
+											</span>
 										{/if}
 									{/if}
 								</div>
