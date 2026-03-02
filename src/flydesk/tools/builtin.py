@@ -1149,7 +1149,8 @@ class BuiltinToolExecutor:
         if self._tool_executor is None:
             return {}
 
-        return await self._tool_executor._auth_resolver.resolve_headers(system)
+        resolved = await self._tool_executor._auth_resolver.resolve_headers(system)
+        return resolved.headers
 
     async def _execute_http_request(
         self, request_kwargs: dict[str, Any]

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from flydesk.catalog.ports import CredentialStore
     from flydesk.auth.models import UserSession
     from flydesk.auth.sso_mapping import SSOAttributeMapping
-    from flydesk.catalog.models import ExternalSystem
+    from flydesk.catalog.models import AuthConfig, ExternalSystem
     from flydesk.security.kms import KMSProvider
 
 logger = logging.getLogger(__name__)
@@ -116,27 +116,34 @@ class AuthResolver:
         system: ExternalSystem,
         user_session: UserSession | None = None,
         sso_mappings: list[SSOAttributeMapping] | None = None,
-    ) -> dict[str, str]:
-        """Return a dict of HTTP headers that authenticate against *system*.
+    ) -> ResolvedAuth:
+        """Return :class:`ResolvedAuth` containing authentication data for *system*.
 
         When *user_session* and *sso_mappings* are provided, SSO claim values
         are resolved and merged into the returned headers so that downstream
         APIs can identify the originating user.
         """
         auth_config = system.auth_config
+        resolved = ResolvedAuth()
 
         # No authentication required.
         if auth_config is None or auth_config.auth_type == AuthType.NONE:
-            headers: dict[str, str] = {}
+            # Still apply credential_mappings and static_headers when present
+            if auth_config is not None:
+                if auth_config.credential_mappings and auth_config.credential_id:
+                    await self._apply_credential_mappings(auth_config, resolved)
+                if auth_config.static_headers:
+                    resolved.headers.update(auth_config.static_headers)
+
             if user_session and sso_mappings:
                 from flydesk.auth.sso_mapping import SSOAttributeMappingResolver
 
-                resolver = SSOAttributeMappingResolver()
-                sso_headers = resolver.resolve_headers(
+                sso_resolver = SSOAttributeMappingResolver()
+                sso_headers = sso_resolver.resolve_headers(
                     sso_mappings, user_session.raw_claims, system.id,
                 )
-                headers.update(sso_headers)
-            return headers
+                resolved.headers.update(sso_headers)
+            return resolved
 
         auth_type = auth_config.auth_type
 
@@ -153,41 +160,97 @@ class AuthResolver:
         token = self._decrypt(credential.encrypted_value)
 
         if auth_type == AuthType.BEARER:
-            headers = {"Authorization": f"Bearer {token}"}
+            resolved.headers["Authorization"] = f"Bearer {token}"
         elif auth_type == AuthType.API_KEY:
             header_name = "X-Api-Key"
             if auth_config.auth_headers:
                 header_name = next(iter(auth_config.auth_headers))
-            headers = {header_name: token}
+            resolved.headers[header_name] = token
         elif auth_type == AuthType.BASIC:
-            headers = {"Authorization": f"Basic {token}"}
+            resolved.headers["Authorization"] = f"Basic {token}"
         elif auth_type == AuthType.OAUTH2:
-            headers = await self._resolve_oauth2(system, credential)
+            oauth_headers = await self._resolve_oauth2(system, credential)
+            resolved.headers.update(oauth_headers)
         elif auth_type == AuthType.MUTUAL_TLS:
             # mTLS certificate handling is done at the HTTP client level.
             # Return any additional auth headers the system requires.
-            headers = {}
             if auth_config.auth_headers:
-                headers.update(auth_config.auth_headers)
+                resolved.headers.update(auth_config.auth_headers)
         else:
             logger.warning(
                 "Unknown auth type %s for system %s; returning empty headers",
                 auth_type,
                 system.id,
             )
-            headers = {}
+
+        # Apply credential mappings
+        if auth_config.credential_mappings:
+            await self._apply_credential_mappings(auth_config, resolved)
+
+        # Apply static headers
+        if auth_config.static_headers:
+            resolved.headers.update(auth_config.static_headers)
 
         # Apply SSO claim mappings
         if user_session and sso_mappings:
             from flydesk.auth.sso_mapping import SSOAttributeMappingResolver
 
-            resolver = SSOAttributeMappingResolver()
-            sso_headers = resolver.resolve_headers(
+            sso_resolver = SSOAttributeMappingResolver()
+            sso_headers = sso_resolver.resolve_headers(
                 sso_mappings, user_session.raw_claims, system.id,
             )
-            headers.update(sso_headers)
+            resolved.headers.update(sso_headers)
 
-        return headers
+        return resolved
+
+    async def _apply_credential_mappings(
+        self, auth_config: AuthConfig, resolved: ResolvedAuth,
+    ) -> None:
+        """Apply credential_mappings rules to resolved auth."""
+        credential = await self._credential_store.get_credential(auth_config.credential_id)
+        if credential is None:
+            return
+        raw_value = self._decrypt(credential.encrypted_value)
+
+        # Try parse as JSON for field extraction
+        parsed: dict | None = None
+        try:
+            parsed = json.loads(raw_value)
+            if not isinstance(parsed, dict):
+                parsed = None
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        for mapping in auth_config.credential_mappings:
+            if mapping.source == "$value":
+                value = raw_value
+            elif parsed and mapping.source in parsed:
+                value = str(parsed[mapping.source])
+            else:
+                logger.warning("Cannot extract source %r from credential", mapping.source)
+                continue
+
+            if mapping.transform:
+                value = self._apply_transform(value, mapping.transform)
+
+            if mapping.target == "header":
+                resolved.headers[mapping.field_name] = value
+            elif mapping.target == "query":
+                resolved.query_params[mapping.field_name] = value
+            elif mapping.target == "path":
+                resolved.path_params[mapping.field_name] = value
+            elif mapping.target == "body":
+                resolved.body_params[mapping.field_name] = value
+
+    @staticmethod
+    def _apply_transform(value: str, transform: str) -> str:
+        """Apply a transform to a credential value."""
+        if transform == "base64":
+            import base64
+            return base64.b64encode(value.encode()).decode()
+        if transform.startswith("prefix:"):
+            return f"{transform[7:]}{value}"
+        return value
 
     async def _resolve_oauth2(
         self, system: ExternalSystem, credential: object

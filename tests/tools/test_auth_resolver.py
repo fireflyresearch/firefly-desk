@@ -19,7 +19,7 @@ import pytest
 
 from flydesk.catalog.enums import AuthType
 from flydesk.catalog.models import AuthConfig, Credential, ExternalSystem
-from flydesk.tools.auth_resolver import AuthResolver, _TokenCache
+from flydesk.tools.auth_resolver import AuthResolver, ResolvedAuth, _TokenCache
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +126,10 @@ class TestTokenCache:
 class TestBearerAuth:
     async def test_returns_bearer_header(self, resolver: AuthResolver):
         system = _make_system(AuthType.BEARER)
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"Authorization": "Bearer secret-token-123"}
+        assert isinstance(result, ResolvedAuth)
+        assert result.headers == {"Authorization": "Bearer secret-token-123"}
 
     async def test_uses_correct_credential_id(
         self, resolver: AuthResolver, credential_store
@@ -147,28 +148,29 @@ class TestBearerAuth:
 class TestApiKeyAuth:
     async def test_returns_default_header_name(self, resolver: AuthResolver):
         system = _make_system(AuthType.API_KEY)
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"X-Api-Key": "secret-token-123"}
+        assert isinstance(result, ResolvedAuth)
+        assert result.headers == {"X-Api-Key": "secret-token-123"}
 
     async def test_uses_custom_header_name(self, resolver: AuthResolver):
         system = _make_system(
             AuthType.API_KEY,
             auth_headers={"X-Custom-Key": ""},
         )
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert "X-Custom-Key" in headers
-        assert headers["X-Custom-Key"] == "secret-token-123"
+        assert "X-Custom-Key" in result.headers
+        assert result.headers["X-Custom-Key"] == "secret-token-123"
 
     async def test_uses_first_header_from_auth_headers(self, resolver: AuthResolver):
         system = _make_system(
             AuthType.API_KEY,
             auth_headers={"Api-Token": "", "Backup-Token": ""},
         )
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert "Api-Token" in headers
+        assert "Api-Token" in result.headers
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +184,10 @@ class TestBasicAuth:
             encrypted_value="dXNlcjpwYXNzd29yZA==",
         )
         system = _make_system(AuthType.BASIC)
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"Authorization": "Basic dXNlcjpwYXNzd29yZA=="}
+        assert isinstance(result, ResolvedAuth)
+        assert result.headers == {"Authorization": "Basic dXNlcjpwYXNzd29yZA=="}
 
 
 # ---------------------------------------------------------------------------
@@ -196,20 +199,21 @@ class TestOAuth2Auth:
     async def test_fallback_uses_stored_token_as_bearer(self, resolver: AuthResolver):
         """When credential is a plain token (not JSON), use it as bearer."""
         system = _make_system(AuthType.OAUTH2)
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"Authorization": "Bearer secret-token-123"}
+        assert isinstance(result, ResolvedAuth)
+        assert result.headers == {"Authorization": "Bearer secret-token-123"}
 
     async def test_fallback_when_no_token_url(self, resolver: AuthResolver, credential_store):
-        """JSON creds but no token_url → fallback to stored value."""
+        """JSON creds but no token_url -> fallback to stored value."""
         creds_json = json.dumps({"client_id": "cid", "client_secret": "csec"})
         credential_store.get_credential.return_value = _make_credential(
             encrypted_value=creds_json,
         )
         system = _make_system(AuthType.OAUTH2)  # no token_url
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"Authorization": f"Bearer {creds_json}"}
+        assert result.headers == {"Authorization": f"Bearer {creds_json}"}
 
     async def test_client_credentials_exchange(
         self, resolver_with_http: AuthResolver, credential_store, http_client
@@ -236,9 +240,9 @@ class TestOAuth2Auth:
             token_url="https://auth.example.com/token",
             scopes=["read", "write"],
         )
-        headers = await resolver_with_http.resolve_headers(system)
+        result = await resolver_with_http.resolve_headers(system)
 
-        assert headers == {"Authorization": "Bearer fresh-access-token"}
+        assert result.headers == {"Authorization": "Bearer fresh-access-token"}
 
         # Verify the POST was made with correct params
         http_client.post.assert_awaited_once()
@@ -271,14 +275,14 @@ class TestOAuth2Auth:
             token_url="https://auth.example.com/token",
         )
 
-        # First call → HTTP request
+        # First call -> HTTP request
         h1 = await resolver_with_http.resolve_headers(system)
-        assert h1 == {"Authorization": "Bearer cached-token"}
+        assert h1.headers == {"Authorization": "Bearer cached-token"}
         assert http_client.post.await_count == 1
 
-        # Second call → cached, no new HTTP request
+        # Second call -> cached, no new HTTP request
         h2 = await resolver_with_http.resolve_headers(system)
-        assert h2 == {"Authorization": "Bearer cached-token"}
+        assert h2.headers == {"Authorization": "Bearer cached-token"}
         assert http_client.post.await_count == 1  # Still 1
 
     async def test_exchange_failure_falls_back_to_stored_token(
@@ -304,10 +308,10 @@ class TestOAuth2Auth:
             AuthType.OAUTH2,
             token_url="https://auth.example.com/token",
         )
-        headers = await resolver_with_http.resolve_headers(system)
+        result = await resolver_with_http.resolve_headers(system)
 
         # Falls back to using the stored JSON string as a bearer token
-        assert headers == {"Authorization": f"Bearer {creds_json}"}
+        assert result.headers == {"Authorization": f"Bearer {creds_json}"}
 
     async def test_no_http_client_falls_back(
         self, resolver: AuthResolver, credential_store
@@ -322,9 +326,9 @@ class TestOAuth2Auth:
             AuthType.OAUTH2,
             token_url="https://auth.example.com/token",
         )
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"Authorization": f"Bearer {creds_json}"}
+        assert result.headers == {"Authorization": f"Bearer {creds_json}"}
 
     async def test_exchange_missing_access_token_falls_back(
         self, resolver_with_http: AuthResolver, credential_store, http_client
@@ -344,9 +348,9 @@ class TestOAuth2Auth:
             AuthType.OAUTH2,
             token_url="https://auth.example.com/token",
         )
-        headers = await resolver_with_http.resolve_headers(system)
+        result = await resolver_with_http.resolve_headers(system)
 
-        assert headers == {"Authorization": f"Bearer {creds_json}"}
+        assert result.headers == {"Authorization": f"Bearer {creds_json}"}
 
 
 # ---------------------------------------------------------------------------
@@ -357,18 +361,19 @@ class TestOAuth2Auth:
 class TestMutualTlsAuth:
     async def test_returns_empty_headers_without_auth_headers(self, resolver: AuthResolver):
         system = _make_system(AuthType.MUTUAL_TLS)
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {}
+        assert isinstance(result, ResolvedAuth)
+        assert result.headers == {}
 
     async def test_returns_custom_auth_headers(self, resolver: AuthResolver):
         system = _make_system(
             AuthType.MUTUAL_TLS,
             auth_headers={"X-Client-Cert-DN": "CN=myapp"},
         )
-        headers = await resolver.resolve_headers(system)
+        result = await resolver.resolve_headers(system)
 
-        assert headers == {"X-Client-Cert-DN": "CN=myapp"}
+        assert result.headers == {"X-Client-Cert-DN": "CN=myapp"}
 
 
 # ---------------------------------------------------------------------------
