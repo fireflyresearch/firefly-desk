@@ -98,6 +98,7 @@ from flydesk.api.knowledge import router as knowledge_router
 from flydesk.api.llm_providers import router as llm_providers_router
 from flydesk.api.llm_status import router as llm_status_router
 from flydesk.api.memory import router as memory_router
+from flydesk.api.model_routing import router as model_routing_router
 from flydesk.api.notifications import router as notifications_router
 from flydesk.api.oidc_providers import router as oidc_providers_router
 from flydesk.api.openapi_import import router as openapi_import_router
@@ -1278,6 +1279,7 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
     app.include_router(llm_providers_router)
     app.include_router(llm_status_router)
+    app.include_router(model_routing_router)
     app.include_router(oidc_providers_router)
     app.include_router(settings_router)
     app.include_router(dashboard_router)

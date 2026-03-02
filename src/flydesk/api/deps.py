@@ -56,6 +56,7 @@ from flydesk.workflows.repository import WorkflowRepository
 from flydesk.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
+    from flydesk.agent.router.config import RoutingConfigRepository
     from flydesk.catalog.ports import CredentialStore
     from flydesk.channels.router import ChannelRouter
     from flydesk.email.channel_adapter import EmailChannelAdapter
@@ -396,6 +397,17 @@ def get_role_repo() -> RoleRepository:
     """
     raise NotImplementedError(
         "get_role_repo must be overridden via app.dependency_overrides"
+    )
+
+
+def get_routing_config_repo() -> "RoutingConfigRepository":
+    """Provide a RoutingConfigRepository instance.
+
+    In production this is wired to the real database session factory.
+    In tests the dependency is overridden with a mock.
+    """
+    raise NotImplementedError(
+        "get_routing_config_repo must be overridden via app.dependency_overrides"
     )
 
 
