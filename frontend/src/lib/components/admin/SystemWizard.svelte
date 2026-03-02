@@ -29,7 +29,7 @@
 		Unlink
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
-	import { apiJson } from '$lib/services/api.js';
+	import { apiFetch, apiJson } from '$lib/services/api.js';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 
 	// -----------------------------------------------------------------------
@@ -540,13 +540,9 @@
 		const sysId = savedSystemId || (_init?.id ?? '');
 		if (!sysId) return;
 		try {
-			const resp = await fetch(`/api/catalog/systems/${sysId}/documents/${documentId}`, {
-				method: 'DELETE',
-				headers: {
-					'Authorization': `Bearer ${sessionStorage.getItem('firefly_auth_token') ?? ''}`
-				}
+			await apiFetch(`/catalog/systems/${sysId}/documents/${documentId}`, {
+				method: 'DELETE'
 			});
-			if (!resp.ok) throw new Error('Failed to unlink');
 			await loadLinkedDocs(sysId);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to unlink document';
@@ -558,13 +554,9 @@
 		if (!sysId) return;
 		// Unlink then re-link with new role
 		try {
-			const resp = await fetch(`/api/catalog/systems/${sysId}/documents/${documentId}`, {
-				method: 'DELETE',
-				headers: {
-					'Authorization': `Bearer ${sessionStorage.getItem('firefly_auth_token') ?? ''}`
-				}
+			await apiFetch(`/catalog/systems/${sysId}/documents/${documentId}`, {
+				method: 'DELETE'
 			});
-			if (!resp.ok) throw new Error('Failed to update role');
 			await apiJson(`/catalog/systems/${sysId}/documents`, {
 				method: 'POST',
 				body: JSON.stringify({ document_id: documentId, role: newRole })

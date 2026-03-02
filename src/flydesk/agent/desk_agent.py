@@ -1650,10 +1650,10 @@ class DeskAgent:
                 doc_ids_needed.add(sd.document_id)
 
         kb_docs_by_id: dict[str, KnowledgeDocument] = {}
-        for doc_id in doc_ids_needed:
-            doc = await self._catalog_repo.get_knowledge_document(doc_id)
-            if doc is not None:
-                kb_docs_by_id[doc_id] = doc
+        if doc_ids_needed:
+            docs = await self._catalog_repo.get_knowledge_documents_by_ids(list(doc_ids_needed))
+            for doc in docs:
+                kb_docs_by_id[doc.id] = doc
 
         # Build context for each system
         context_parts: list[str] = []

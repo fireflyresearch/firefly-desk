@@ -217,9 +217,6 @@ class SystemDiscoveryEngine:
         Returns:
             The created ``Job`` domain object for tracking.
         """
-        # Store knowledge_documents for use during analysis
-        if knowledge_documents:
-            self._pending_knowledge_documents = knowledge_documents
         payload: dict[str, Any] = {"trigger": trigger}
         if workspace_ids:
             payload["workspace_ids"] = workspace_ids
@@ -252,12 +249,15 @@ class SystemDiscoveryEngine:
         document_types = payload.get("document_types") or []
         confidence_threshold = float(payload.get("confidence_threshold", 0.5))
 
-        # Retrieve any pending knowledge documents stashed by discover()
-        knowledge_documents = getattr(self, "_pending_knowledge_documents", None)
-        if knowledge_documents is not None:
-            self._pending_knowledge_documents = None  # consume once
-
+        # Reload knowledge documents from the repository using IDs from the payload
         knowledge_document_ids = payload.get("knowledge_document_ids") or []
+        knowledge_documents = None
+        if knowledge_document_ids:
+            knowledge_documents = await self._catalog_repo.get_knowledge_documents_by_ids(
+                knowledge_document_ids
+            )
+            if not knowledge_documents:
+                knowledge_documents = None
         await on_progress(5, "Scanning catalog systems, knowledge graph, and documents...")
 
         # 1. Gather context

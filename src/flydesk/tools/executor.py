@@ -16,6 +16,7 @@ import random
 import re
 import time
 import xml.etree.ElementTree as ET
+import xml.sax.saxutils
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -726,7 +727,7 @@ class ToolExecutor:
         body_params = {**resolved_auth.body_params, **call.arguments.get("body", {})}
         soap_body = body_template
         for key, value in body_params.items():
-            soap_body = soap_body.replace("{" + key + "}", str(value))
+            soap_body = soap_body.replace("{" + key + "}", xml.sax.saxutils.escape(str(value)))
 
         headers = {
             **resolved_auth.headers,

@@ -66,6 +66,7 @@ async def list_systems(
     workspace_id: str | None = Query(default=None),
     status: str | None = Query(default=None, description="Filter by status"),
     search: str | None = Query(default=None, description="Search by name"),
+    tag_ids: str | None = Query(default=None, description="Comma-separated tag IDs to filter by"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
@@ -77,14 +78,44 @@ async def list_systems(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status '{status}'")
 
+    parsed_tag_ids: list[str] | None = None
+    if tag_ids is not None:
+        parsed_tag_ids = [t.strip() for t in tag_ids.split(",") if t.strip()]
+
     systems, total = await repo.list_systems(
         workspace_id=workspace_id,
         status=status_enum,
         search=search,
+        tag_ids=parsed_tag_ids,
         limit=limit,
         offset=offset,
     )
     return {"items": [s.model_dump() for s in systems], "total": total}
+
+
+class CurlImportRequest(BaseModel):
+    command: str
+
+
+class CreateTagRequest(BaseModel):
+    name: str
+    color: str | None = None
+    description: str | None = None
+
+
+class UpdateTagRequest(BaseModel):
+    name: str | None = None
+    color: str | None = None
+    description: str | None = None
+
+
+class AssignTagRequest(BaseModel):
+    tag_id: str
+
+
+class LinkDocumentRequest(BaseModel):
+    document_id: str
+    role: str = "reference"
 
 
 class BulkDeleteRequest(BaseModel):
@@ -298,12 +329,12 @@ async def delete_endpoint(request: Request, endpoint_id: str, repo: Repo, audit:
 
 
 @router.post("/import/curl", dependencies=[CatalogWrite])
-async def parse_curl_command(body: dict):
+async def parse_curl_command(body: CurlImportRequest):
     """Parse a curl command string into structured endpoint components."""
     from flydesk.catalog.curl_parser import parse_curl
 
     try:
-        parsed = parse_curl(body["command"])
+        parsed = parse_curl(body.command)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {
@@ -327,26 +358,28 @@ async def list_tags(repo: Repo) -> list[SystemTag]:
 
 
 @router.post("/tags", status_code=201, dependencies=[CatalogWrite])
-async def create_tag(body: dict, repo: Repo) -> SystemTag:
+async def create_tag(body: CreateTagRequest, repo: Repo) -> SystemTag:
     """Create a new system tag."""
     tag = SystemTag(
         id=str(uuid.uuid4()),
-        name=body["name"],
-        color=body.get("color"),
-        description=body.get("description"),
+        name=body.name,
+        color=body.color,
+        description=body.description,
     )
     await repo.create_tag(tag)
     return tag
 
 
 @router.put("/tags/{tag_id}", dependencies=[CatalogWrite])
-async def update_tag(tag_id: str, body: dict, repo: Repo) -> SystemTag:
+async def update_tag(tag_id: str, body: UpdateTagRequest, repo: Repo) -> SystemTag:
     """Update an existing system tag."""
+    if body.name is None:
+        raise HTTPException(status_code=422, detail="Tag name is required")
     tag = SystemTag(
         id=tag_id,
-        name=body["name"],
-        color=body.get("color"),
-        description=body.get("description"),
+        name=body.name,
+        color=body.color,
+        description=body.description,
     )
     await repo.update_tag(tag)
     return tag
@@ -371,10 +404,10 @@ async def list_system_tags(system_id: str, repo: Repo) -> list[SystemTag]:
 
 
 @router.post("/systems/{system_id}/tags", dependencies=[CatalogWrite])
-async def assign_system_tag(system_id: str, body: dict, repo: Repo) -> dict:
+async def assign_system_tag(system_id: str, body: AssignTagRequest, repo: Repo) -> dict:
     """Assign a tag to a system."""
-    await repo.assign_tag(system_id, body["tag_id"])
-    return {"system_id": system_id, "tag_id": body["tag_id"]}
+    await repo.assign_tag(system_id, body.tag_id)
+    return {"system_id": system_id, "tag_id": body.tag_id}
 
 
 @router.delete(
@@ -398,11 +431,10 @@ async def list_system_documents(system_id: str, repo: Repo) -> list[SystemDocume
 
 
 @router.post("/systems/{system_id}/documents", dependencies=[CatalogWrite])
-async def link_system_document(system_id: str, body: dict, repo: Repo) -> SystemDocument:
+async def link_system_document(system_id: str, body: LinkDocumentRequest, repo: Repo) -> SystemDocument:
     """Link a document to a system."""
-    role = body.get("role", "reference")
-    await repo.link_document(system_id, body["document_id"], role)
-    return SystemDocument(system_id=system_id, document_id=body["document_id"], role=role)
+    await repo.link_document(system_id, body.document_id, body.role)
+    return SystemDocument(system_id=system_id, document_id=body.document_id, role=body.role)
 
 
 @router.delete(

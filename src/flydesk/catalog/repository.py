@@ -131,6 +131,27 @@ class CatalogRepository:
             stmt = stmt.order_by(ExternalSystemRow.name).limit(limit).offset(offset)
             result = await session.execute(stmt)
             systems = [self._row_to_system(r) for r in result.scalars().all()]
+
+            # Batch-load tags for the returned systems
+            if systems:
+                system_ids = [s.id for s in systems]
+                tag_result = await session.execute(
+                    select(SystemTagAssociationRow.system_id, SystemTagRow)
+                    .join(SystemTagRow, SystemTagAssociationRow.tag_id == SystemTagRow.id)
+                    .where(SystemTagAssociationRow.system_id.in_(system_ids))
+                )
+                tags_by_system: dict[str, list[SystemTag]] = {}
+                for row in tag_result.all():
+                    sid = row[0]
+                    tag_row = row[1]
+                    tags_by_system.setdefault(sid, []).append(
+                        SystemTag(id=tag_row.id, name=tag_row.name, color=tag_row.color, description=tag_row.description)
+                    )
+                systems = [
+                    s.model_copy(update={"tags": tags_by_system.get(s.id, [])})
+                    for s in systems
+                ]
+
             return systems, total
 
     async def update_system(self, system: ExternalSystem) -> None:
@@ -152,18 +173,30 @@ class CatalogRepository:
             await session.commit()
 
     async def delete_system(self, system_id: str) -> None:
-        """Delete an external system by ID."""
+        """Delete an external system by ID, including tag and document associations."""
         async with self._session_factory() as session:
+            await session.execute(
+                delete(SystemTagAssociationRow).where(SystemTagAssociationRow.system_id == system_id)
+            )
+            await session.execute(
+                delete(SystemDocumentRow).where(SystemDocumentRow.system_id == system_id)
+            )
             await session.execute(
                 delete(ExternalSystemRow).where(ExternalSystemRow.id == system_id)
             )
             await session.commit()
 
     async def bulk_delete_systems(self, ids: list[str]) -> int:
-        """Delete multiple systems. Returns count of deleted rows."""
+        """Delete multiple systems, including tag and document associations. Returns count of deleted rows."""
         if not ids:
             return 0
         async with self._session_factory() as session:
+            await session.execute(
+                delete(SystemTagAssociationRow).where(SystemTagAssociationRow.system_id.in_(ids))
+            )
+            await session.execute(
+                delete(SystemDocumentRow).where(SystemDocumentRow.system_id.in_(ids))
+            )
             result = await session.execute(
                 delete(ExternalSystemRow).where(ExternalSystemRow.id.in_(ids))
             )
@@ -446,6 +479,32 @@ class CatalogRepository:
                 metadata=_from_json(row.metadata_) if row.metadata_ else {},
             )
 
+    async def get_knowledge_documents_by_ids(self, doc_ids: list[str]) -> list:
+        """Retrieve multiple knowledge documents by their IDs in a single query."""
+        if not doc_ids:
+            return []
+        from flydesk.knowledge.models import DocumentStatus, DocumentType, KnowledgeDocument
+        from flydesk.models.knowledge_base import KnowledgeDocumentRow
+
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(KnowledgeDocumentRow).where(KnowledgeDocumentRow.id.in_(doc_ids))
+            )
+            return [
+                KnowledgeDocument(
+                    id=row.id,
+                    title=row.title,
+                    content=row.content,
+                    document_type=DocumentType(row.document_type) if row.document_type else DocumentType.OTHER,
+                    status=DocumentStatus(row.status) if row.status else DocumentStatus.DRAFT,
+                    source=row.source,
+                    workspace_ids=_from_json(row.workspace_ids) if row.workspace_ids else [],
+                    tags=_from_json(row.tags) if row.tags else [],
+                    metadata=_from_json(row.metadata_) if row.metadata_ else {},
+                )
+                for row in result.scalars().all()
+            ]
+
     async def update_knowledge_document(
         self, document_id: str, *, title=None, document_type=None, tags=None, content=None, status=None, workspace_ids=None
     ):
@@ -525,8 +584,16 @@ class CatalogRepository:
     # -- Tag Associations --
 
     async def assign_tag(self, system_id: str, tag_id: str) -> None:
-        """Associate a tag with a system."""
+        """Associate a tag with a system. No-op if already associated."""
         async with self._session_factory() as session:
+            existing = await session.execute(
+                select(SystemTagAssociationRow).where(
+                    SystemTagAssociationRow.system_id == system_id,
+                    SystemTagAssociationRow.tag_id == tag_id,
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                return
             session.add(SystemTagAssociationRow(system_id=system_id, tag_id=tag_id))
             await session.commit()
 
@@ -587,8 +654,16 @@ class CatalogRepository:
     # -- System Documents --
 
     async def link_document(self, system_id: str, document_id: str, role: str = "reference") -> None:
-        """Link a knowledge document to a system."""
+        """Link a knowledge document to a system. No-op if already linked."""
         async with self._session_factory() as session:
+            existing = await session.execute(
+                select(SystemDocumentRow).where(
+                    SystemDocumentRow.system_id == system_id,
+                    SystemDocumentRow.document_id == document_id,
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                return
             session.add(SystemDocumentRow(system_id=system_id, document_id=document_id, role=role))
             await session.commit()
 
