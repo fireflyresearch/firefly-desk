@@ -63,8 +63,9 @@ def document_read_tool() -> ToolDefinition:
         description=(
             "Extract text, tables, and metadata from a document file "
             "(PDF, DOCX, XLSX, PPTX). Returns the textual content of the document. "
-            "Use when: the user asks to read, view, or extract information from "
-            "an uploaded document."
+            "For large documents, use page_start/page_end to read specific page "
+            "ranges (PDF) or set max_chars to limit output. If the output is "
+            "truncated, call again with the next page range to continue reading."
         ),
         risk_level=RiskLevel.READ,
         system_id=BUILTIN_SYSTEM_ID,
@@ -73,11 +74,31 @@ def document_read_tool() -> ToolDefinition:
         parameters={
             "file_path": {
                 "type": "string",
-                "description": "Storage path of the document to read",
+                "description": "Storage path or filename of the document to read",
                 "required": True,
+            },
+            "page_start": {
+                "type": "integer",
+                "description": "First page to read (1-based, PDF only). Defaults to 1.",
+                "required": False,
+            },
+            "page_end": {
+                "type": "integer",
+                "description": "Last page to read (inclusive, PDF only). Defaults to all pages.",
+                "required": False,
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Maximum characters to return. Defaults to 12000.",
+                "required": False,
             },
         },
     )
+
+
+# Maximum characters to return from document_read by default.
+# ~12k chars ≈ ~3k tokens, safe for most LLM context windows.
+_DEFAULT_MAX_CHARS = 12000
 
 
 def document_create_tool() -> ToolDefinition:
@@ -218,6 +239,31 @@ class DocumentToolExecutor:
         """Return True if *tool_name* is handled by this executor."""
         return tool_name in cls._TOOL_NAMES
 
+    @staticmethod
+    def _truncate_result(result: dict[str, Any], max_chars: int) -> dict[str, Any]:
+        """Truncate the text content of a read result if it exceeds max_chars."""
+        text = result.get("text", "")
+        if not text or len(text) <= max_chars:
+            return result
+
+        # Truncate at a word boundary
+        truncated = text[:max_chars]
+        last_space = truncated.rfind(" ")
+        if last_space > max_chars * 0.8:
+            truncated = truncated[:last_space]
+
+        result = {**result}
+        result["text"] = truncated
+        result["truncated"] = True
+        result["chars_returned"] = len(truncated)
+        result["chars_total"] = len(text)
+        result["hint"] = (
+            "Output was truncated. To read more, call document_read again "
+            "with a larger max_chars or use page_start/page_end to read "
+            "specific page ranges."
+        )
+        return result
+
     async def _resolve_file_path(self, file_path: str) -> str | None:
         """Resolve a user-provided path to the actual storage path.
 
@@ -293,6 +339,10 @@ class DocumentToolExecutor:
         if not file_path:
             return {"error": "file_path is required"}
 
+        max_chars = int(arguments.get("max_chars") or _DEFAULT_MAX_CHARS)
+        page_start = arguments.get("page_start")
+        page_end = arguments.get("page_end")
+
         # Try direct retrieval first; if the path doesn't exist on disk,
         # look up by filename in the file upload repo (files are stored
         # with UUID names but the agent may pass the original filename).
@@ -308,26 +358,48 @@ class DocumentToolExecutor:
         ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
 
         if ext == "pdf":
-            return self._read_pdf(data)
-        if ext == "docx":
-            return self._read_docx(data)
-        if ext == "xlsx":
-            return self._read_xlsx(data)
-        if ext == "pptx":
-            return self._read_pptx(data)
-        return {"error": f"Unsupported file format: .{ext}"}
+            result = self._read_pdf(
+                data,
+                page_start=int(page_start) if page_start else None,
+                page_end=int(page_end) if page_end else None,
+            )
+        elif ext == "docx":
+            result = self._read_docx(data)
+        elif ext == "xlsx":
+            result = self._read_xlsx(data)
+        elif ext == "pptx":
+            result = self._read_pptx(data)
+        else:
+            return {"error": f"Unsupported file format: .{ext}"}
+
+        return self._truncate_result(result, max_chars)
 
     @staticmethod
-    def _read_pdf(data: bytes) -> dict[str, Any]:
+    def _read_pdf(
+        data: bytes,
+        page_start: int | None = None,
+        page_end: int | None = None,
+    ) -> dict[str, Any]:
         from PyPDF2 import PdfReader
 
         reader = PdfReader(io.BytesIO(data))
-        pages = [page.extract_text() or "" for page in reader.pages]
-        return {
+        total_pages = len(reader.pages)
+
+        # Convert to 0-based indices; default to all pages
+        start = max((page_start or 1) - 1, 0)
+        end = min((page_end or total_pages), total_pages)
+
+        pages = [reader.pages[i].extract_text() or "" for i in range(start, end)]
+        result: dict[str, Any] = {
             "format": "pdf",
-            "page_count": len(pages),
+            "total_pages": total_pages,
+            "pages_returned": f"{start + 1}-{end}",
             "text": "\n\n".join(pages),
         }
+        if end < total_pages:
+            result["has_more"] = True
+            result["next_page_start"] = end + 1
+        return result
 
     @staticmethod
     def _read_docx(data: bytes) -> dict[str, Any]:

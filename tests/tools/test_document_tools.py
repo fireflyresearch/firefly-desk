@@ -197,7 +197,7 @@ class TestDocumentRead:
 
         assert "error" not in result
         assert result["format"] == "pdf"
-        assert result["page_count"] >= 1
+        assert result["total_pages"] >= 1
         assert "Test PDF content" in result["text"]
 
     async def test_read_missing_path_returns_error(self, executor: DocumentToolExecutor):
