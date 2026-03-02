@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from flydesk.jobs.models import Job
     from flydesk.jobs.runner import JobRunner
     from flydesk.knowledge.graph import KnowledgeGraph
+    from flydesk.knowledge.models import KnowledgeDocument
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,7 @@ class SystemDiscoveryEngine:
         *,
         workspace_ids: list[str] | None = None,
         document_types: list[str] | None = None,
+        knowledge_documents: list[KnowledgeDocument] | None = None,
         confidence_threshold: float = 0.5,
     ) -> Job:
         """Submit a system discovery job to the background job runner.
@@ -209,16 +211,22 @@ class SystemDiscoveryEngine:
             job_runner: The ``JobRunner`` instance to submit the job to.
             workspace_ids: Optional list of workspace IDs to restrict document gathering.
             document_types: Optional list of document types to include.
+            knowledge_documents: Optional pre-loaded KB documents to include in context.
             confidence_threshold: Minimum confidence score for discovered systems.
 
         Returns:
             The created ``Job`` domain object for tracking.
         """
+        # Store knowledge_documents for use during analysis
+        if knowledge_documents:
+            self._pending_knowledge_documents = knowledge_documents
         payload: dict[str, Any] = {"trigger": trigger}
         if workspace_ids:
             payload["workspace_ids"] = workspace_ids
         if document_types:
             payload["document_types"] = document_types
+        if knowledge_documents:
+            payload["knowledge_document_ids"] = [d.id for d in knowledge_documents]
         if confidence_threshold != 0.5:
             payload["confidence_threshold"] = confidence_threshold
         return await job_runner.submit("system_discovery", payload)
@@ -243,12 +251,20 @@ class SystemDiscoveryEngine:
         workspace_ids = payload.get("workspace_ids") or []
         document_types = payload.get("document_types") or []
         confidence_threshold = float(payload.get("confidence_threshold", 0.5))
+
+        # Retrieve any pending knowledge documents stashed by discover()
+        knowledge_documents = getattr(self, "_pending_knowledge_documents", None)
+        if knowledge_documents is not None:
+            self._pending_knowledge_documents = None  # consume once
+
+        knowledge_document_ids = payload.get("knowledge_document_ids") or []
         await on_progress(5, "Scanning catalog systems, knowledge graph, and documents...")
 
         # 1. Gather context
         context = await self._gather_context(
             workspace_ids=workspace_ids,
             document_types=document_types,
+            knowledge_documents=knowledge_documents,
         )
         await on_progress(
             20,
@@ -309,6 +325,22 @@ class SystemDiscoveryEngine:
         merge_summary = ", ".join(merge_parts) if merge_parts else "no changes"
         await on_progress(95, f"Merge complete: {merge_summary}")
 
+        # 5b. Auto-link source knowledge documents to newly created systems
+        if knowledge_document_ids and stats.get("created_ids"):
+            try:
+                for system_id in stats["created_ids"]:
+                    for doc_id in knowledge_document_ids:
+                        await self._catalog_repo.link_document(
+                            system_id, doc_id, role="reference",
+                        )
+                logger.debug(
+                    "Auto-linked %d documents to %d new systems.",
+                    len(knowledge_document_ids),
+                    len(stats["created_ids"]),
+                )
+            except Exception:
+                logger.warning("Failed to auto-link documents to discovered systems.", exc_info=True)
+
         if self._audit_logger and usage_data:
             try:
                 await self._audit_logger.log(AuditEvent(
@@ -350,6 +382,7 @@ class SystemDiscoveryEngine:
         *,
         workspace_ids: list[str] | None = None,
         document_types: list[str] | None = None,
+        knowledge_documents: list[KnowledgeDocument] | None = None,
     ) -> SystemDiscoveryContext:
         """Collect all available enterprise context for the LLM prompt."""
         ctx = SystemDiscoveryContext()
@@ -442,6 +475,21 @@ class SystemDiscoveryEngine:
             ]
         except Exception:
             logger.warning("Failed to gather knowledge base context.", exc_info=True)
+
+        # Include explicitly provided knowledge documents (deduplicated)
+        if knowledge_documents:
+            existing_titles = {d["title"] for d in ctx.documents}
+            for doc in knowledge_documents:
+                if doc.title not in existing_titles:
+                    ctx.documents.append(
+                        {
+                            "title": doc.title,
+                            "document_type": str(doc.document_type),
+                            "tags": doc.tags,
+                            "content": doc.content,
+                        }
+                    )
+                    existing_titles.add(doc.title)
 
         return ctx
 
@@ -593,7 +641,7 @@ class SystemDiscoveryEngine:
     async def _merge_systems(
         self,
         discovered: list[ExternalSystem],
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Merge discovered systems with existing ones.
 
         Merge rules:
@@ -601,9 +649,9 @@ class SystemDiscoveryEngine:
         - Case-insensitive name match is used for deduplication
         - Brand new systems are created with status DRAFT
 
-        Returns a stats dict with counts.
+        Returns a stats dict with counts and created_ids list.
         """
-        stats = {"discovered": len(discovered), "created": 0, "skipped": 0}
+        stats: dict[str, Any] = {"discovered": len(discovered), "created": 0, "skipped": 0, "created_ids": []}
 
         existing, _ = await self._catalog_repo.list_systems()
         existing_by_name: dict[str, ExternalSystem] = {
@@ -617,6 +665,7 @@ class SystemDiscoveryEngine:
                 # Brand new system -- create it
                 await self._catalog_repo.create_system(system)
                 stats["created"] += 1
+                stats["created_ids"].append(system.id)
 
                 # Auto-create discovered endpoints
                 for ep_data in system.metadata.get("discovered_endpoints", []):
