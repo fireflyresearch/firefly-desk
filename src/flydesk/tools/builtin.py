@@ -16,9 +16,11 @@ an external HTTP round-trip.
 from __future__ import annotations
 
 import asyncio
+import json as _json_mod
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -1449,15 +1451,23 @@ class BuiltinToolExecutor:
         else:
             ws_base = "wss://" + base
 
+        # Substitute auth path_params into the path
+        if resolved_auth.path_params:
+            for param_name, param_value in resolved_auth.path_params.items():
+                value = str(param_value)
+                if "://" in value or ".." in value:
+                    return {
+                        "error": f"Path traversal not allowed in param {param_name!r}",
+                        "success": False,
+                    }
+                path = path.replace("{" + param_name + "}", value)
+
         ws_url = f"{ws_base}/{path.lstrip('/')}"
 
         # Append auth query params to the WebSocket URL
         if resolved_auth.query_params:
-            from urllib.parse import urlencode, urlparse, urlunparse, parse_qs
-
             parsed = urlparse(ws_url)
             existing_qs = parse_qs(parsed.query, keep_blank_values=True)
-            # Auth params first; existing (call-supplied) params take precedence
             merged_qs: dict[str, str] = {}
             for k, v in resolved_auth.query_params.items():
                 merged_qs[k] = v
@@ -1468,12 +1478,10 @@ class BuiltinToolExecutor:
         # Merge auth body params into message if message is JSON-parseable
         if resolved_auth.body_params and message:
             try:
-                import json as _json
-
-                msg_data = _json.loads(message)
+                msg_data = _json_mod.loads(message)
                 if isinstance(msg_data, dict):
                     msg_data = {**resolved_auth.body_params, **msg_data}
-                    message = _json.dumps(msg_data)
+                    message = _json_mod.dumps(msg_data)
             except (ValueError, TypeError):
                 pass  # message is not JSON; skip body_params merge
 
