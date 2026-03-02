@@ -60,6 +60,7 @@ def _job_to_notification(job: Job) -> dict:
         "status": job.status.value,
         "progress": job.progress_pct,
         "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
         "updated_at": updated_at.isoformat() if updated_at else None,
     }
 
