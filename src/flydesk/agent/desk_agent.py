@@ -86,6 +86,10 @@ _LLM_FALLBACK_RETRIES = 2
 _LLM_STREAM_TIMEOUT = 300
 # Timeout for the follow-up LLM call after tool execution (seconds).
 _LLM_FOLLOWUP_TIMEOUT = 120
+# Retry config for the follow-up call (longer delays for rate-limit recovery).
+_FOLLOWUP_MAX_RETRIES = 3
+_FOLLOWUP_RETRY_BASE_DELAY = 15.0  # seconds (rate limits are per-minute)
+_FOLLOWUP_RETRY_MAX_DELAY = 60.0
 
 # Strings that indicate a transient/retryable LLM error.
 _TRANSIENT_ERROR_INDICATORS = (
@@ -839,7 +843,7 @@ class DeskAgent:
             uploads.append(upload)
             text = upload.extracted_text or ""
             if text:
-                max_ctx = 12_000
+                max_ctx = 4_000
                 if len(text) > max_ctx:
                     text = text[:max_ctx]
                     text += (
@@ -1328,39 +1332,56 @@ class DeskAgent:
 
         # Make a follow-up run() call with the accumulated history so the LLM
         # sees the tool results and produces the final answer.
-        try:
-            # Use the underlying pydantic-ai agent directly so we can pass
-            # message_history without re-injecting memory.
-            inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
-            async with asyncio.timeout(_LLM_FOLLOWUP_TIMEOUT):
-                result = await inner_agent.run(
-                    "Based on the tool results above, provide a complete answer.",
-                    message_history=message_history,
-                )
-            follow_up_text = str(result.output) if hasattr(result, "output") else str(result.data)
+        # Includes retry with exponential backoff for transient / rate-limit errors.
+        inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
+        last_exc: Exception | None = None
 
-            if follow_up_text:
-                # Yield a separator so the user can distinguish the follow-up
-                yield "\n\n"
-                for i in range(0, len(follow_up_text), _STREAM_CHUNK_SIZE):
-                    yield follow_up_text[i : i + _STREAM_CHUNK_SIZE]
+        for attempt in range(_FOLLOWUP_MAX_RETRIES):
+            try:
+                async with asyncio.timeout(_LLM_FOLLOWUP_TIMEOUT):
+                    result = await inner_agent.run(
+                        "Based on the tool results above, provide a complete answer.",
+                        message_history=message_history,
+                    )
+                follow_up_text = str(result.output) if hasattr(result, "output") else str(result.data)
 
-                # Update usage with the follow-up call's tokens
-                if usage_out is not None:
-                    try:
-                        fu_usage = result.usage() if callable(getattr(result, "usage", None)) else None
-                        if fu_usage:
-                            usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
-                            usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
-                            usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
-                    except Exception:
-                        _logger.debug("Failed to extract follow-up usage.", exc_info=True)
-        except TimeoutError:
-            _logger.warning("Follow-up LLM call timed out after %ds", _LLM_FOLLOWUP_TIMEOUT)
-            yield "\n\n*The follow-up response timed out. The tool calls completed but the summary could not be generated.*"
-        except Exception as exc:
-            _logger.error("Follow-up LLM call after tool execution failed: %s", exc, exc_info=True)
-            yield f"\n\n*Tool results could not be summarized: {exc}*"
+                if follow_up_text:
+                    yield "\n\n"
+                    for i in range(0, len(follow_up_text), _STREAM_CHUNK_SIZE):
+                        yield follow_up_text[i : i + _STREAM_CHUNK_SIZE]
+
+                    if usage_out is not None:
+                        try:
+                            fu_usage = result.usage() if callable(getattr(result, "usage", None)) else None
+                            if fu_usage:
+                                usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
+                                usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
+                                usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
+                        except Exception:
+                            _logger.debug("Failed to extract follow-up usage.", exc_info=True)
+                return  # success
+            except TimeoutError:
+                _logger.warning("Follow-up LLM call timed out after %ds", _LLM_FOLLOWUP_TIMEOUT)
+                yield "\n\n*The follow-up response timed out. The tool calls completed but the summary could not be generated.*"
+                return
+            except Exception as exc:
+                last_exc = exc
+                if _is_transient_error(exc) and attempt < _FOLLOWUP_MAX_RETRIES - 1:
+                    delay = min(
+                        _FOLLOWUP_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2),
+                        _FOLLOWUP_RETRY_MAX_DELAY,
+                    )
+                    _logger.warning(
+                        "Follow-up rate limited (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt + 1, _FOLLOWUP_MAX_RETRIES, delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                break
+
+        if last_exc is not None:
+            _logger.error("Follow-up LLM call after tool execution failed: %s", last_exc, exc_info=True)
+            yield f"\n\n*Tool results could not be summarized: {last_exc}*"
 
     async def _call_llm(
         self,
@@ -1739,7 +1760,7 @@ async def _build_multimodal_parts(
             parts.append(BinaryContent(data=raw, media_type=upload.content_type))
         elif upload.extracted_text:
             text = upload.extracted_text
-            max_ctx = 12_000
+            max_ctx = 4_000
             if len(text) > max_ctx:
                 text = text[:max_ctx]
                 text += (
