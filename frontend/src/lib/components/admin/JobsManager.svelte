@@ -18,10 +18,13 @@
 		XCircle,
 		RefreshCw,
 		ChevronDown,
-		ChevronRight
+		ChevronRight,
+		Pause,
+		Play,
+		Ban
 	} from 'lucide-svelte';
 	import { slide, fade } from 'svelte/transition';
-	import { fetchJobs, fetchJob, type Job, type JobFilters } from '$lib/services/jobs.js';
+	import { fetchJobs, fetchJob, pauseJob, resumeJob, cancelJob, type Job, type JobFilters } from '$lib/services/jobs.js';
 
 	// -----------------------------------------------------------------------
 	// State
@@ -44,6 +47,9 @@
 	let autoRefresh = $state(false);
 	let refreshInterval = $state<ReturnType<typeof setInterval> | null>(null);
 
+	// Live tick counter (for re-evaluating relative times)
+	let tick = $state(0);
+
 	// Expanded row
 	let expandedJobId = $state<string | null>(null);
 	let expandedJob = $state<Job | null>(null);
@@ -65,7 +71,8 @@
 		{ value: 'running', label: 'Running' },
 		{ value: 'completed', label: 'Completed' },
 		{ value: 'failed', label: 'Failed' },
-		{ value: 'cancelled', label: 'Cancelled' }
+		{ value: 'cancelled', label: 'Cancelled' },
+		{ value: 'paused', label: 'Paused' }
 	];
 
 	// -----------------------------------------------------------------------
@@ -137,6 +144,54 @@
 		};
 	});
 
+	// Tick every 30s to force re-evaluation of relative times
+	$effect(() => {
+		const id = setInterval(() => tick++, 30_000);
+		return () => clearInterval(id);
+	});
+
+	// -----------------------------------------------------------------------
+	// Action handlers
+	// -----------------------------------------------------------------------
+
+	let confirmingCancel = $state<string | null>(null);
+
+	async function handlePause(event: MouseEvent, jobId: string) {
+		event.stopPropagation();
+		try {
+			await pauseJob(jobId);
+			await loadJobs(true);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to pause job';
+		}
+	}
+
+	async function handleResume(event: MouseEvent, jobId: string) {
+		event.stopPropagation();
+		try {
+			await resumeJob(jobId);
+			await loadJobs(true);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to resume job';
+		}
+	}
+
+	async function handleCancel(event: MouseEvent, jobId: string) {
+		event.stopPropagation();
+		if (confirmingCancel !== jobId) {
+			confirmingCancel = jobId;
+			setTimeout(() => { if (confirmingCancel === jobId) confirmingCancel = null; }, 3000);
+			return;
+		}
+		confirmingCancel = null;
+		try {
+			await cancelJob(jobId);
+			await loadJobs(true);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to cancel job';
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
@@ -153,6 +208,8 @@
 				return 'border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
 			case 'cancelled':
 				return 'border border-border bg-surface-secondary text-text-secondary';
+			case 'paused':
+				return 'border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
 			default:
 				return 'border border-border bg-surface-secondary text-text-secondary';
 		}
@@ -167,6 +224,7 @@
 	}
 
 	function formatRelativeTime(iso: string | null): string {
+		void tick; // force re-evaluation
 		if (!iso) return '--';
 		const d = new Date(iso);
 		const now = new Date();
@@ -197,17 +255,31 @@
 	}
 
 	function computeDuration(job: Job): string {
-		if (!job.created_at) return '--';
-		const start = new Date(job.created_at).getTime();
+		void tick; // force re-evaluation every 30s
+		if (!job.started_at) {
+			if (job.status === 'pending') return '--';
+			if (!job.created_at) return '--';
+		}
+		const start = new Date(job.started_at || job.created_at!).getTime();
 
 		if (job.status === 'running') {
-			return 'running...';
+			const elapsed = Date.now() - start;
+			if (elapsed < 1000) return '<1s';
+			const sec = Math.floor(elapsed / 1000);
+			if (sec < 60) return `${sec}s`;
+			const min = Math.floor(sec / 60);
+			const remSec = sec % 60;
+			if (min < 60) return `${min}m ${remSec}s`;
+			const hr = Math.floor(min / 60);
+			const remMin = min % 60;
+			return `${hr}h ${remMin}m`;
 		}
+
+		if (job.status === 'paused') return 'paused';
 
 		if (!job.completed_at) return '--';
 		const end = new Date(job.completed_at).getTime();
 		const diffMs = end - start;
-
 		if (diffMs < 1000) return `${diffMs}ms`;
 		const diffSec = Math.floor(diffMs / 1000);
 		if (diffSec < 60) return `${diffSec}s`;
@@ -354,8 +426,9 @@
 						<th class="px-3 py-2.5">Status</th>
 						<th class="px-3 py-2.5">Progress</th>
 						<th class="px-3 py-2.5">Created</th>
+						<th class="px-3 py-2.5">Started</th>
 						<th class="px-3 py-2.5">Duration</th>
-						<th class="px-3 py-2.5">Error</th>
+						<th class="px-3 py-2.5">Actions</th>
 					</tr>
 				</thead>
 				<tbody class="divide-y divide-border">
@@ -388,6 +461,8 @@
 										<AlertCircle size={11} />
 									{:else if job.status === 'cancelled'}
 										<XCircle size={11} />
+									{:else if job.status === 'paused'}
+										<Pause size={11} />
 									{/if}
 									{statusLabel(job.status)}
 								</span>
@@ -403,6 +478,14 @@
 										</div>
 										<span class="text-xs text-text-secondary">{job.progress_pct}%</span>
 									</div>
+								{:else if job.status === 'paused'}
+									<div class="flex items-center gap-2">
+										<div class="h-1.5 w-24 overflow-hidden rounded-full bg-surface-secondary">
+											<div class="h-full rounded-full bg-warning paused-stripes"
+												style="width: {job.progress_pct}%"></div>
+										</div>
+										<span class="text-xs text-text-secondary">{job.progress_pct}%</span>
+									</div>
 								{:else if job.status === 'completed'}
 									<span class="text-xs text-text-secondary">100%</span>
 								{:else}
@@ -412,22 +495,47 @@
 							<td class="px-3 py-2.5 text-text-secondary" title={formatFullTimestamp(job.created_at)}>
 								{formatRelativeTime(job.created_at)}
 							</td>
+							<td class="px-3 py-2.5 text-text-secondary" title={formatFullTimestamp(job.started_at)}>
+								{formatRelativeTime(job.started_at)}
+							</td>
 							<td class="px-3 py-2.5 text-text-secondary">
 								{computeDuration(job)}
 							</td>
-							<td class="max-w-[200px] truncate px-3 py-2.5 text-text-secondary" title={job.error ?? ''}>
-								{#if job.error}
-									<span class="text-red-500">{job.error}</span>
-								{:else}
-									--
-								{/if}
+							<td class="px-3 py-2.5">
+								<div class="flex items-center gap-1" onclick={(e) => e.stopPropagation()}>
+									{#if job.status === 'running'}
+										<button type="button" onclick={(e) => handlePause(e, job.id)}
+											class="rounded p-1 text-text-secondary transition-colors hover:bg-warning/10 hover:text-warning"
+											title="Pause">
+											<Pause size={14} />
+										</button>
+									{/if}
+									{#if job.status === 'paused'}
+										<button type="button" onclick={(e) => handleResume(e, job.id)}
+											class="rounded p-1 text-text-secondary transition-colors hover:bg-success/10 hover:text-success"
+											title="Resume">
+											<Play size={14} />
+										</button>
+									{/if}
+									{#if job.status === 'pending' || job.status === 'running' || job.status === 'paused'}
+										<button type="button" onclick={(e) => handleCancel(e, job.id)}
+											class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+											title={confirmingCancel === job.id ? 'Click again to confirm' : 'Cancel'}>
+											{#if confirmingCancel === job.id}
+												<Ban size={14} class="text-danger" />
+											{:else}
+												<XCircle size={14} />
+											{/if}
+										</button>
+									{/if}
+								</div>
 							</td>
 						</tr>
 
 						<!-- Expanded detail row -->
 						{#if isExpanded}
 							<tr>
-								<td colspan="7" class="border-t border-border/50 bg-surface-secondary/30 p-0">
+								<td colspan="8" class="border-t border-border/50 bg-surface-secondary/30 p-0">
 									<div transition:slide={{ duration: 150 }} class="px-6 py-4">
 										{#if loadingDetail}
 											<div class="flex items-center gap-2 py-4 text-text-secondary">
@@ -529,5 +637,14 @@
 	@keyframes shimmer {
 		0% { transform: translateX(-100%); }
 		100% { transform: translateX(400%); }
+	}
+	.paused-stripes {
+		background-image: repeating-linear-gradient(
+			45deg,
+			transparent,
+			transparent 4px,
+			rgba(0,0,0,0.1) 4px,
+			rgba(0,0,0,0.1) 8px
+		);
 	}
 </style>
