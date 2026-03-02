@@ -293,6 +293,29 @@ async def delete_endpoint(request: Request, endpoint_id: str, repo: Repo, audit:
 
 
 # ---------------------------------------------------------------------------
+# Curl Import
+# ---------------------------------------------------------------------------
+
+
+@router.post("/import/curl", dependencies=[CatalogWrite])
+async def parse_curl_command(body: dict):
+    """Parse a curl command string into structured endpoint components."""
+    from flydesk.catalog.curl_parser import parse_curl
+
+    try:
+        parsed = parse_curl(body["command"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "method": parsed.method,
+        "url": parsed.url,
+        "headers": parsed.headers,
+        "body": parsed.body,
+        "query_params": parsed.query_params,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tags
 # ---------------------------------------------------------------------------
 
