@@ -9,12 +9,13 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Bell, X, CheckCircle, AlertCircle, Loader2, Clock, Pause, Activity } from 'lucide-svelte';
+	import { Bell, X, XCircle, CheckCircle, AlertCircle, Loader2, Clock, Pause, Play, Ban, Activity } from 'lucide-svelte';
 	import {
 		fetchNotifications,
 		dismissNotification,
 		type AppNotification
 	} from '$lib/services/notifications.js';
+	import { pauseJob, resumeJob, cancelJob } from '$lib/services/jobs.js';
 
 	interface NotificationPanelProps {
 		open?: boolean;
@@ -25,6 +26,13 @@
 
 	let notifications = $state<AppNotification[]>([]);
 	let loading = $state(false);
+	let tick = $state(0);
+
+	$effect(() => {
+		if (!open) return;
+		const id = setInterval(() => tick++, 30_000);
+		return () => clearInterval(id);
+	});
 
 	// Load notifications when panel opens
 	$effect(() => {
@@ -63,10 +71,41 @@
 		}
 	}
 
+	async function handlePause(event: MouseEvent, id: string) {
+		event.stopPropagation();
+		try {
+			await pauseJob(id);
+			await loadNotifications();
+		} catch (e) {
+			console.error('Failed to pause job', e);
+		}
+	}
+
+	async function handleResume(event: MouseEvent, id: string) {
+		event.stopPropagation();
+		try {
+			await resumeJob(id);
+			await loadNotifications();
+		} catch (e) {
+			console.error('Failed to resume job', e);
+		}
+	}
+
+	async function handleCancel(event: MouseEvent, id: string) {
+		event.stopPropagation();
+		try {
+			await cancelJob(id);
+			await loadNotifications();
+		} catch (e) {
+			console.error('Failed to cancel job', e);
+		}
+	}
+
 	/**
 	 * Format a timestamp string into a human-readable relative time.
 	 */
 	function relativeTime(iso: string | null): string {
+		void tick;
 		if (!iso) return '';
 		const now = Date.now();
 		const then = new Date(iso).getTime();
@@ -186,11 +225,41 @@
 											style="width: {notification.progress}%"
 										></div>
 									</div>
+								{:else if notification.status === 'paused' && notification.progress != null}
+									<div class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-secondary">
+										<div class="h-full rounded-full bg-warning paused-stripes"
+											style="width: {notification.progress}%"></div>
+									</div>
+								{/if}
+
+								<!-- Action buttons -->
+								{#if notification.type === 'job' && ['pending', 'running', 'paused'].includes(notification.status)}
+									<div class="mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+										{#if notification.status === 'running'}
+											<button type="button" onclick={(e) => handlePause(e, notification.id)}
+												class="rounded p-0.5 text-text-secondary hover:bg-warning/10 hover:text-warning"
+												title="Pause">
+												<Pause size={12} />
+											</button>
+										{/if}
+										{#if notification.status === 'paused'}
+											<button type="button" onclick={(e) => handleResume(e, notification.id)}
+												class="rounded p-0.5 text-text-secondary hover:bg-success/10 hover:text-success"
+												title="Resume">
+												<Play size={12} />
+											</button>
+										{/if}
+										<button type="button" onclick={(e) => handleCancel(e, notification.id)}
+											class="rounded p-0.5 text-text-secondary hover:bg-danger/10 hover:text-danger"
+											title="Cancel">
+											<XCircle size={12} />
+										</button>
+									</div>
 								{/if}
 
 								<!-- Timestamp -->
 								<span class="mt-1 block text-xs text-text-secondary">
-									{relativeTime(notification.updated_at ?? notification.created_at)}
+									{relativeTime(notification.started_at ?? notification.created_at)}
 								</span>
 							</div>
 
@@ -222,3 +291,12 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+.paused-stripes {
+	background-image: repeating-linear-gradient(
+		45deg, transparent, transparent 4px,
+		rgba(0,0,0,0.1) 4px, rgba(0,0,0,0.1) 8px
+	);
+}
+</style>
