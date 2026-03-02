@@ -100,3 +100,23 @@ class CredentialRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+
+class SystemTagRow(Base):
+    """ORM row for the ``system_tags`` table."""
+
+    __tablename__ = "system_tags"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SystemTagAssociationRow(Base):
+    """ORM row for the ``system_tag_associations`` join table."""
+
+    __tablename__ = "system_tag_associations"
+
+    system_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(String(255), primary_key=True)

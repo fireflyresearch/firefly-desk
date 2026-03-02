@@ -139,3 +139,12 @@ class Credential(BaseModel):
     credential_type: str
     expires_at: datetime | None = None
     last_rotated: datetime | None = None
+
+
+class SystemTag(BaseModel):
+    """A tag for categorizing external systems."""
+
+    id: str
+    name: str
+    color: str | None = None
+    description: str | None = None
