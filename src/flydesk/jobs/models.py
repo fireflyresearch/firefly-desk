@@ -24,6 +24,7 @@ class JobStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PAUSED = "paused"
 
 
 class Job(BaseModel):
@@ -40,3 +41,4 @@ class Job(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     payload: dict = Field(default_factory=dict)
+    checkpoint: dict | None = None
