@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from flydesk.catalog.enums import AuthType
 from flydesk.catalog.models import AuthConfig, CredentialMapping
 
@@ -76,3 +79,40 @@ class TestAuthConfigCredentialMappings:
         config = AuthConfig(auth_type=AuthType.NONE)
         assert config.credential_mappings == []
         assert config.static_headers is None
+
+
+class TestCredentialMappingValidation:
+    def test_invalid_target_raises_validation_error(self):
+        with pytest.raises(ValidationError):
+            CredentialMapping(
+                source="$.api_key",
+                target="cookie",
+                field_name="X-API-Key",
+            )
+
+    def test_invalid_transform_raises_validation_error(self):
+        with pytest.raises(ValidationError):
+            CredentialMapping(
+                source="$.api_key",
+                target="header",
+                field_name="X-API-Key",
+                transform="rot13",
+            )
+
+    def test_round_trip_serialization(self):
+        config = AuthConfig(
+            auth_type=AuthType.API_KEY,
+            credential_id="cred-001",
+            credential_mappings=[
+                CredentialMapping(
+                    source="$.api_key",
+                    target="header",
+                    field_name="X-API-Key",
+                    transform="prefix:Bearer ",
+                ),
+            ],
+            static_headers={"Accept": "application/json"},
+        )
+        data = config.model_dump()
+        restored = AuthConfig(**data)
+        assert restored == config

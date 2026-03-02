@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from flydesk.catalog.enums import AuthType, HttpMethod, ProtocolType, RiskLevel, SystemStatus
 
@@ -43,9 +43,18 @@ class CredentialMapping(BaseModel):
     """Maps a credential value to a request location."""
 
     source: str  # JSONPath-like key into decrypted credential JSON, or "$value" for raw
-    target: str  # "header", "query", "path", "body"
+    target: Literal["header", "query", "path", "body"]
     field_name: str  # e.g., "X-Custom-Token", "api_key"
     transform: str | None = None  # Optional: "base64", "prefix:Bearer "
+
+    @field_validator("transform")
+    @classmethod
+    def validate_transform(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if v == "base64" or v.startswith("prefix:"):
+            return v
+        raise ValueError(f"Unknown transform {v!r}; expected 'base64' or 'prefix:<value>'")
 
 
 class AuthConfig(BaseModel):
@@ -56,9 +65,13 @@ class AuthConfig(BaseModel):
     token_url: str | None = None
     scopes: list[str] | None = None
     auth_headers: dict[str, str] | None = None
+    """Headers used during authentication flows (e.g., custom API-key header name for API_KEY auth)."""
+
     auth_params: dict[str, str] | None = None
     credential_mappings: list[CredentialMapping] = Field(default_factory=list)
+
     static_headers: dict[str, str] | None = None
+    """Headers included on every outbound request, regardless of auth type."""
 
 
 class ExternalSystem(BaseModel):
