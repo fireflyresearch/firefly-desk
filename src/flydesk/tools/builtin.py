@@ -1198,18 +1198,36 @@ class BuiltinToolExecutor:
         if not path:
             return {"error": "path is required"}
 
-        auth_headers = (await self._resolve_auth(system)).headers
+        resolved_auth = await self._resolve_auth(system)
 
-        # Build URL
+        # Build URL – substitute auth-sourced path params first, then call args
         base = system.base_url.rstrip("/")
+        auth_path = resolved_auth.path_params
+        call_path_params = arguments.get("path_params", {})
+        merged_path_params = {**auth_path, **call_path_params}
+        for param_name, param_value in merged_path_params.items():
+            value = str(param_value)
+            if "://" in value or ".." in value:
+                return {"error": f"URL does not match system base_url: resolved=<blocked>, base={system.base_url!r}"}
+            path = path.replace("{" + param_name + "}", value)
+
         url = f"{base}/{path.lstrip('/')}"
 
         # Guard: resolved URL must stay within system base_url
         if not url.startswith(base + "/") or ".." in url:
             return {"error": f"URL does not match system base_url: resolved={url!r}, base={system.base_url!r}"}
 
-        query_params = arguments.get("query_params", {})
+        # Merge auth query params with call args (call args take precedence)
+        query_params = {**resolved_auth.query_params, **arguments.get("query_params", {})}
         body = arguments.get("body")
+
+        # Merge auth body params into body (call args take precedence)
+        if resolved_auth.body_params:
+            if isinstance(body, dict):
+                body = {**resolved_auth.body_params, **body}
+            elif body is None:
+                body = dict(resolved_auth.body_params)
+
         extra_headers = arguments.get("headers", {})
 
         # Filter out security-sensitive headers to prevent auth override
@@ -1218,7 +1236,7 @@ class BuiltinToolExecutor:
         request_kwargs: dict[str, Any] = {
             "method": method_raw,
             "url": url,
-            "headers": {**auth_headers, **extra_headers},
+            "headers": {**resolved_auth.headers, **extra_headers},
             "timeout": 30.0,
         }
         if query_params:
@@ -1243,10 +1261,14 @@ class BuiltinToolExecutor:
         variables = arguments.get("variables", {})
         operation_name = arguments.get("operation_name")
 
-        auth_headers = (await self._resolve_auth(system)).headers
+        resolved_auth = await self._resolve_auth(system)
 
         # GraphQL endpoint is the system base_url itself
         url = system.base_url.rstrip("/")
+
+        # Merge auth body params into variables (call args take precedence)
+        if resolved_auth.body_params:
+            variables = {**resolved_auth.body_params, **variables}
 
         graphql_body: dict[str, Any] = {"query": query}
         if variables:
@@ -1257,10 +1279,15 @@ class BuiltinToolExecutor:
         request_kwargs: dict[str, Any] = {
             "method": "POST",
             "url": url,
-            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "headers": {**resolved_auth.headers, "Content-Type": "application/json"},
             "json": graphql_body,
             "timeout": 30.0,
         }
+
+        # Merge auth query params if present
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            request_kwargs["params"] = query_params
 
         return await self._execute_http_request(request_kwargs)
 
@@ -1280,7 +1307,7 @@ class BuiltinToolExecutor:
         if not body_xml:
             return {"error": "body_xml is required"}
 
-        auth_headers = (await self._resolve_auth(system)).headers
+        resolved_auth = await self._resolve_auth(system)
 
         # Use optional path or fall back to system base_url
         path = arguments.get("path", "").strip()
@@ -1293,8 +1320,15 @@ class BuiltinToolExecutor:
         else:
             url = base
 
+        # Merge auth body params into SOAP body template substitution
+        # (auth-sourced params first; call args via body_xml take precedence
+        #  since body_xml is the fully-rendered XML from the caller)
+        if resolved_auth.body_params:
+            for key, value in resolved_auth.body_params.items():
+                body_xml = body_xml.replace("{" + key + "}", str(value))
+
         headers = {
-            **auth_headers,
+            **resolved_auth.headers,
             "Content-Type": "text/xml; charset=utf-8",
             "SOAPAction": soap_action,
         }
@@ -1306,6 +1340,11 @@ class BuiltinToolExecutor:
             "content": body_xml.encode("utf-8"),
             "timeout": 30.0,
         }
+
+        # Merge auth query params if present
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            request_kwargs["params"] = query_params
 
         return await self._execute_http_request(request_kwargs)
 
@@ -1331,7 +1370,7 @@ class BuiltinToolExecutor:
 
         body = arguments.get("body", {})
 
-        auth_headers = (await self._resolve_auth(system)).headers
+        resolved_auth = await self._resolve_auth(system)
 
         base = system.base_url.rstrip("/")
         url = f"{base}/{service}/{method}"
@@ -1340,13 +1379,22 @@ class BuiltinToolExecutor:
         if not url.startswith(base + "/") or ".." in url:
             return {"error": f"URL does not match system base_url: resolved={url!r}, base={system.base_url!r}"}
 
+        # Merge auth body params into body (call args take precedence)
+        if resolved_auth.body_params:
+            body = {**resolved_auth.body_params, **body}
+
         request_kwargs: dict[str, Any] = {
             "method": "POST",
             "url": url,
-            "headers": {**auth_headers, "Content-Type": "application/json"},
+            "headers": {**resolved_auth.headers, "Content-Type": "application/json"},
             "json": body,
             "timeout": 30.0,
         }
+
+        # Merge auth query params if present
+        query_params = {**resolved_auth.query_params}
+        if query_params:
+            request_kwargs["params"] = query_params
 
         return await self._execute_http_request(request_kwargs)
 
@@ -1388,7 +1436,7 @@ class BuiltinToolExecutor:
             if k.lower() not in _SENSITIVE_HEADERS
         }
 
-        auth_headers = (await self._resolve_auth(system)).headers
+        resolved_auth = await self._resolve_auth(system)
 
         # Convert http(s):// to ws(s):// scheme
         base = system.base_url.rstrip("/")
@@ -1403,6 +1451,32 @@ class BuiltinToolExecutor:
 
         ws_url = f"{ws_base}/{path.lstrip('/')}"
 
+        # Append auth query params to the WebSocket URL
+        if resolved_auth.query_params:
+            from urllib.parse import urlencode, urlparse, urlunparse, parse_qs
+
+            parsed = urlparse(ws_url)
+            existing_qs = parse_qs(parsed.query, keep_blank_values=True)
+            # Auth params first; existing (call-supplied) params take precedence
+            merged_qs: dict[str, str] = {}
+            for k, v in resolved_auth.query_params.items():
+                merged_qs[k] = v
+            for k, vals in existing_qs.items():
+                merged_qs[k] = vals[0] if vals else ""
+            ws_url = urlunparse(parsed._replace(query=urlencode(merged_qs)))
+
+        # Merge auth body params into message if message is JSON-parseable
+        if resolved_auth.body_params and message:
+            try:
+                import json as _json
+
+                msg_data = _json.loads(message)
+                if isinstance(msg_data, dict):
+                    msg_data = {**resolved_auth.body_params, **msg_data}
+                    message = _json.dumps(msg_data)
+            except (ValueError, TypeError):
+                pass  # message is not JSON; skip body_params merge
+
         # Guard: resolved URL must stay within the base
         if ".." in ws_url:
             return {
@@ -1410,7 +1484,7 @@ class BuiltinToolExecutor:
                 "success": False,
             }
 
-        connection_headers = {**auth_headers, **extra_headers}
+        connection_headers = {**resolved_auth.headers, **extra_headers}
 
         try:
             async with websockets.connect(
