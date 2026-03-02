@@ -13,10 +13,11 @@ from sqlalchemy import String as SAString, cast, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.catalog.enums import SystemStatus
-from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint, SystemTag
+from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint, SystemDocument, SystemTag
 from flydesk.models.catalog import (
     ExternalSystemRow,
     ServiceEndpointRow,
+    SystemDocumentRow,
     SystemTagAssociationRow,
     SystemTagRow,
 )
@@ -553,6 +554,46 @@ class CatalogRepository:
                 SystemTag(id=r.id, name=r.name, color=r.color, description=r.description)
                 for r in result.scalars().all()
             ]
+
+    # -- System Documents --
+
+    async def link_document(self, system_id: str, document_id: str, role: str = "reference") -> None:
+        """Link a knowledge document to a system."""
+        async with self._session_factory() as session:
+            session.add(SystemDocumentRow(system_id=system_id, document_id=document_id, role=role))
+            await session.commit()
+
+    async def unlink_document(self, system_id: str, document_id: str) -> None:
+        """Remove a document link from a system."""
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(SystemDocumentRow).where(
+                    SystemDocumentRow.system_id == system_id,
+                    SystemDocumentRow.document_id == document_id,
+                )
+            )
+            await session.commit()
+
+    async def list_system_documents(self, system_id: str) -> list[SystemDocument]:
+        """Return all documents linked to a specific system."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(SystemDocumentRow).where(SystemDocumentRow.system_id == system_id)
+            )
+            return [
+                SystemDocument(system_id=r.system_id, document_id=r.document_id, role=r.role)
+                for r in result.scalars().all()
+            ]
+
+    async def list_systems_for_document(self, document_id: str) -> list[str]:
+        """Return all system IDs linked to a specific document."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(SystemDocumentRow.system_id).where(
+                    SystemDocumentRow.document_id == document_id
+                )
+            )
+            return [r[0] for r in result.all()]
 
     # -- Mapping helpers --
 
