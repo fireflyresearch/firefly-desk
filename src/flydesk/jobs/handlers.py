@@ -257,7 +257,9 @@ class KGRecomputeHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
-    ) -> dict:
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
+    ) -> dict | ExecutionResult:
         """Extract entities/relations from all documents and upsert into the KG."""
         from flydesk.knowledge.graph import Entity, Relation
 
@@ -270,10 +272,17 @@ class KGRecomputeHandler:
             await on_progress(100, "No documents to process")
             return {"entities_added": 0, "relations_added": 0, "documents_processed": 0}
 
+        # Restore state from checkpoint if resuming.
+        start_index = 0
         entities_added = 0
         relations_added = 0
+        if checkpoint is not None:
+            start_index = checkpoint.get("current_index", 0)
+            entities_added = checkpoint.get("entities_added", 0)
+            relations_added = checkpoint.get("relations_added", 0)
 
-        for i, doc in enumerate(docs):
+        for i in range(start_index, total):
+            doc = docs[i]
             doc_title = getattr(doc, "title", "Untitled")
             doc_content = getattr(doc, "content", "")
 
@@ -281,6 +290,15 @@ class KGRecomputeHandler:
                 logger.debug("Skipping empty document: %s", doc_title)
                 pct = int((i + 1) / total * 100)
                 await on_progress(pct, f"Skipped {doc_title} (empty)")
+                if should_pause():
+                    return ExecutionResult(
+                        result={},
+                        checkpoint={
+                            "current_index": i + 1,
+                            "entities_added": entities_added,
+                            "relations_added": relations_added,
+                        },
+                    )
                 continue
 
             try:
@@ -291,6 +309,15 @@ class KGRecomputeHandler:
                 logger.warning("Extraction failed for '%s'.", doc_title, exc_info=True)
                 pct = int((i + 1) / total * 100)
                 await on_progress(pct, f"Extraction failed for {doc_title}")
+                if should_pause():
+                    return ExecutionResult(
+                        result={},
+                        checkpoint={
+                            "current_index": i + 1,
+                            "entities_added": entities_added,
+                            "relations_added": relations_added,
+                        },
+                    )
                 continue
 
             for ent_dict in entities:
@@ -322,8 +349,20 @@ class KGRecomputeHandler:
                 f"Processed {i + 1}/{total} documents ({entities_added} entities, {relations_added} relations)",
             )
 
-        return {
-            "entities_added": entities_added,
-            "relations_added": relations_added,
-            "documents_processed": total,
-        }
+            if should_pause():
+                return ExecutionResult(
+                    result={},
+                    checkpoint={
+                        "current_index": i + 1,
+                        "entities_added": entities_added,
+                        "relations_added": relations_added,
+                    },
+                )
+
+        return ExecutionResult(
+            result={
+                "entities_added": entities_added,
+                "relations_added": relations_added,
+                "documents_processed": total,
+            },
+        )

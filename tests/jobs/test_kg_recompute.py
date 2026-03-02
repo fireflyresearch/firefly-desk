@@ -14,7 +14,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from flydesk.jobs.handlers import JobHandler, KGRecomputeHandler
+from flydesk.jobs.handlers import ExecutionResult, JobHandler, KGRecomputeHandler
+
+
+def _unwrap(result):
+    """Unwrap an ExecutionResult to its inner dict, or return the dict as-is."""
+    if isinstance(result, ExecutionResult):
+        return result.result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +133,7 @@ class TestExecute:
             ],
         )
 
-        result = await handler.execute("job-2", {}, on_progress)
+        result = _unwrap(await handler.execute("job-2", {}, on_progress))
 
         assert result["entities_added"] == 2
         assert result["relations_added"] == 1
@@ -160,7 +167,7 @@ class TestExecute:
             [],
         )
 
-        result = await handler.execute("job-3", {}, on_progress)
+        result = _unwrap(await handler.execute("job-3", {}, on_progress))
 
         assert result["entities_added"] == 3
         assert result["relations_added"] == 0
@@ -174,7 +181,7 @@ class TestExecute:
         doc = _make_doc("d-1", "Empty Doc", "")
         mock_catalog_repo.list_knowledge_documents.return_value = [doc]
 
-        result = await handler.execute("job-4", {}, on_progress)
+        result = _unwrap(await handler.execute("job-4", {}, on_progress))
 
         assert result["entities_added"] == 0
         assert result["documents_processed"] == 1
@@ -199,7 +206,7 @@ class TestExecute:
             RuntimeError("LLM failed"),
         ]
 
-        result = await handler.execute("job-5", {}, on_progress)
+        result = _unwrap(await handler.execute("job-5", {}, on_progress))
 
         assert result["entities_added"] == 1
         assert result["relations_added"] == 0
