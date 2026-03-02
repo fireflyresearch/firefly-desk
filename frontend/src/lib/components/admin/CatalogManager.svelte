@@ -22,7 +22,9 @@
 		Search,
 		Settings,
 		Save,
-		Tag
+		Tag,
+		Link,
+		Unlink
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 	import { parseSSEStream } from '$lib/services/sse.js';
@@ -79,6 +81,19 @@
 		agent_enabled: boolean;
 		metadata: Record<string, unknown>;
 		workspace_id?: string | null;
+	}
+
+	interface LinkedDoc {
+		system_id: string;
+		document_id: string;
+		role: string;
+	}
+
+	interface KBDocument {
+		id: string;
+		title: string;
+		doc_type?: string;
+		workspace_id?: string;
 	}
 
 	// -----------------------------------------------------------------------
@@ -168,6 +183,16 @@
 
 	// Workspaces
 	let workspaces = $state<{id: string; name: string}[]>([]);
+
+	// Linked documents state
+	let linkedDocsCache = $state<Record<string, LinkedDoc[]>>({});
+	let loadingLinkedDocs = $state<Record<string, boolean>>({});
+	let docLinkSearchQuery = $state<Record<string, string>>({});
+	let docLinkSearchResults = $state<Record<string, KBDocument[]>>({});
+	let docLinkSearching = $state<Record<string, boolean>>({});
+	let showDocLinkPanel = $state<Record<string, boolean>>({});
+
+	const DOC_ROLES = ['reference', 'api_spec', 'setup_guide', 'changelog'] as const;
 
 	// -----------------------------------------------------------------------
 	// Data loading
@@ -287,6 +312,7 @@
 		} else {
 			next.add(systemId);
 			loadEndpoints(systemId);
+			loadLinkedDocs(systemId);
 		}
 		expandedIds = next;
 	}
@@ -503,6 +529,124 @@
 			await loadEndpoints(systemId);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete endpoint';
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Linked Documents
+	// -----------------------------------------------------------------------
+
+	async function loadLinkedDocs(systemId: string) {
+		loadingLinkedDocs = { ...loadingLinkedDocs, [systemId]: true };
+		try {
+			const docs = await apiJson<LinkedDoc[]>(`/catalog/systems/${systemId}/documents`);
+			linkedDocsCache = { ...linkedDocsCache, [systemId]: docs };
+		} catch {
+			linkedDocsCache = { ...linkedDocsCache, [systemId]: [] };
+		} finally {
+			loadingLinkedDocs = { ...loadingLinkedDocs, [systemId]: false };
+		}
+	}
+
+	async function linkDoc(systemId: string, documentId: string, role: string = 'reference') {
+		error = '';
+		try {
+			await apiJson(`/catalog/systems/${systemId}/documents`, {
+				method: 'POST',
+				body: JSON.stringify({ document_id: documentId, role })
+			});
+			await loadLinkedDocs(systemId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to link document';
+		}
+	}
+
+	async function unlinkDoc(systemId: string, documentId: string) {
+		error = '';
+		try {
+			await apiFetch(`/catalog/systems/${systemId}/documents/${documentId}`, {
+				method: 'DELETE'
+			});
+			await loadLinkedDocs(systemId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to unlink document';
+		}
+	}
+
+	async function updateDocRole(systemId: string, documentId: string, newRole: string) {
+		error = '';
+		try {
+			await apiFetch(`/catalog/systems/${systemId}/documents/${documentId}`, {
+				method: 'DELETE'
+			});
+			await apiJson(`/catalog/systems/${systemId}/documents`, {
+				method: 'POST',
+				body: JSON.stringify({ document_id: documentId, role: newRole })
+			});
+			await loadLinkedDocs(systemId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to update document role';
+		}
+	}
+
+	let docSearchDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
+
+	async function searchDocsForSystem(systemId: string) {
+		const query = (docLinkSearchQuery[systemId] ?? '').trim();
+		if (!query) {
+			docLinkSearchResults = { ...docLinkSearchResults, [systemId]: [] };
+			return;
+		}
+		docLinkSearching = { ...docLinkSearching, [systemId]: true };
+		try {
+			const docs = await apiJson<KBDocument[]>('/knowledge/documents');
+			const q = query.toLowerCase();
+			docLinkSearchResults = {
+				...docLinkSearchResults,
+				[systemId]: docs.filter(
+					(d) =>
+						d.title.toLowerCase().includes(q) ||
+						d.id.toLowerCase().includes(q) ||
+						(d.doc_type ?? '').toLowerCase().includes(q)
+				)
+			};
+		} catch {
+			docLinkSearchResults = { ...docLinkSearchResults, [systemId]: [] };
+		} finally {
+			docLinkSearching = { ...docLinkSearching, [systemId]: false };
+		}
+	}
+
+	function onDocLinkSearchInput(systemId: string) {
+		clearTimeout(docSearchDebounces[systemId]);
+		docSearchDebounces[systemId] = setTimeout(() => {
+			searchDocsForSystem(systemId);
+		}, 300);
+	}
+
+	function toggleDocLinkPanel(systemId: string) {
+		const isOpen = showDocLinkPanel[systemId] ?? false;
+		showDocLinkPanel = { ...showDocLinkPanel, [systemId]: !isOpen };
+		if (!isOpen) {
+			loadLinkedDocs(systemId);
+		}
+	}
+
+	function roleLabel(role: string): string {
+		switch (role) {
+			case 'api_spec': return 'API Spec';
+			case 'setup_guide': return 'Setup Guide';
+			case 'changelog': return 'Changelog';
+			default: return 'Reference';
+		}
+	}
+
+	function roleBadgeClass(role: string): string {
+		switch (role) {
+			case 'api_spec': return 'bg-accent/10 text-accent';
+			case 'setup_guide': return 'bg-success/10 text-success';
+			case 'changelog': return 'bg-warning/10 text-warning';
+			default: return 'bg-text-secondary/10 text-text-secondary';
 		}
 	}
 
@@ -1327,6 +1471,114 @@
 											</div>
 										{/if}
 
+										<!-- Linked Documents Section -->
+										<hr class="my-3 border-border/50" />
+
+										<div class="flex flex-col gap-2">
+											<div class="flex items-center gap-2">
+												<Link size={14} class="text-text-secondary" />
+												<span class="text-xs font-medium text-text-secondary">Linked Documents</span>
+												<button
+													type="button"
+													onclick={() => toggleDocLinkPanel(system.id)}
+													class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
+												>
+													<Plus size={10} />
+													{showDocLinkPanel[system.id] ? 'Done' : 'Manage'}
+												</button>
+											</div>
+
+											<!-- Display linked docs -->
+											{#if loadingLinkedDocs[system.id]}
+												<div class="flex items-center gap-2 py-1">
+													<Loader2 size={12} class="animate-spin text-text-secondary" />
+													<span class="text-[10px] text-text-secondary">Loading...</span>
+												</div>
+											{:else if linkedDocsCache[system.id]?.length > 0}
+												<div class="flex flex-col gap-1">
+													{#each linkedDocsCache[system.id] as doc}
+														<div class="flex items-center gap-2 rounded border border-border/50 bg-surface/50 px-2.5 py-1.5">
+															<span class="flex-1 truncate font-mono text-[10px] text-text-primary">{doc.document_id}</span>
+															{#if showDocLinkPanel[system.id]}
+																<select
+																	value={doc.role}
+																	onchange={(e) => updateDocRole(system.id, doc.document_id, (e.target as HTMLSelectElement).value)}
+																	class="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
+																>
+																	{#each DOC_ROLES as role}
+																		<option value={role}>{roleLabel(role)}</option>
+																	{/each}
+																</select>
+															{/if}
+															<span class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {roleBadgeClass(doc.role)}">
+																{roleLabel(doc.role)}
+															</span>
+															{#if showDocLinkPanel[system.id]}
+																<button
+																	type="button"
+																	onclick={() => unlinkDoc(system.id, doc.document_id)}
+																	class="rounded p-0.5 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+																	title="Unlink document"
+																>
+																	<Unlink size={10} />
+																</button>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											{:else if !showDocLinkPanel[system.id]}
+												<span class="text-[10px] text-text-secondary">No linked documents</span>
+											{/if}
+
+											<!-- Search panel for linking -->
+											{#if showDocLinkPanel[system.id]}
+												<div class="mt-1 flex flex-col gap-1.5 rounded-md border border-border/50 bg-surface-secondary/20 p-2">
+													<div class="relative">
+														<Search size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
+														<input
+															type="text"
+															value={docLinkSearchQuery[system.id] ?? ''}
+															oninput={(e) => { docLinkSearchQuery = { ...docLinkSearchQuery, [system.id]: (e.target as HTMLInputElement).value }; onDocLinkSearchInput(system.id); }}
+															placeholder="Search KB documents..."
+															class="w-full rounded border border-border bg-surface py-1.5 pl-7 pr-2 text-[10px] text-text-primary outline-none focus:border-accent"
+														/>
+														{#if docLinkSearching[system.id]}
+															<Loader2 size={10} class="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-text-secondary" />
+														{/if}
+													</div>
+
+													{#if (docLinkSearchResults[system.id] ?? []).length > 0}
+														<div class="max-h-32 overflow-y-auto">
+															{#each docLinkSearchResults[system.id] as doc}
+																{@const alreadyLinked = (linkedDocsCache[system.id] ?? []).some((d) => d.document_id === doc.id)}
+																<div class="flex items-center gap-2 rounded px-2 py-1 hover:bg-surface-hover">
+																	<div class="min-w-0 flex-1">
+																		<p class="truncate text-[10px] font-medium text-text-primary">{doc.title}</p>
+																		<p class="truncate font-mono text-[9px] text-text-secondary">{doc.id}</p>
+																	</div>
+																	{#if doc.doc_type}
+																		<span class="shrink-0 rounded bg-surface-secondary px-1 py-0.5 text-[9px] text-text-secondary">{doc.doc_type}</span>
+																	{/if}
+																	{#if alreadyLinked}
+																		<span class="shrink-0 text-[9px] text-text-secondary">Linked</span>
+																	{:else}
+																		<button
+																			type="button"
+																			onclick={() => linkDoc(system.id, doc.id)}
+																			class="shrink-0 rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/10"
+																		>
+																			Link
+																		</button>
+																	{/if}
+																</div>
+															{/each}
+														</div>
+													{:else if (docLinkSearchQuery[system.id] ?? '').trim() && !docLinkSearching[system.id]}
+														<p class="text-[10px] text-text-secondary">No documents found.</p>
+													{/if}
+												</div>
+											{/if}
+										</div>
 									</td>
 								</tr>
 							{/if}

@@ -2,7 +2,8 @@
   SystemWizard.svelte - Multi-step wizard for creating/editing external systems.
 
   Unified wizard with method picker (Step 0), then 4-step flow: Basics,
-  Authentication, Agent Access, Review & Create.
+  Authentication, Agent Access, Review & Create. Includes post-save document
+  linking panel.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -22,7 +23,10 @@
 		Terminal,
 		FileUp,
 		Sparkles,
-		Wrench
+		Wrench,
+		Search,
+		Link,
+		Unlink
 	} from 'lucide-svelte';
 	import { untrack } from 'svelte';
 	import { apiJson } from '$lib/services/api.js';
@@ -77,6 +81,19 @@
 		credential_type: string;
 	}
 
+	interface LinkedDoc {
+		system_id: string;
+		document_id: string;
+		role: string;
+	}
+
+	interface KBDocument {
+		id: string;
+		title: string;
+		doc_type?: string;
+		workspace_id?: string;
+	}
+
 	// -----------------------------------------------------------------------
 	// Props
 	// -----------------------------------------------------------------------
@@ -116,6 +133,8 @@
 		{ value: 'websocket', label: 'WebSocket' }
 	] as const;
 
+	const DOC_ROLES = ['reference', 'api_spec', 'setup_guide', 'changelog'] as const;
+
 	// -----------------------------------------------------------------------
 	// Initial values (captured once at mount — wizard is always freshly mounted)
 	// -----------------------------------------------------------------------
@@ -141,6 +160,17 @@
 	let saving = $state(false);
 	let error = $state('');
 	let credentials = $state<Credential[]>([]);
+
+	// Post-save state
+	let savedSystemId = $state('');
+	let showDocLinking = $state(false);
+
+	// Document linking state
+	let docSearchQuery = $state('');
+	let docSearchResults = $state<KBDocument[]>([]);
+	let docSearching = $state(false);
+	let linkedDocs = $state<LinkedDoc[]>([]);
+	let loadingLinkedDocs = $state(false);
 
 	// Step 1: Basics
 	let name = $state(_init?.name ?? '');
@@ -444,12 +474,113 @@
 					body: JSON.stringify(payload)
 				});
 			}
+			savedSystemId = payload.id;
+			showDocLinking = true;
+			await loadLinkedDocs(payload.id);
 			onSaved();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to save system';
 		} finally {
 			saving = false;
 		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Document linking
+	// -----------------------------------------------------------------------
+
+	async function searchDocuments() {
+		if (!docSearchQuery.trim()) {
+			docSearchResults = [];
+			return;
+		}
+		docSearching = true;
+		try {
+			const docs = await apiJson<KBDocument[]>('/knowledge/documents');
+			const q = docSearchQuery.toLowerCase();
+			docSearchResults = docs.filter(
+				(d) =>
+					d.title.toLowerCase().includes(q) ||
+					d.id.toLowerCase().includes(q) ||
+					(d.doc_type ?? '').toLowerCase().includes(q)
+			);
+		} catch {
+			docSearchResults = [];
+		} finally {
+			docSearching = false;
+		}
+	}
+
+	async function loadLinkedDocs(sysId: string) {
+		loadingLinkedDocs = true;
+		try {
+			linkedDocs = await apiJson<LinkedDoc[]>(`/catalog/systems/${sysId}/documents`);
+		} catch {
+			linkedDocs = [];
+		} finally {
+			loadingLinkedDocs = false;
+		}
+	}
+
+	async function linkDocument(documentId: string, role: string = 'reference') {
+		const sysId = savedSystemId || (_init?.id ?? '');
+		if (!sysId) return;
+		try {
+			await apiJson(`/catalog/systems/${sysId}/documents`, {
+				method: 'POST',
+				body: JSON.stringify({ document_id: documentId, role })
+			});
+			await loadLinkedDocs(sysId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to link document';
+		}
+	}
+
+	async function unlinkDocument(documentId: string) {
+		const sysId = savedSystemId || (_init?.id ?? '');
+		if (!sysId) return;
+		try {
+			const resp = await fetch(`/api/catalog/systems/${sysId}/documents/${documentId}`, {
+				method: 'DELETE',
+				headers: {
+					'Authorization': `Bearer ${sessionStorage.getItem('firefly_auth_token') ?? ''}`
+				}
+			});
+			if (!resp.ok) throw new Error('Failed to unlink');
+			await loadLinkedDocs(sysId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to unlink document';
+		}
+	}
+
+	async function updateDocRole(documentId: string, newRole: string) {
+		const sysId = savedSystemId || (_init?.id ?? '');
+		if (!sysId) return;
+		// Unlink then re-link with new role
+		try {
+			const resp = await fetch(`/api/catalog/systems/${sysId}/documents/${documentId}`, {
+				method: 'DELETE',
+				headers: {
+					'Authorization': `Bearer ${sessionStorage.getItem('firefly_auth_token') ?? ''}`
+				}
+			});
+			if (!resp.ok) throw new Error('Failed to update role');
+			await apiJson(`/catalog/systems/${sysId}/documents`, {
+				method: 'POST',
+				body: JSON.stringify({ document_id: documentId, role: newRole })
+			});
+			await loadLinkedDocs(sysId);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to update document role';
+		}
+	}
+
+	let docSearchDebounce: ReturnType<typeof setTimeout>;
+	function onDocSearchInput() {
+		clearTimeout(docSearchDebounce);
+		docSearchDebounce = setTimeout(() => {
+			searchDocuments();
+		}, 300);
 	}
 
 	// -----------------------------------------------------------------------
@@ -475,6 +606,24 @@
 			onClose();
 		}
 	}
+
+	function roleLabel(role: string): string {
+		switch (role) {
+			case 'api_spec': return 'API Spec';
+			case 'setup_guide': return 'Setup Guide';
+			case 'changelog': return 'Changelog';
+			default: return 'Reference';
+		}
+	}
+
+	function roleBadgeClass(role: string): string {
+		switch (role) {
+			case 'api_spec': return 'bg-accent/10 text-accent';
+			case 'setup_guide': return 'bg-success/10 text-success';
+			case 'changelog': return 'bg-warning/10 text-warning';
+			default: return 'bg-text-secondary/10 text-text-secondary';
+		}
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -491,7 +640,9 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between border-b border-border px-6 py-4">
 			<h2 class="text-base font-semibold text-text-primary">
-				{#if currentStep === -1}
+				{#if showDocLinking}
+					System Saved
+				{:else if currentStep === -1}
 					New System
 				{:else}
 					{isEditMode ? 'Edit System' : 'New System'}
@@ -506,8 +657,8 @@
 			</button>
 		</div>
 
-		<!-- Step indicators (only show during normal steps, not method picker) -->
-		{#if currentStep >= 0}
+		<!-- Step indicators (only show during normal steps, not method picker or post-save) -->
+		{#if currentStep >= 0 && !showDocLinking}
 			<div class="flex items-center gap-2 border-b border-border px-6 py-3">
 				{#each STEPS as stepLabel, i}
 					{@const active = i === currentStep}
@@ -552,8 +703,110 @@
 		<!-- Step content -->
 		<div class="flex-1 overflow-y-auto px-6 py-5">
 
+			<!-- Post-save: Document Linking -->
+			{#if showDocLinking}
+				<div class="flex flex-col gap-4">
+					<div class="flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 px-4 py-3">
+						<Check size={16} class="text-success" />
+						<p class="text-sm font-medium text-success">
+							System {isEditMode ? 'updated' : 'created'} successfully!
+						</p>
+					</div>
+
+					<div class="flex flex-col gap-3">
+						<h3 class="text-sm font-semibold text-text-primary">Link Documents</h3>
+						<p class="text-xs text-text-secondary">
+							Link knowledge base documents to this system for context enrichment.
+						</p>
+
+						<!-- Linked documents -->
+						{#if loadingLinkedDocs}
+							<div class="flex items-center gap-2 py-2">
+								<Loader2 size={14} class="animate-spin text-text-secondary" />
+								<span class="text-xs text-text-secondary">Loading linked documents...</span>
+							</div>
+						{:else if linkedDocs.length > 0}
+							<div class="flex flex-col gap-1.5">
+								{#each linkedDocs as doc}
+									<div class="flex items-center gap-2 rounded-md border border-border bg-surface-secondary/30 px-3 py-2">
+										<Link size={12} class="shrink-0 text-text-secondary" />
+										<span class="flex-1 truncate font-mono text-xs text-text-primary">{doc.document_id}</span>
+										<select
+											value={doc.role}
+											onchange={(e) => updateDocRole(doc.document_id, (e.target as HTMLSelectElement).value)}
+											class="rounded border border-border bg-surface px-2 py-0.5 text-xs text-text-primary outline-none focus:border-accent"
+										>
+											{#each DOC_ROLES as role}
+												<option value={role}>{roleLabel(role)}</option>
+											{/each}
+										</select>
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-medium {roleBadgeClass(doc.role)}">
+											{roleLabel(doc.role)}
+										</span>
+										<button
+											type="button"
+											onclick={() => unlinkDocument(doc.document_id)}
+											class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+											title="Unlink document"
+										>
+											<Unlink size={12} />
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						<!-- Search for documents to link -->
+						<div class="flex flex-col gap-2">
+							<div class="relative">
+								<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+								<input
+									type="text"
+									bind:value={docSearchQuery}
+									oninput={onDocSearchInput}
+									placeholder="Search KB documents by title or ID..."
+									class="w-full rounded-md border border-border bg-surface py-2 pl-8 pr-3 text-xs text-text-primary outline-none focus:border-accent"
+								/>
+								{#if docSearching}
+									<Loader2 size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-secondary" />
+								{/if}
+							</div>
+
+							{#if docSearchResults.length > 0}
+								<div class="max-h-40 overflow-y-auto rounded-md border border-border bg-surface">
+									{#each docSearchResults as doc}
+										{@const alreadyLinked = linkedDocs.some((d) => d.document_id === doc.id)}
+										<div class="flex items-center gap-2 border-b border-border/50 px-3 py-2 last:border-b-0">
+											<div class="min-w-0 flex-1">
+												<p class="truncate text-xs font-medium text-text-primary">{doc.title}</p>
+												<p class="truncate font-mono text-[10px] text-text-secondary">{doc.id}</p>
+											</div>
+											{#if doc.doc_type}
+												<span class="shrink-0 rounded bg-surface-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">{doc.doc_type}</span>
+											{/if}
+											{#if alreadyLinked}
+												<span class="shrink-0 text-[10px] text-text-secondary">Linked</span>
+											{:else}
+												<button
+													type="button"
+													onclick={() => linkDocument(doc.id)}
+													class="shrink-0 rounded-md border border-accent/40 bg-accent/5 px-2 py-0.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+												>
+													Link
+												</button>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{:else if docSearchQuery.trim() && !docSearching}
+								<p class="text-xs text-text-secondary">No documents found matching "{docSearchQuery}".</p>
+							{/if}
+						</div>
+					</div>
+				</div>
+
 			<!-- Step 0: Method Picker (new systems only) -->
-			{#if currentStep === -1}
+			{:else if currentStep === -1}
 				{#if wizardMethod === null}
 					<div class="flex flex-col gap-4">
 						<p class="text-sm text-text-secondary">
@@ -1270,7 +1523,9 @@
 		<!-- Footer navigation -->
 		<div class="flex items-center justify-between border-t border-border px-6 py-4">
 			<div>
-				{#if currentStep >= 0}
+				{#if showDocLinking}
+					<!-- No back button on post-save -->
+				{:else if currentStep >= 0}
 					<button
 						type="button"
 						onclick={goPrev}
@@ -1283,7 +1538,15 @@
 			</div>
 
 			<div class="flex items-center gap-2">
-				{#if currentStep === -1}
+				{#if showDocLinking}
+					<button
+						type="button"
+						onclick={onClose}
+						class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+					>
+						Done
+					</button>
+				{:else if currentStep === -1}
 					<button
 						type="button"
 						onclick={onClose}
