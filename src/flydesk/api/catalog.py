@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -19,7 +20,7 @@ from flydesk.api.deps import get_audit_logger, get_auto_trigger, get_catalog_rep
 from flydesk.audit.logger import AuditLogger
 from flydesk.audit.models import AuditEvent, AuditEventType
 from flydesk.catalog.enums import VALID_TRANSITIONS, SystemStatus
-from flydesk.catalog.models import ExternalSystem, ServiceEndpoint
+from flydesk.catalog.models import ExternalSystem, ServiceEndpoint, SystemDocument, SystemTag
 from flydesk.catalog.repository import CatalogRepository
 from flydesk.rbac.guards import CatalogDelete, CatalogRead, CatalogWrite
 from flydesk.triggers.auto_trigger import AutoTriggerService
@@ -288,6 +289,109 @@ async def delete_endpoint(request: Request, endpoint_id: str, repo: Repo, audit:
         action="catalog_change",
         detail={"entity": "endpoint", "operation": "delete", "entity_id": endpoint_id, "name": existing.name},
     ))
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+
+@router.get("/tags", dependencies=[CatalogRead])
+async def list_tags(repo: Repo) -> list[SystemTag]:
+    """Return all system tags."""
+    return await repo.list_tags()
+
+
+@router.post("/tags", status_code=201, dependencies=[CatalogWrite])
+async def create_tag(body: dict, repo: Repo) -> SystemTag:
+    """Create a new system tag."""
+    tag = SystemTag(
+        id=str(uuid.uuid4()),
+        name=body["name"],
+        color=body.get("color"),
+        description=body.get("description"),
+    )
+    await repo.create_tag(tag)
+    return tag
+
+
+@router.put("/tags/{tag_id}", dependencies=[CatalogWrite])
+async def update_tag(tag_id: str, body: dict, repo: Repo) -> SystemTag:
+    """Update an existing system tag."""
+    tag = SystemTag(
+        id=tag_id,
+        name=body["name"],
+        color=body.get("color"),
+        description=body.get("description"),
+    )
+    await repo.update_tag(tag)
+    return tag
+
+
+@router.delete("/tags/{tag_id}", status_code=204, dependencies=[CatalogDelete])
+async def delete_tag(tag_id: str, repo: Repo) -> Response:
+    """Delete a system tag."""
+    await repo.delete_tag(tag_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# System-Tag Associations
+# ---------------------------------------------------------------------------
+
+
+@router.get("/systems/{system_id}/tags", dependencies=[CatalogRead])
+async def list_system_tags(system_id: str, repo: Repo) -> list[SystemTag]:
+    """Return all tags associated with a system."""
+    return await repo.list_system_tags(system_id)
+
+
+@router.post("/systems/{system_id}/tags", dependencies=[CatalogWrite])
+async def assign_system_tag(system_id: str, body: dict, repo: Repo) -> dict:
+    """Assign a tag to a system."""
+    await repo.assign_tag(system_id, body["tag_id"])
+    return {"system_id": system_id, "tag_id": body["tag_id"]}
+
+
+@router.delete(
+    "/systems/{system_id}/tags/{tag_id}", status_code=204, dependencies=[CatalogDelete]
+)
+async def remove_system_tag(system_id: str, tag_id: str, repo: Repo) -> Response:
+    """Remove a tag from a system."""
+    await repo.remove_tag(system_id, tag_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# System-Document Links
+# ---------------------------------------------------------------------------
+
+
+@router.get("/systems/{system_id}/documents", dependencies=[CatalogRead])
+async def list_system_documents(system_id: str, repo: Repo) -> list[SystemDocument]:
+    """Return all documents linked to a system."""
+    return await repo.list_system_documents(system_id)
+
+
+@router.post("/systems/{system_id}/documents", dependencies=[CatalogWrite])
+async def link_system_document(system_id: str, body: dict, repo: Repo) -> SystemDocument:
+    """Link a document to a system."""
+    role = body.get("role", "reference")
+    await repo.link_document(system_id, body["document_id"], role)
+    return SystemDocument(system_id=system_id, document_id=body["document_id"], role=role)
+
+
+@router.delete(
+    "/systems/{system_id}/documents/{document_id}",
+    status_code=204,
+    dependencies=[CatalogDelete],
+)
+async def unlink_system_document(
+    system_id: str, document_id: str, repo: Repo
+) -> Response:
+    """Unlink a document from a system."""
+    await repo.unlink_document(system_id, document_id)
     return Response(status_code=204)
 
 
