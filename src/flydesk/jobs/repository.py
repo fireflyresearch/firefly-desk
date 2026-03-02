@@ -23,6 +23,8 @@ from flydesk.models.job import JobRow
 
 logger = logging.getLogger(__name__)
 
+_UNSET = object()
+
 
 def _to_json(value: Any) -> str | None:
     """Serialize a Python object to a JSON string for SQLite Text columns."""
@@ -58,6 +60,7 @@ class JobRepository:
                 result_json=_to_json(job.result),
                 error=job.error,
                 payload_json=_to_json(job.payload),
+                checkpoint_json=_to_json(job.checkpoint),
                 created_at=job.created_at,
                 started_at=job.started_at,
                 completed_at=job.completed_at,
@@ -101,6 +104,7 @@ class JobRepository:
         result: dict | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
+        checkpoint: object = _UNSET,  # sentinel: _UNSET means "don't touch"
     ) -> None:
         """Update the status of a job, plus optional result/error timestamps."""
         async with self._session_factory() as session:
@@ -117,6 +121,8 @@ class JobRepository:
                 row.started_at = started_at
             if completed_at is not None:
                 row.completed_at = completed_at
+            if checkpoint is not _UNSET:
+                row.checkpoint_json = _to_json(checkpoint)
             await session.commit()
 
     async def update_progress(
@@ -167,6 +173,7 @@ class JobRepository:
             result=_from_json(row.result_json),
             error=row.error,
             payload=_from_json(row.payload_json) or {},
+            checkpoint=_from_json(row.checkpoint_json),
             created_at=row.created_at,
             started_at=row.started_at,
             completed_at=row.completed_at,
