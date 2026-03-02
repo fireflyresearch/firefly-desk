@@ -137,6 +137,9 @@ A shared `httpx.AsyncClient` is created for all outbound HTTP calls. This shared
 | `DocumentAnalyzer` | LLM-driven document analysis and classification |
 | `AutoTriggerService` | Debounced auto-analysis on data change events |
 | `AgentCustomizationService` | Loads and caches agent personality settings |
+| `RoutingConfigRepository` | Database-backed routing config with 60-second in-memory cache |
+| `ComplexityClassifier` | Classifies message complexity using a cheap LLM call |
+| `ModelRouter` | Orchestrates classification, confidence thresholding, and tier-to-model mapping |
 | `DeskAgentFactory` | Creates Pydantic AI agent instances with memory management |
 | `DeskAgent` | Top-level orchestrator that ties the entire pipeline together |
 | `MemoryManager` | Conversation memory with summarization and token management |
@@ -195,6 +198,7 @@ User Message
     v
 +-------------------+
 | Response Streaming | -- SSE events:
+|   - routing        |    model selection (when smart routing enabled)
 |   - token          |    text chunks
 |   - widget         |    structured UI directives
 |   - tool_start/end |    execution status
@@ -242,6 +246,7 @@ The application registers 30 routers, each responsible for a specific domain:
 | Memory | `memory_router` | User-scoped memory CRUD |
 | Jobs | `jobs_router` | Background job status |
 | LLM Providers | `llm_providers_router` | LLM provider configuration |
+| Model Routing | `model_routing_router` | Smart model routing configuration |
 | OIDC Providers | `oidc_providers_router` | SSO provider configuration |
 | Roles | `roles_router` | Role and permission management |
 | Users | `users_router` | User account management |
@@ -268,7 +273,7 @@ Understanding how data flows through the system clarifies the role of each compo
 
 **Knowledge ingestion:** Document submitted (API, import, file upload) -> `KnowledgeIndexer` chunks and embeds -> stored in database (text + vectors) -> `KGExtractor` optionally extracts entities/relationships -> `KnowledgeGraph` updated.
 
-**Conversation turn:** User message -> `ContextEnricher` retrieves relevant context (parallel KG + RAG + memory) -> `SystemPromptBuilder` composes prompt with Jinja2 templates -> `DeskAgentFactory` creates Pydantic AI agent -> LLM generates response -> `ToolExecutor` handles tool calls -> `WidgetParser` extracts widget directives -> SSE stream delivers response.
+**Conversation turn:** User message -> `ContextEnricher` retrieves relevant context (parallel KG + RAG + memory) -> `SystemPromptBuilder` composes prompt with Jinja2 templates -> `ModelRouter` classifies complexity and selects model tier (if enabled) -> `DeskAgentFactory` creates Pydantic AI agent (with optional model override) -> LLM generates response -> `ToolExecutor` handles tool calls -> `WidgetParser` extracts widget directives -> SSE stream delivers response.
 
 **Background processing:** Data change event -> `AutoTriggerService` debounces (5s window) -> `JobRunner` submits job -> handler executes (process discovery, KG recompute, etc.) -> results persisted.
 

@@ -460,6 +460,60 @@ Removes an LLM provider configuration.
 
 **Required permission:** `admin:llm`
 
+## Model Routing
+
+### GET /api/admin/model-routing
+
+Returns the current model routing configuration. If no configuration has been saved, returns the default configuration (routing disabled).
+
+**Required permission:** `admin:llm`
+
+**Response:**
+```json
+{
+  "enabled": false,
+  "classifier_model": null,
+  "default_tier": "balanced",
+  "tier_mappings": {},
+  "updated_at": null
+}
+```
+
+### PUT /api/admin/model-routing
+
+Updates the model routing configuration. Changes take effect within 60 seconds (the config cache TTL).
+
+**Required permission:** `admin:llm`
+
+**Request body:**
+```json
+{
+  "enabled": true,
+  "classifier_model": "gpt-4o-mini",
+  "default_tier": "balanced",
+  "tier_mappings": {
+    "fast": "gpt-4o-mini",
+    "balanced": "gpt-4o",
+    "powerful": "claude-sonnet-4-20250514"
+  }
+}
+```
+
+### POST /api/admin/model-routing/test
+
+Tests the classifier with a sample message. Requires routing to be enabled.
+
+**Required permission:** `admin:llm`
+
+**Request body:**
+```json
+{
+  "message": "Hello, how are you?",
+  "tool_count": 5,
+  "tool_names": ["search", "lookup"]
+}
+```
+
 ## OIDC Providers
 
 ### GET /api/admin/oidc-providers

@@ -16,7 +16,7 @@ The sidebar organizes features into collapsible groups with a left-bar accent in
 
 - **Dashboard** — Always visible at the top
 - **Content & Data** — Workspaces, System Catalog, Knowledge Base, Processes
-- **AI Configuration** — Agent, LLM Providers, Prompts, Tools, Email
+- **AI Configuration** — Agent, Email, LLM Configuration, Prompts, Tools
 - **Security & Access** — Users & Roles, Credentials, Single Sign-On
 - **Operations** — Audit Log, Exports, Git Providers, Document Sources, Search Engine, Background Jobs
 - **Help & Guides** — Pinned at the bottom
@@ -181,21 +181,39 @@ Each provider configuration includes claim mapping fields that specify where in 
 
 See the [SSO and OIDC](sso-oidc.md) documentation for detailed setup guides per provider.
 
-## LLM Provider Manager
+## LLM Configuration
 
 **Route:** `/admin/llm-providers`
 
-The LLM Provider Manager configures the language model providers that power the agent. Administrators can:
+The LLM Configuration page is organized into three tabs: Providers, Model Routing, and Embedding.
+
+### Providers Tab
+
+The Providers tab configures the language model providers that power the agent. Administrators can:
 
 - Register API keys for different LLM providers (OpenAI, Anthropic, Google, Azure OpenAI, Ollama)
 - Configure model selection and parameters
 - Set a default provider for the agent
 - Configure fallback models per provider type for resilience when the primary model is unavailable
-- Configure the embedding provider and model for knowledge base vectorization
 - Test provider connectivity and view health status
 - View provider usage metrics
 
 API keys are encrypted at rest using the same encryption key as the credential vault.
+
+### Model Routing Tab
+
+The Model Routing tab configures the smart model router, which automatically classifies messages by complexity and routes them to cost-appropriate models. The configuration interface includes:
+
+- **Enable/Disable Toggle** — Activates or deactivates smart routing. When disabled, all messages use the provider's default model.
+- **Classifier Model** — Selects the cheap/fast model used to classify message complexity. The dropdown prioritizes small models (GPT-4o Mini, Claude Haiku, Gemini Flash) while allowing any configured model.
+- **Default Tier** — The fallback tier used when classification confidence is low or classification fails. Displayed as selectable tier cards (Fast, Balanced, Powerful).
+- **Tier Model Mappings** — Per-tier model selection. Each tier (Fast, Balanced, Powerful) can be mapped to a specific model. Unmapped tiers use the provider's default model.
+
+Changes take effect within 60 seconds without requiring a server restart. For complete documentation including architecture details and API reference, see [Smart Model Routing](model-routing.md).
+
+### Embedding Tab
+
+The Embedding tab configures the embedding provider and model for knowledge base vectorization. Administrators can select the embedding model, configure dimensions, and manage the embedding API key separately from the main LLM provider configuration.
 
 ## Document Sources
 
@@ -241,7 +259,7 @@ Administrators can also disable search entirely, which removes the agent's abili
 
 **Route:** `/admin/email`
 
-The Email Channel page configures the email communication channel that allows the AI agent to send and receive emails through external providers. The Email entry appears in the **AI Configuration** sidebar group alongside Agent, LLM Providers, Prompts, and Tools.
+The Email Channel page configures the email communication channel that allows the AI agent to send and receive emails through external providers. The Email entry appears in the **AI Configuration** sidebar group alongside Agent, LLM Configuration, Prompts, and Tools.
 
 When the email channel has not been configured, the page displays a setup wizard that walks administrators through provider selection, API key entry, validation, and identity configuration. Once configured, the page organises settings into five tabs:
 

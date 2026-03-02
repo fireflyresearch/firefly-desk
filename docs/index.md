@@ -82,4 +82,5 @@ Firefly Desk is built for teams that operate backend systems and need a smarter 
 | Register external systems | [Service Catalog](service-catalog.md) |
 | Add knowledge documents | [Knowledge Base](knowledge-base.md) |
 | Set up SSO | [SSO and OIDC](sso-oidc.md) |
+| Optimize LLM costs | [Smart Model Routing](model-routing.md) |
 | Explore the API | [API Reference](api-reference.md) |
