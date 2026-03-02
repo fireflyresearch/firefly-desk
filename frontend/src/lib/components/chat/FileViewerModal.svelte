@@ -189,9 +189,9 @@
 					</div>
 				</div>
 			{:else if isPdf}
-				<!-- PDF via iframe -->
+				<!-- PDF via iframe (inline disposition for browser-native rendering) -->
 				<iframe
-					src="/api/files/{fileId}/download"
+					src="/api/files/{fileId}/download?inline=true"
 					title="PDF preview: {fileName}"
 					class="h-full w-full border-0"
 				></iframe>

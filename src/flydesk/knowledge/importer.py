@@ -16,8 +16,19 @@ import uuid
 import html2text
 import httpx
 
+from flydesk.files.extractor import ContentExtractor
 from flydesk.knowledge.indexer import KnowledgeIndexer
 from flydesk.knowledge.models import DocumentType, KnowledgeDocument
+
+_BINARY_CONTENT_TYPES = frozenset({
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+})
 
 
 class KnowledgeImporter:
@@ -26,6 +37,7 @@ class KnowledgeImporter:
     def __init__(self, indexer: KnowledgeIndexer, http_client: httpx.AsyncClient) -> None:
         self._indexer = indexer
         self._http_client = http_client
+        self._extractor = ContentExtractor()
         self._html_converter = html2text.HTML2Text()
         self._html_converter.ignore_links = False
         self._html_converter.ignore_images = True
@@ -82,8 +94,14 @@ class KnowledgeImporter:
         tags: list[str] | None = None,
     ) -> KnowledgeDocument:
         """Process uploaded file content, detect type, index."""
-        # Decode content based on content type
-        if "html" in content_type:
+        # Handle binary document types via ContentExtractor
+        if content_type in _BINARY_CONTENT_TYPES:
+            text = await self._extractor.extract(filename, content, content_type)
+            if text is None:
+                raise ValueError(
+                    f"Could not extract text from {filename} ({content_type})"
+                )
+        elif "html" in content_type:
             text = self._html_converter.handle(content.decode("utf-8"))
         else:
             text = content.decode("utf-8")

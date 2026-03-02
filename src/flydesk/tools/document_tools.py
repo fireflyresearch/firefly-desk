@@ -218,6 +218,22 @@ class DocumentToolExecutor:
         """Return True if *tool_name* is handled by this executor."""
         return tool_name in cls._TOOL_NAMES
 
+    async def _resolve_file_path(self, file_path: str) -> str | None:
+        """Resolve a user-provided path to the actual storage path.
+
+        When a file is not found at the literal *file_path*, this tries to
+        find it by looking up the original filename in the file upload repo.
+        """
+        if self._file_repo is None:
+            return None
+        import os
+        # Extract just the filename from the path
+        filename = os.path.basename(file_path)
+        upload = await self._file_repo.get_by_filename(filename)
+        if upload is not None:
+            return upload.storage_path
+        return None
+
     async def _register_file_upload(
         self,
         filename: str,
@@ -277,7 +293,18 @@ class DocumentToolExecutor:
         if not file_path:
             return {"error": "file_path is required"}
 
-        data = await self._storage.retrieve(file_path)
+        # Try direct retrieval first; if the path doesn't exist on disk,
+        # look up by filename in the file upload repo (files are stored
+        # with UUID names but the agent may pass the original filename).
+        try:
+            data = await self._storage.retrieve(file_path)
+        except FileNotFoundError:
+            resolved = await self._resolve_file_path(file_path)
+            if resolved is None:
+                return {"error": f"File not found: {file_path}"}
+            data = await self._storage.retrieve(resolved)
+            file_path = resolved
+
         ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
 
         if ext == "pdf":

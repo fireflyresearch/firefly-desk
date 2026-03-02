@@ -122,18 +122,24 @@ async def get_file_metadata(file_id: str, repo: FileRepo) -> dict:
 
 
 @router.get("/api/files/{file_id}/download")
-async def download_file(file_id: str, repo: FileRepo, storage: Storage) -> FastAPIResponse:
+async def download_file(
+    file_id: str,
+    repo: FileRepo,
+    storage: Storage,
+    inline: bool = Query(default=False, description="Serve inline for preview"),
+) -> FastAPIResponse:
     """Download a file's content."""
     upload = await repo.get(file_id)
     if upload is None:
         raise HTTPException(status_code=404, detail=f"File {file_id} not found")
 
     content = await storage.retrieve(upload.storage_path)
+    disposition = "inline" if inline else "attachment"
     return Response(
         content=content,
         media_type=upload.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{upload.filename}"',
+            "Content-Disposition": f'{disposition}; filename="{upload.filename}"',
         },
     )
 

@@ -66,6 +66,18 @@ class FileUploadRepository:
                 return None
             return self._row_to_upload(row)
 
+    async def get_by_filename(self, filename: str) -> FileUpload | None:
+        """Find the most recent upload with the given filename."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(FileUploadRow)
+                .where(FileUploadRow.filename == filename)
+                .order_by(FileUploadRow.created_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            return self._row_to_upload(row) if row else None
+
     async def list_by_conversation(self, conversation_id: str) -> list[FileUpload]:
         """Return all file uploads associated with a conversation."""
         async with self._session_factory() as session:
