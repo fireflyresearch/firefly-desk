@@ -39,6 +39,15 @@ class RetryPolicy(BaseModel):
     backoff_factor: float = 1.0
 
 
+class CredentialMapping(BaseModel):
+    """Maps a credential value to a request location."""
+
+    source: str  # JSONPath-like key into decrypted credential JSON, or "$value" for raw
+    target: str  # "header", "query", "path", "body"
+    field_name: str  # e.g., "X-Custom-Token", "api_key"
+    transform: str | None = None  # Optional: "base64", "prefix:Bearer "
+
+
 class AuthConfig(BaseModel):
     """Authentication configuration for an external system."""
 
@@ -48,6 +57,8 @@ class AuthConfig(BaseModel):
     scopes: list[str] | None = None
     auth_headers: dict[str, str] | None = None
     auth_params: dict[str, str] | None = None
+    credential_mappings: list[CredentialMapping] = Field(default_factory=list)
+    static_headers: dict[str, str] | None = None
 
 
 class ExternalSystem(BaseModel):
