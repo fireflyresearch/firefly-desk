@@ -65,11 +65,7 @@ class DeskConfig(BaseSettings):
     max_tools_per_turn: int = 10
 
     # -- LLM Fallback Models --
-    llm_fallback_models: dict[str, list[str]] = {
-        "anthropic": ["claude-haiku-4-5-20251001"],
-        "openai": ["gpt-4o-mini"],
-        "google": ["gemini-2.0-flash"],
-    }
+    llm_fallback_models: dict[str, list[str]] = {}
 
     # -- Memory --
     memory_backend: Literal["in_memory", "postgres"] = "in_memory"

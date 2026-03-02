@@ -459,12 +459,15 @@ class TestGetFallbackModelStrings:
 
     @pytest.fixture
     def _make_config(self):
-        def _factory(**overrides):
+        def _factory(*, fallback_models=None, **overrides):
             env = {"FLYDESK_DATABASE_URL": "sqlite+aiosqlite:///test.db"}
             for key, val in overrides.items():
                 env[f"FLYDESK_{key.upper()}"] = str(val)
             with patch.dict(os.environ, env):
-                return DeskConfig()
+                cfg = DeskConfig()
+            if fallback_models is not None:
+                cfg.llm_fallback_models = fallback_models
+            return cfg
         return _factory
 
     async def test_returns_empty_list_when_no_config(self, llm_repo):
@@ -491,7 +494,7 @@ class TestGetFallbackModelStrings:
 
     async def test_returns_openai_fallbacks_from_config(self, llm_repo, _make_config):
         """OpenAI provider returns fallbacks from config."""
-        cfg = _make_config()
+        cfg = _make_config(fallback_models={"openai": ["gpt-4o-mini"]})
         factory = DeskAgentFactory(llm_repo, config=cfg)
         provider = _make_provider(ProviderType.OPENAI, default_model="gpt-4o")
         llm_repo.get_default_provider.return_value = provider
@@ -500,7 +503,7 @@ class TestGetFallbackModelStrings:
 
     async def test_returns_anthropic_fallbacks_from_config(self, llm_repo, _make_config):
         """Anthropic provider returns fallbacks from config."""
-        cfg = _make_config()
+        cfg = _make_config(fallback_models={"anthropic": ["claude-haiku-4-5-20251001"]})
         factory = DeskAgentFactory(llm_repo, config=cfg)
         provider = _make_provider(ProviderType.ANTHROPIC, default_model="claude-sonnet-4-20250514")
         llm_repo.get_default_provider.return_value = provider
@@ -509,7 +512,7 @@ class TestGetFallbackModelStrings:
 
     async def test_returns_google_fallbacks_from_config(self, llm_repo, _make_config):
         """Google provider returns fallbacks from config."""
-        cfg = _make_config()
+        cfg = _make_config(fallback_models={"google": ["gemini-2.0-flash"]})
         factory = DeskAgentFactory(llm_repo, config=cfg)
         provider = _make_provider(ProviderType.GOOGLE, default_model="gemini-1.5-pro")
         llm_repo.get_default_provider.return_value = provider
@@ -518,7 +521,7 @@ class TestGetFallbackModelStrings:
 
     async def test_returns_empty_for_unknown_provider_type(self, llm_repo, _make_config):
         """Provider type not in config returns empty list."""
-        cfg = _make_config()
+        cfg = _make_config(fallback_models={"openai": ["gpt-4o-mini"]})
         factory = DeskAgentFactory(llm_repo, config=cfg)
         provider = _make_provider(ProviderType.OLLAMA, default_model="llama3")
         llm_repo.get_default_provider.return_value = provider

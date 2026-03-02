@@ -5,16 +5,18 @@
   Licensed under the Apache License, Version 2.0.
 -->
 <script lang="ts">
-	import { Cpu, Route, Box } from 'lucide-svelte';
+	import { Cpu, Route, Box, ShieldAlert } from 'lucide-svelte';
 	import LLMProviderManager from '$lib/components/admin/LLMProviderManager.svelte';
 	import ModelRoutingConfig from '$lib/components/admin/ModelRoutingConfig.svelte';
+	import FallbackModelConfig from '$lib/components/admin/FallbackModelConfig.svelte';
 
-	type Tab = 'providers' | 'routing' | 'embedding';
+	type Tab = 'providers' | 'routing' | 'fallback' | 'embedding';
 	let activeTab = $state<Tab>('providers');
 
 	const tabs: Array<{ key: Tab; label: string; icon: typeof Cpu; description: string }> = [
 		{ key: 'providers', label: 'Providers', icon: Cpu, description: 'Manage LLM providers and API keys' },
 		{ key: 'routing', label: 'Model Routing', icon: Route, description: 'Smart routing for cost optimization' },
+		{ key: 'fallback', label: 'Fallback Models', icon: ShieldAlert, description: 'Configure fallback models per provider' },
 		{ key: 'embedding', label: 'Embedding', icon: Box, description: 'Configure embedding models' },
 	];
 </script>
@@ -52,6 +54,8 @@
 			<LLMProviderManager hideEmbedding={true} />
 		{:else if activeTab === 'routing'}
 			<ModelRoutingConfig />
+		{:else if activeTab === 'fallback'}
+			<FallbackModelConfig />
 		{:else if activeTab === 'embedding'}
 			<LLMProviderManager embeddingOnly={true} />
 		{/if}

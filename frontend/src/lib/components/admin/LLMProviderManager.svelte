@@ -20,8 +20,7 @@
 		XCircle,
 		Cpu,
 		ChevronDown,
-		ChevronUp,
-		ShieldAlert
+		ChevronUp
 	} from 'lucide-svelte';
 	import { apiJson, apiFetch } from '$lib/services/api.js';
 
@@ -161,14 +160,6 @@
 	let embBaseUrl = $state('');
 	let embDimensions = $state(1536);
 
-	// Fallback model configuration state
-	let fallbackExpanded = $state(false);
-	let fallbackConfig = $state<Record<string, string[]>>({});
-	let fallbackLoading = $state(false);
-	let fallbackSaving = $state(false);
-	let fallbackSaved = $state(false);
-	let fallbackError = $state('');
-
 	// -----------------------------------------------------------------------
 	// Data loading
 	// -----------------------------------------------------------------------
@@ -189,7 +180,6 @@
 	$effect(() => {
 		loadProviders();
 		loadEmbeddingConfig();
-		loadFallbackConfig();
 	});
 
 	// -----------------------------------------------------------------------
@@ -393,63 +383,6 @@
 		} finally {
 			embeddingTesting = false;
 		}
-	}
-
-	// -----------------------------------------------------------------------
-	// Fallback config actions
-	// -----------------------------------------------------------------------
-
-	async function loadFallbackConfig() {
-		fallbackLoading = true;
-		fallbackError = '';
-		try {
-			fallbackConfig = await apiJson<Record<string, string[]>>('/admin/llm/fallback');
-		} catch (e) {
-			fallbackError =
-				e instanceof Error ? e.message : 'Failed to load fallback configuration';
-		} finally {
-			fallbackLoading = false;
-		}
-	}
-
-	async function saveFallbackConfig() {
-		fallbackSaving = true;
-		fallbackSaved = false;
-		fallbackError = '';
-		try {
-			fallbackConfig = await apiJson<Record<string, string[]>>('/admin/llm/fallback', {
-				method: 'PUT',
-				body: JSON.stringify({ fallback_models: fallbackConfig })
-			});
-			fallbackSaved = true;
-			setTimeout(() => {
-				fallbackSaved = false;
-			}, 2000);
-		} catch (e) {
-			fallbackError =
-				e instanceof Error ? e.message : 'Failed to save fallback configuration';
-		} finally {
-			fallbackSaving = false;
-		}
-	}
-
-	function addFallbackModel(providerType: string) {
-		const current = fallbackConfig[providerType] ?? [];
-		fallbackConfig = { ...fallbackConfig, [providerType]: [...current, ''] };
-	}
-
-	function removeFallbackModel(providerType: string, index: number) {
-		const current = fallbackConfig[providerType] ?? [];
-		fallbackConfig = {
-			...fallbackConfig,
-			[providerType]: current.filter((_, i) => i !== index)
-		};
-	}
-
-	function updateFallbackModel(providerType: string, index: number, value: string) {
-		const current = [...(fallbackConfig[providerType] ?? [])];
-		current[index] = value;
-		fallbackConfig = { ...fallbackConfig, [providerType]: current };
 	}
 
 	// -----------------------------------------------------------------------
@@ -753,138 +686,6 @@
 			</div>
 		</div>
 	{/if}
-	{/if}
-
-	{#if !embeddingOnly}
-	<!-- Fallback Models Configuration -->
-	<div class="rounded-lg border border-border bg-surface">
-		<button
-			type="button"
-			onclick={() => (fallbackExpanded = !fallbackExpanded)}
-			class="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-surface-hover"
-		>
-			<div class="flex items-center gap-2">
-				<ShieldAlert size={16} class="text-warning" />
-				<span class="text-sm font-semibold text-text-primary">Fallback Models</span>
-				<span class="text-xs text-text-secondary">
-					{Object.values(fallbackConfig).flat().length} model(s) configured
-				</span>
-			</div>
-			{#if fallbackExpanded}
-				<ChevronUp size={16} class="text-text-secondary" />
-			{:else}
-				<ChevronDown size={16} class="text-text-secondary" />
-			{/if}
-		</button>
-
-		{#if fallbackExpanded}
-			<div class="border-t border-border px-4 py-4">
-				<p class="mb-3 text-xs text-text-secondary">
-					When the primary model is overloaded or unavailable, the system falls back to
-					these lighter models. Configure one or more fallback models per provider type.
-				</p>
-
-				{#if fallbackError}
-					<div
-						class="mb-3 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger"
-					>
-						{fallbackError}
-					</div>
-				{/if}
-
-				{#if fallbackLoading}
-					<div class="flex items-center justify-center py-6">
-						<Loader2 size={20} class="animate-spin text-text-secondary" />
-					</div>
-				{:else}
-					<div class="space-y-4">
-						{#each Object.entries(fallbackConfig) as [providerType, models]}
-							<div class="rounded-md border border-border bg-surface-secondary/30 p-3">
-								<div class="mb-2 flex items-center justify-between">
-									<span
-										class="inline-block rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
-									>
-										{providerLabel(providerType) || providerType}
-									</span>
-									<button
-										type="button"
-										onclick={() => addFallbackModel(providerType)}
-										class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-									>
-										<Plus size={12} />
-										Add
-									</button>
-								</div>
-								{#if models.length === 0}
-									<p class="py-2 text-center text-xs text-text-secondary">
-										No fallback models. Click Add to configure one.
-									</p>
-								{:else}
-									<div class="space-y-1.5">
-										{#each models as model, i}
-											<div class="flex items-center gap-2">
-												<input
-													type="text"
-													value={model}
-													oninput={(e) =>
-														updateFallbackModel(
-															providerType,
-															i,
-															(e.target as HTMLInputElement).value
-														)}
-													placeholder="e.g. claude-haiku-4-5-20251001"
-													class="flex-1 rounded-md border border-border bg-surface px-2.5 py-1 font-mono text-xs text-text-primary outline-none focus:border-accent"
-												/>
-												<button
-													type="button"
-													onclick={() =>
-														removeFallbackModel(providerType, i)}
-													class="shrink-0 rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
-													title="Remove model"
-												>
-													<X size={12} />
-												</button>
-											</div>
-										{/each}
-									</div>
-								{/if}
-							</div>
-						{/each}
-
-						{#if Object.keys(fallbackConfig).length === 0}
-							<p class="py-4 text-center text-xs text-text-secondary">
-								No provider types configured. Add an LLM provider above first.
-							</p>
-						{/if}
-
-						<div class="flex items-center justify-between pt-1">
-							<div class="text-xs">
-								{#if fallbackSaved}
-									<span class="inline-flex items-center gap-1 text-success">
-										<CheckCircle size={12} />
-										Saved
-									</span>
-								{/if}
-							</div>
-							<button
-								type="button"
-								onclick={saveFallbackConfig}
-								disabled={fallbackSaving}
-								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-							>
-								{#if fallbackSaving}
-									<Loader2 size={14} class="animate-spin" />
-								{:else}
-									<Save size={14} />
-								{/if}
-								Save Fallback Models
-							</button>
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
 	{/if}
 
 	{#if !hideEmbedding}
