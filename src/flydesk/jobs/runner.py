@@ -15,7 +15,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from flydesk.jobs.handlers import JobHandler, ProgressCallback
+from flydesk.jobs.handlers import ExecutionResult, JobHandler, ProgressCallback
 from flydesk.jobs.models import Job, JobStatus
 from flydesk.jobs.repository import JobRepository
 
@@ -43,6 +43,7 @@ class JobRunner:
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._pause_requests: set[str] = set()
         # Optional queue where SSE progress events are published for streaming.
         self._sse_queue: asyncio.Queue | None = on_sse_progress
 
@@ -120,6 +121,23 @@ class JobRunner:
     def is_running(self) -> bool:
         return self._running
 
+    # -- Pause / Resume ------------------------------------------------------
+
+    def request_pause(self, job_id: str) -> None:
+        """Signal that a running job should pause at next checkpoint."""
+        self._pause_requests.add(job_id)
+
+    def is_pause_requested(self, job_id: str) -> bool:
+        return job_id in self._pause_requests
+
+    def clear_pause_request(self, job_id: str) -> None:
+        self._pause_requests.discard(job_id)
+
+    async def resume(self, job_id: str) -> None:
+        """Re-enqueue a paused job for execution."""
+        await self._repo.update_status(job_id, JobStatus.PENDING)
+        await self._queue.put(job_id)
+
     # -- Internal consumer ---------------------------------------------------
 
     async def _consume_loop(self) -> None:
@@ -144,6 +162,10 @@ class JobRunner:
         if job.status == JobStatus.CANCELLED:
             logger.info("Job %s was cancelled before execution; skipping", job_id)
             return
+
+        if job.status == JobStatus.PAUSED:
+            # Resuming from checkpoint — this is expected
+            pass
 
         handler = self._handlers.get(job.job_type)
         if handler is None:
@@ -172,8 +194,27 @@ class JobRunner:
                     }
                 )
 
+        should_pause = lambda: self.is_pause_requested(job_id)
+
         try:
-            result = await handler.execute(job_id, job.payload, _on_progress)
+            raw_result = await handler.execute(
+                job_id, job.payload, _on_progress,
+                checkpoint=job.checkpoint,
+                should_pause=should_pause,
+            )
+
+            # Handle pause: handler returned an ExecutionResult with checkpoint
+            if isinstance(raw_result, ExecutionResult) and raw_result.is_paused:
+                self.clear_pause_request(job_id)
+                await self._repo.update_status(
+                    job_id, JobStatus.PAUSED,
+                    checkpoint=raw_result.checkpoint,
+                )
+                logger.info("Job %s paused with checkpoint", job_id)
+                return
+
+            result = raw_result.result if isinstance(raw_result, ExecutionResult) else raw_result
+
             # Re-check status — job may have been cancelled while running
             current = await self._repo.get(job_id)
             if current and current.status == JobStatus.CANCELLED:

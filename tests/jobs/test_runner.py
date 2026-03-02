@@ -36,6 +36,8 @@ class SuccessHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause=lambda: False,
     ) -> dict:
         await on_progress(50, "Halfway")
         await on_progress(100, "Done")
@@ -50,6 +52,8 @@ class FailingHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause=lambda: False,
     ) -> dict:
         raise RuntimeError("Something went wrong")
 
@@ -62,6 +66,8 @@ class SlowHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause=lambda: False,
     ) -> dict:
         await on_progress(10, "Starting")
         await asyncio.sleep(10)  # Will be cancelled before completion
