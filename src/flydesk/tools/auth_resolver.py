@@ -14,6 +14,7 @@ BEARER, API_KEY, BASIC, OAUTH2 (client credentials grant), and MUTUAL_TLS.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -183,9 +184,11 @@ class AuthResolver:
                 system.id,
             )
 
-        # Apply credential mappings
+        # Apply credential mappings (reuse already-fetched credential)
         if auth_config.credential_mappings:
-            await self._apply_credential_mappings(auth_config, resolved)
+            self._apply_credential_mappings_from(
+                auth_config, credential, token, resolved,
+            )
 
         # Apply static headers
         if auth_config.static_headers:
@@ -206,12 +209,21 @@ class AuthResolver:
     async def _apply_credential_mappings(
         self, auth_config: AuthConfig, resolved: ResolvedAuth,
     ) -> None:
-        """Apply credential_mappings rules to resolved auth."""
+        """Apply credential_mappings rules, fetching credential from store."""
         credential = await self._credential_store.get_credential(auth_config.credential_id)
         if credential is None:
             return
         raw_value = self._decrypt(credential.encrypted_value)
+        self._apply_credential_mappings_from(auth_config, credential, raw_value, resolved)
 
+    def _apply_credential_mappings_from(
+        self,
+        auth_config: AuthConfig,
+        credential: object,
+        raw_value: str,
+        resolved: ResolvedAuth,
+    ) -> None:
+        """Apply credential_mappings using a pre-fetched credential value."""
         # Try parse as JSON for field extraction
         parsed: dict | None = None
         try:
@@ -241,12 +253,13 @@ class AuthResolver:
                 resolved.path_params[mapping.field_name] = value
             elif mapping.target == "body":
                 resolved.body_params[mapping.field_name] = value
+            else:
+                logger.warning("Unknown credential mapping target %r", mapping.target)
 
     @staticmethod
     def _apply_transform(value: str, transform: str) -> str:
         """Apply a transform to a credential value."""
         if transform == "base64":
-            import base64
             return base64.b64encode(value.encode()).decode()
         if transform.startswith("prefix:"):
             return f"{transform[7:]}{value}"

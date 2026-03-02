@@ -406,16 +406,12 @@ class TestMappingsCombinedWithAuth:
         # Mapping extracts JSON field to body
         assert result.body_params["client_secret"] == "xyz"
 
-    async def test_credential_not_found_skips_mappings(
-        self, resolver: AuthResolver, credential_store
-    ):
-        """When credential store returns None for mappings, mappings are skipped."""
-        # First call returns credential (for base auth), second returns None (for mappings)
-        credential_store.get_credential = AsyncMock(
-            side_effect=[_make_credential(), None],
-        )
+    async def test_credential_not_found_skips_mappings(self, credential_store):
+        """When credential is not found (NONE auth + mappings), mappings are skipped."""
+        credential_store.get_credential = AsyncMock(return_value=None)
+        resolver = AuthResolver(credential_store)
         system = _make_system(
-            AuthType.BEARER,
+            AuthType.NONE,
             credential_mappings=[
                 CredentialMapping(
                     source="$value",
@@ -426,9 +422,7 @@ class TestMappingsCombinedWithAuth:
         )
         result = await resolver.resolve_headers(system)
 
-        # Base auth still works
-        assert "Authorization" in result.headers
-        # But mapping was skipped (credential not found on second call)
+        assert result.headers == {}
         assert result.query_params == {}
 
     async def test_mappings_with_static_headers(self, resolver: AuthResolver):
