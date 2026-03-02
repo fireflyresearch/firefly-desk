@@ -207,6 +207,11 @@ class ConfigureRequest(BaseModel):
     agent_settings: AgentSettingsConfig | None = None
     knowledge_quality: KnowledgeQualitySetupConfig | None = None
     search_config: SearchSetupConfig | None = None
+    # Email channel (optional)
+    email_provider_name: str | None = None  # "resend" | "ses" | "sendgrid"
+    email_api_key: str | None = None
+    email_from_address: str | None = None
+    email_region: str | None = None
 
 
 class ConfigureResult(BaseModel):
@@ -1454,7 +1459,35 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
             # Non-fatal — don't block setup completion
             details["search_config"] = f"error: {exc}"
 
-    # 7. Save fallback model if specified with the LLM provider
+    # 7. Configure email channel if specified
+    if body.email_provider_name:
+        try:
+            from flydesk.settings.models import EmailSettings
+            from flydesk.settings.repository import SettingsRepository
+
+            email_repo = SettingsRepository(session_factory)
+            email_settings = await email_repo.get_email_settings()
+            email_settings.enabled = True
+            email_settings.provider = body.email_provider_name
+            if body.email_api_key:
+                email_settings.provider_api_key = body.email_api_key
+            if body.email_from_address:
+                email_settings.from_address = body.email_from_address
+            if body.email_region:
+                email_settings.provider_region = body.email_region
+            await email_repo.set_email_settings(email_settings)
+            details["email"] = "configured"
+            logger.info(
+                "Email channel configured via setup: %s (%s)",
+                body.email_provider_name,
+                body.email_from_address or "no from address",
+            )
+        except Exception as exc:
+            logger.error("Failed to configure email channel: %s", exc)
+            # Non-fatal — don't block setup completion
+            details["email"] = f"error: {exc}"
+
+    # 8. Save fallback model if specified with the LLM provider
     if body.llm_provider and body.llm_provider.fallback_model:
         try:
             from flydesk.config import get_config
@@ -1471,7 +1504,7 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
         except Exception as exc:
             logger.debug("Failed to set fallback model (non-fatal): %s", exc)
 
-    # 8. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
+    # 9. Trigger KG recomputation only if we actually re-seeded (not already_loaded)
     if body.embedding and body.seed_data and details.get("seed_data") != "already_loaded":
         job_runner = getattr(request.app.state, "job_runner", None)
         if job_runner:
@@ -1485,7 +1518,7 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                     exc_info=True,
                 )
 
-    # 9. Mark setup as complete
+    # 10. Mark setup as complete
     try:
         from flydesk.settings.repository import SettingsRepository
 

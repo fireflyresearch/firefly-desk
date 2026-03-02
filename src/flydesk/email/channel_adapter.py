@@ -20,6 +20,7 @@ from flydesk.email.models import EmailAttachment, OutboundEmail
 from flydesk.files.models import FileUpload
 
 if TYPE_CHECKING:
+    from flydesk.callbacks.dispatcher import CallbackDispatcher
     from flydesk.channels.models import AgentResponse, Notification
     from flydesk.conversation.repository import ConversationRepository
     from flydesk.email.identity import EmailIdentityResolver
@@ -59,6 +60,7 @@ class EmailChannelAdapter:
         file_storage: FileStorageProvider | None = None,
         content_extractor: ContentExtractor | None = None,
         conversation_repo: ConversationRepository | None = None,
+        callback_dispatcher: CallbackDispatcher | None = None,
     ) -> None:
         self._email_port = email_port
         self._identity_resolver = identity_resolver
@@ -68,6 +70,7 @@ class EmailChannelAdapter:
         self._file_storage = file_storage
         self._content_extractor = content_extractor
         self._conversation_repo = conversation_repo
+        self._callback_dispatcher = callback_dispatcher
 
         # Maps conversation_id -> reply metadata (populated by receive(),
         # consumed by send()).
@@ -335,12 +338,26 @@ class EmailChannelAdapter:
             await self._thread_tracker.record_outbound(
                 conversation_id, result.provider_message_id
             )
+            if self._callback_dispatcher is not None:
+                await self._callback_dispatcher.dispatch("email.sent", {
+                    "conversation_id": conversation_id,
+                    "to": reply_meta["to"],
+                    "subject": reply_meta["subject"],
+                    "provider_message_id": result.provider_message_id,
+                })
         elif not result.success:
             logger.error(
                 "Failed to send email for conversation %s: %s",
                 conversation_id,
                 result.error,
             )
+            if self._callback_dispatcher is not None:
+                await self._callback_dispatcher.dispatch("email.failed", {
+                    "conversation_id": conversation_id,
+                    "to": reply_meta["to"],
+                    "subject": reply_meta["subject"],
+                    "error": result.error,
+                })
 
     # ------------------------------------------------------------------
     # ChannelPort.send_notification

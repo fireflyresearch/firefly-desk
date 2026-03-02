@@ -45,7 +45,7 @@
 		ArrowUpRight,
 		Cloud
 	} from 'lucide-svelte';
-	import { apiJson } from '$lib/services/api.js';
+	import { apiFetch, apiJson } from '$lib/services/api.js';
 	import CodeEditor from '$lib/components/shared/CodeEditor.svelte';
 	import EmailSetupWizard from './EmailSetupWizard.svelte';
 
@@ -78,6 +78,7 @@
 		allowed_workspace_ids: string[];
 		dev_authorized_emails: string[];
 		ngrok_auth_token: string;
+		tunnel_backend: string;
 	}
 
 	interface EmailStatus {
@@ -124,6 +125,7 @@
 		allowed_workspace_ids: [],
 		dev_authorized_emails: [],
 		ngrok_auth_token: '',
+		tunnel_backend: 'ngrok',
 	};
 
 	const PROVIDERS: ProviderInfo[] = [
@@ -286,6 +288,13 @@
 		loadSettings();
 	});
 
+	// Auto-open the setup wizard when email is not configured
+	$effect(() => {
+		if (!loading && status !== null && !isConfigured) {
+			showWizard = true;
+		}
+	});
+
 	// -----------------------------------------------------------------------
 	// Save
 	// -----------------------------------------------------------------------
@@ -398,12 +407,17 @@
 		testResult = '';
 		testError = '';
 		try {
-			await apiJson('/settings/email/test', {
+			const data = await apiJson<{ success: boolean; error?: string }>('/settings/email/test', {
 				method: 'POST',
 				body: JSON.stringify({ to: testEmail.trim() }),
 			});
-			testResult = `Test email sent to ${testEmail.trim()}! Check your inbox.`;
-			setTimeout(() => (testResult = ''), 8000);
+			if (data.success) {
+				testResult = `Test email sent to ${testEmail.trim()}! Check your inbox.`;
+				setTimeout(() => (testResult = ''), 8000);
+			} else {
+				testError = data.error || 'Provider rejected the test email';
+				setTimeout(() => (testError = ''), 10000);
+			}
 		} catch (e) {
 			testError = e instanceof Error ? e.message : 'Failed to send test email';
 			setTimeout(() => (testError = ''), 10000);
@@ -473,12 +487,9 @@
 		try {
 			const formData = new FormData();
 			formData.append('file', file);
-			const res = await fetch('/api/settings/email/signature-image', {
+			const res = await apiFetch('/settings/email/signature-image', {
 				method: 'POST',
 				body: formData,
-				headers: {
-					'Authorization': `Bearer ${document.cookie.replace(/(?:(?:^|.*;\s*)auth_token\s*=\s*([^;]*).*$)|^.*$/, '$1')}`,
-				},
 			});
 			const data = await res.json();
 			if (data.success) {
@@ -529,7 +540,34 @@
 </script>
 
 <div class="flex h-full flex-col overflow-hidden">
-	<!-- Header -->
+	{#if loading}
+		<!-- Loading -->
+		<div class="flex flex-1 items-center justify-center py-12">
+			<Loader2 size={24} class="animate-spin text-text-secondary" />
+		</div>
+	{:else if !isConfigured}
+		<!-- Unconfigured state — prompt to run wizard -->
+		<div class="flex flex-1 flex-col items-center justify-center px-6">
+			<div class="w-full max-w-md text-center">
+				<div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10">
+					<Mail size={28} class="text-accent" />
+				</div>
+				<h1 class="text-lg font-semibold text-text-primary">Set Up Email</h1>
+				<p class="mt-2 text-sm text-text-secondary">
+					Connect an email provider to let your agent send and receive emails. The setup wizard will walk you through provider selection, credentials, and identity configuration.
+				</p>
+				<button
+					type="button"
+					onclick={() => (showWizard = true)}
+					class="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"
+				>
+					<Sparkles size={16} />
+					Start Setup Wizard
+				</button>
+			</div>
+		</div>
+	{:else}
+	<!-- Header (only shown when configured) -->
 	<div class="shrink-0 px-6 pt-6 pb-4">
 		<div class="mb-4 flex items-start justify-between">
 			<div>
@@ -538,16 +576,6 @@
 					Configure the email channel, provider, identity, and behaviour
 				</p>
 			</div>
-			{#if !isConfigured}
-				<button
-					type="button"
-					onclick={() => (showWizard = true)}
-					class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-				>
-					<Sparkles size={14} />
-					Setup Wizard
-				</button>
-			{/if}
 		</div>
 
 		<!-- Tab bar -->
@@ -579,11 +607,6 @@
 	{/if}
 
 	<!-- Tab content -->
-	{#if loading}
-		<div class="flex flex-1 items-center justify-center py-12">
-			<Loader2 size={24} class="animate-spin text-text-secondary" />
-		</div>
-	{:else}
 		<div class="flex-1 overflow-y-auto px-6 py-6">
 			<div class="flex flex-col gap-6">
 
@@ -1481,16 +1504,28 @@
 								</ol>
 							{/if}
 						</div>
-						<!-- Cross-link to Dev Tools tunnel -->
-						<div class="mt-3 flex items-center gap-2 rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-2">
-							<Globe size={12} class="text-accent" />
-							<span class="text-[11px] text-text-secondary">
-								Need a tunnel for local development?
-							</span>
-							<a href="/admin/dev-tools" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
-								Set up in Dev Tools
-								<ArrowUpRight size={10} />
-							</a>
+						<!-- Cross-links -->
+						<div class="mt-3 flex flex-col gap-2">
+							<div class="flex items-center gap-2 rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-2">
+								<Globe size={12} class="text-accent" />
+								<span class="text-[11px] text-text-secondary">
+									Monitor incoming events in
+								</span>
+								<a href="/admin/webhooks" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+									Webhook Logs
+									<ArrowUpRight size={10} />
+								</a>
+							</div>
+							<div class="flex items-center gap-2 rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-2">
+								<Globe size={12} class="text-accent" />
+								<span class="text-[11px] text-text-secondary">
+									Need a tunnel for local development?
+								</span>
+								<a href="/admin/dev-tools" class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+									Set up in Dev Tools
+									<ArrowUpRight size={10} />
+								</a>
+							</div>
 						</div>
 					</section>
 
@@ -1679,35 +1714,33 @@
 
 			</div>
 		</div>
-	{/if}
 
 	<!-- Sticky footer with Save / Reset buttons -->
-	{#if !loading}
-		<div class="shrink-0 border-t border-border bg-surface px-6 py-3">
-			<div class="flex items-center justify-end gap-2">
-				<button
-					type="button"
-					onclick={resetToDefaults}
-					class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-				>
-					<RotateCcw size={14} />
-					Reset to Defaults
-				</button>
-				<button
-					type="button"
-					onclick={saveSettings}
-					disabled={saving}
-					class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-				>
-					{#if saving}
-						<Loader2 size={14} class="animate-spin" />
-					{:else}
-						<Save size={14} />
-					{/if}
-					Save Changes
-				</button>
-			</div>
+	<div class="shrink-0 border-t border-border bg-surface px-6 py-3">
+		<div class="flex items-center justify-end gap-2">
+			<button
+				type="button"
+				onclick={resetToDefaults}
+				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+			>
+				<RotateCcw size={14} />
+				Reset to Defaults
+			</button>
+			<button
+				type="button"
+				onclick={saveSettings}
+				disabled={saving}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+			>
+				{#if saving}
+					<Loader2 size={14} class="animate-spin" />
+				{:else}
+					<Save size={14} />
+				{/if}
+				Save Changes
+			</button>
 		</div>
+	</div>
 	{/if}
 </div>
 

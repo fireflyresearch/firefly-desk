@@ -8,7 +8,7 @@
 
 """add embedding column to entities
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c5d6e7f8a9b0
 Revises: 3d54bafd6e3f
 Create Date: 2026-03-01 10:00:00.000000
 """
@@ -20,21 +20,20 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic
-revision: str = 'a1b2c3d4e5f6'
+revision: str = 'c5d6e7f8a9b0'
 down_revision: Union[str, None] = '3d54bafd6e3f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # For PostgreSQL with pgvector extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.add_column(
         "kg_entities",
         sa.Column("embedding", sa.Text(), nullable=True),
     )
-    # On PostgreSQL, alter the column type to vector(1536):
-    # ALTER TABLE kg_entities ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector(1536);
 
 
 def downgrade() -> None:

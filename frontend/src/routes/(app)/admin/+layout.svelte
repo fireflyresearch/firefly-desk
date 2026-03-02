@@ -40,7 +40,8 @@
 		Mail,
 		Activity,
 		Webhook,
-		Radio
+		Radio,
+		ArrowUpRight
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -90,7 +91,8 @@
 			icon: Settings,
 			items: [
 				{ href: '/admin/jobs', label: 'Jobs', icon: Activity },
-				{ href: '/admin/callbacks', label: 'Callbacks', icon: Webhook },
+				{ href: '/admin/webhooks', label: 'Webhooks', icon: Webhook },
+				{ href: '/admin/callbacks', label: 'Callbacks', icon: ArrowUpRight },
 				{ href: '/admin/dev-tools', label: 'Dev Tools', icon: Radio },
 				{ href: '/admin/audit', label: 'Audit Log', icon: FileText },
 				{ href: '/admin/exports', label: 'Exports', icon: Download },

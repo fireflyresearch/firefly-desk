@@ -228,7 +228,7 @@ async def get_document(document_id: str, store: DocStore) -> dict[str, Any]:
 
 @router.post("/documents", status_code=202, dependencies=[KnowledgeWrite])
 async def create_document(
-    document: KnowledgeDocument, producer: Producer, trigger: Trigger
+    request: Request, document: KnowledgeDocument, producer: Producer, trigger: Trigger
 ) -> IndexingEnqueued:
     """Enqueue a knowledge document for background indexing.
 
@@ -250,6 +250,12 @@ async def create_document(
 
     if trigger is not None:
         await trigger.on_document_indexed(document.id)
+
+    callback_dispatcher = getattr(request.app.state, "callback_dispatcher", None)
+    if callback_dispatcher is not None:
+        event_data = {"document_id": document.id, "title": document.title}
+        await callback_dispatcher.dispatch("document.indexed", event_data)
+        await callback_dispatcher.dispatch("knowledge.updated", event_data)
 
     return IndexingEnqueued(document_id=document.id)
 
@@ -295,7 +301,7 @@ async def update_document_metadata(
     "/documents/{document_id}", status_code=204, dependencies=[KnowledgeDelete]
 )
 async def delete_document(
-    document_id: str, indexer: Indexer, store: DocStore
+    document_id: str, request: Request, indexer: Indexer, store: DocStore
 ) -> Response:
     """Delete a knowledge document and all its chunks."""
     existing = await store.get_document(document_id)
@@ -304,6 +310,13 @@ async def delete_document(
             status_code=404, detail=f"Document {document_id} not found"
         )
     await indexer.delete_document(document_id)
+
+    callback_dispatcher = getattr(request.app.state, "callback_dispatcher", None)
+    if callback_dispatcher is not None:
+        event_data = {"document_id": document_id}
+        await callback_dispatcher.dispatch("document.deleted", event_data)
+        await callback_dispatcher.dispatch("knowledge.updated", event_data)
+
     return Response(status_code=204)
 
 

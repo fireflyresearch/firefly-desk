@@ -43,6 +43,7 @@ from flydesk.api.email_inbound import router as email_inbound_router
 from flydesk.api.email_settings import router as email_settings_router
 from flydesk.api.webhooks import router as webhooks_router
 from flydesk.api.dev_tools import router as dev_tools_router
+from flydesk.api.webhook_management import router as webhook_management_router
 from flydesk.api.deps import (
     get_audit_logger,
     get_auto_trigger,
@@ -1020,6 +1021,7 @@ async def _init_email_channel(
         file_storage=file_storage,
         content_extractor=content_extractor,
         conversation_repo=conversation_repo,
+        callback_dispatcher=getattr(app.state, "callback_dispatcher", None),
     )
 
     router.register("email", adapter)
@@ -1300,6 +1302,7 @@ def create_app() -> FastAPI:
     app.include_router(email_settings_router)
     app.include_router(callbacks_router)
     app.include_router(webhooks_router)
+    app.include_router(webhook_management_router)
     app.include_router(dev_tools_router)
     app.include_router(notifications_router)
 

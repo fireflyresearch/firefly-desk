@@ -248,7 +248,7 @@
 
 	async function fetchTunnelStatus() {
 		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/status');
+			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/status');
 		} catch {
 			// Tunnel not available
 		}
@@ -257,7 +257,7 @@
 	async function startTunnel() {
 		tunnelLoading = true;
 		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/start', {
+			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/start', {
 				method: 'POST'
 			});
 		} catch (e) {
@@ -273,7 +273,7 @@
 	async function stopTunnel() {
 		tunnelLoading = true;
 		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/settings/email/tunnel/stop', {
+			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/stop', {
 				method: 'POST'
 			});
 		} catch (e) {
@@ -320,9 +320,15 @@
 		error = '';
 
 		try {
+			// Load existing settings to preserve fields not managed by the wizard
+			// (signature, behaviour, CC, access control, etc.)
+			const existing = await apiJson<Record<string, unknown>>('/settings/email');
+
 			await apiJson('/settings/email', {
 				method: 'PUT',
 				body: JSON.stringify({
+					...existing,
+					// Wizard-managed fields (override existing)
 					enabled: enableOnSave,
 					from_address: fromAddress.trim(),
 					from_display_name: fromDisplayName.trim(),
@@ -330,21 +336,6 @@
 					provider: selectedProvider,
 					provider_api_key: apiKey,
 					provider_region: selectedProvider === 'ses' ? region : '',
-					// Preserve defaults for fields not in the wizard
-					signature_html: '',
-					signature_text: '',
-					email_tone: '',
-					email_personality: '',
-					email_instructions: '',
-					auto_reply: true,
-					auto_reply_delay_seconds: 30,
-					max_email_length: 2000,
-					include_greeting: true,
-					include_sign_off: true,
-					cc_mode: 'respond_all',
-					cc_instructions: '',
-					allowed_tool_ids: [],
-					allowed_workspace_ids: []
 				})
 			});
 			resetWizard();
@@ -857,13 +848,13 @@
 									class="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-primary"
 								>
 									{selectedProvider === 'resend'
-										? 'v=spf1 include:amazonses.com ~all'
+										? 'v=spf1 include:spf.resend.com ~all'
 										: 'v=spf1 include:amazonses.com ~all'}
 								</code>
 								<button
 									type="button"
 									onclick={() =>
-										copyToClipboard('v=spf1 include:amazonses.com ~all', 'spf')}
+										copyToClipboard(selectedProvider === 'resend' ? 'v=spf1 include:spf.resend.com ~all' : 'v=spf1 include:amazonses.com ~all', 'spf')}
 									class="shrink-0 rounded-md border border-border p-2 text-text-secondary transition-colors hover:bg-surface-hover"
 								>
 									{#if copiedField === 'spf'}

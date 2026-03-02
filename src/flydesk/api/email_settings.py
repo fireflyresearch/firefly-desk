@@ -16,13 +16,11 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile
-from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.api.deps import get_session_factory, get_settings_repo
-from flydesk.config import get_config
 from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.models import EmailSettings
 from flydesk.settings.repository import SettingsRepository
@@ -543,37 +541,6 @@ async def delete_signature_image(repo: SettingsRepo) -> dict:
     updated = settings.model_copy(update={"signature_image_url": ""})
     await repo.set_email_settings(updated)
     return {"success": True}
-
-
-@router.get("/signature-image/{filename}")
-async def serve_signature_image(filename: str) -> Response:
-    """Serve a signature image (no auth required — referenced in emails)."""
-    from pathlib import Path
-
-    if ".." in filename or "/" in filename:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Invalid filename")
-
-    config = get_config()
-    file_path = Path(config.file_storage_path) / "signatures" / filename
-
-    if not file_path.exists():
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    content_type = "image/png"
-    if filename.endswith((".jpg", ".jpeg")):
-        content_type = "image/jpeg"
-    elif filename.endswith(".gif"):
-        content_type = "image/gif"
-    elif filename.endswith(".webp"):
-        content_type = "image/webp"
-
-    return Response(
-        content=file_path.read_bytes(),
-        media_type=content_type,
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
 
 
 # ---------------------------------------------------------------------------

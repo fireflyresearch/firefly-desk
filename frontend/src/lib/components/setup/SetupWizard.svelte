@@ -13,11 +13,12 @@
     5. Agent Setup (+ web search)
     6. Admin User (prod only)
     7. Deployment
-    8. SSO / OIDC (prod only)
-    9. User Profile (dev mode only)
-   10. Data Import
-   11. Sample Data
-   12. Ready
+    8. Email (optional)
+    9. SSO / OIDC (prod only)
+   10. User Profile (dev mode only)
+   11. Data Import
+   12. Sample Data
+   13. Ready
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -36,6 +37,7 @@
 	import UserProfileStep from './UserProfileStep.svelte';
 	import DataImportStep from './DataImportStep.svelte';
 	import SampleDataStep from './SampleDataStep.svelte';
+	import EmailStep from './EmailStep.svelte';
 	import ReadyStep from './ReadyStep.svelte';
 
 	// -----------------------------------------------------------------------
@@ -68,6 +70,7 @@
 		{ id: 'agent', label: 'Agent Setup' },
 		{ id: 'admin', label: 'Admin User', prodOnly: true },
 		{ id: 'deployment', label: 'Deployment' },
+		{ id: 'email', label: 'Email' },
 		{ id: 'sso', label: 'SSO / OIDC', prodOnly: true },
 		{ id: 'profile', label: 'User Profile', devOnly: true },
 		{ id: 'data-import', label: 'Data Setup' },
@@ -199,7 +202,9 @@
 						<AdminUserStep onNext={handleNext} onBack={handleBack} />
 					{:else if currentStep?.id === 'deployment'}
 						<DeploymentStep onNext={handleNext} onBack={handleBack} />
-					{:else if currentStep?.id === 'sso'}
+					{:else if currentStep?.id === 'email'}
+					<EmailStep onNext={handleNext} onBack={handleBack} />
+				{:else if currentStep?.id === 'sso'}
 						<SSOSetupStep onNext={handleNext} onBack={handleBack} />
 					{:else if currentStep?.id === 'profile'}
 						<UserProfileStep onNext={handleNext} onBack={handleBack} />

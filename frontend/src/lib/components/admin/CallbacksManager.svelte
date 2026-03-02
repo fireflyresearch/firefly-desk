@@ -17,6 +17,9 @@
 		CheckCircle,
 		Trash2,
 		Radio,
+		ArrowUpRight,
+		ExternalLink,
+		Webhook,
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
@@ -56,6 +59,10 @@
 		{ id: 'email.failed', label: 'Email Failed' },
 		{ id: 'conversation.created', label: 'Conversation Created' },
 		{ id: 'conversation.updated', label: 'Conversation Updated' },
+		{ id: 'conversation.closed', label: 'Conversation Closed' },
+		{ id: 'document.indexed', label: 'Document Indexed' },
+		{ id: 'document.deleted', label: 'Document Deleted' },
+		{ id: 'knowledge.updated', label: 'Knowledge Updated' },
 		{ id: 'agent.error', label: 'Agent Error' },
 	];
 
@@ -307,7 +314,22 @@
 							<Loader2 size={20} class="animate-spin text-text-secondary" />
 						</div>
 					{:else if callbacks.length === 0}
-						<p class="py-4 text-center text-xs text-text-secondary italic">No callbacks configured yet.</p>
+						<div class="py-6 text-center">
+							<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-secondary">
+								<ArrowUpRight size={20} class="text-text-secondary" />
+							</div>
+							<h3 class="text-sm font-semibold text-text-primary">No callbacks configured</h3>
+							<p class="mt-1 text-xs text-text-secondary">
+								Add an endpoint to receive real-time notifications when events like emails, conversations, or document changes occur.
+							</p>
+							<button
+								type="button"
+								onclick={() => openCallbackModal()}
+								class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+							>
+								Add Your First Callback
+							</button>
+						</div>
 					{:else}
 						<div class="flex flex-col gap-3">
 							{#each callbacks as cb}
@@ -463,6 +485,21 @@
 					{/if}
 				</section>
 			{/if}
+
+			<!-- Cross-link -->
+			<a
+				href="/admin/webhooks"
+				class="flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-hover"
+			>
+				<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+					<Webhook size={14} class="text-accent" />
+				</div>
+				<div class="flex-1">
+					<span class="text-xs font-semibold text-text-primary">Inbound Webhooks</span>
+					<p class="text-[10px] text-text-secondary">View webhook endpoints and incoming event log</p>
+				</div>
+				<ExternalLink size={14} class="text-text-secondary" />
+			</a>
 
 		</div>
 	</div>

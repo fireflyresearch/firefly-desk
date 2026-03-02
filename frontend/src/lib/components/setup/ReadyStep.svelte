@@ -204,6 +204,24 @@
 			});
 		}
 
+		// Email
+		const emailProvider = wizardData.email_provider as string | null | undefined;
+		if (emailProvider) {
+			const providerNames: Record<string, string> = {
+				resend: 'Resend',
+				ses: 'AWS SES',
+				sendgrid: 'SendGrid'
+			};
+			const emailFrom = (wizardData.email_from_address as string) || '';
+			rows.push({
+				label: 'Email',
+				value: `${providerNames[emailProvider] ?? emailProvider}${emailFrom ? ` (${emailFrom})` : ''}`,
+				ok: true
+			});
+		} else if ('email_provider' in wizardData) {
+			rows.push({ label: 'Email', value: 'Skipped', ok: false });
+		}
+
 		// Search engine
 		const searchConfig = wizardData.search_config as Record<string, unknown> | undefined;
 		if (searchConfig?.search_provider) {
@@ -293,6 +311,13 @@
 			const searchConfig = wizardData.search_config as Record<string, unknown> | undefined;
 			if (searchConfig?.search_provider) {
 				configureBody.search_config = searchConfig;
+			}
+
+			if (wizardData.email_provider) {
+				configureBody.email_provider_name = wizardData.email_provider;
+				configureBody.email_api_key = wizardData.email_api_key ?? null;
+				configureBody.email_from_address = wizardData.email_from_address ?? null;
+				configureBody.email_region = wizardData.email_region ?? null;
 			}
 
 			const result = await apiJson<ConfigureResult>('/setup/configure', {

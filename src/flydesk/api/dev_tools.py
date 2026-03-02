@@ -30,66 +30,6 @@ SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
 
 # ---------------------------------------------------------------------------
-# Webhook log (proxied from email_inbound's WebhookLog)
-# ---------------------------------------------------------------------------
-
-def _get_webhook_log(request: Request):
-    from flydesk.email.webhook_log import WebhookLog
-
-    return getattr(request.app.state, "webhook_log", WebhookLog())
-
-
-@router.get("/log", dependencies=[AdminSettings])
-async def list_webhook_log(request: Request, limit: int = 50) -> dict:
-    """Return recent webhook log entries (newest first)."""
-    wl = _get_webhook_log(request)
-    entries = wl.list(limit=limit)
-    return {
-        "entries": [
-            {
-                "id": e.id,
-                "timestamp": e.timestamp.isoformat(),
-                "provider": e.provider,
-                "status": e.status,
-                "from_address": e.from_address,
-                "subject": e.subject,
-                "processing_time_ms": e.processing_time_ms,
-                "error": e.error,
-            }
-            for e in entries
-        ]
-    }
-
-
-@router.get("/log/{entry_id}", dependencies=[AdminSettings])
-async def get_webhook_log_entry(entry_id: str, request: Request) -> dict:
-    """Return a single webhook log entry with full payload."""
-    wl = _get_webhook_log(request)
-    entry = wl.get(entry_id)
-    if entry is None:
-        return {"error": "Entry not found"}
-    return {
-        "id": entry.id,
-        "timestamp": entry.timestamp.isoformat(),
-        "provider": entry.provider,
-        "status": entry.status,
-        "from_address": entry.from_address,
-        "subject": entry.subject,
-        "processing_time_ms": entry.processing_time_ms,
-        "error": entry.error,
-        "payload_preview": entry.payload_preview,
-    }
-
-
-@router.delete("/log", dependencies=[AdminSettings])
-async def clear_webhook_log(request: Request) -> dict:
-    """Clear all webhook log entries."""
-    wl = _get_webhook_log(request)
-    wl.clear()
-    return {"success": True}
-
-
-# ---------------------------------------------------------------------------
 # Tunnel management
 # ---------------------------------------------------------------------------
 
@@ -199,14 +139,19 @@ async def install_pyngrok() -> dict:
 
 @router.get("/integrations", dependencies=[AdminSettings])
 async def list_integrations(repo: SettingsRepo) -> dict:
-    """Return active integrations and their webhook paths."""
+    """Return configured integrations and their webhook paths.
+
+    Shows integrations whenever credentials are configured, regardless
+    of whether the channel is enabled.
+    """
     settings = await repo.get_email_settings()
     integrations = []
-    if settings.enabled and settings.provider:
+    has_credentials = bool(settings.provider_api_key or settings.provider_region)
+    if has_credentials and settings.provider:
         integrations.append({
             "type": "email",
             "provider": settings.provider,
-            "enabled": True,
+            "enabled": settings.enabled,
             "webhook_path": f"/api/email/inbound/{settings.provider}",
         })
     return {"integrations": integrations}
@@ -225,5 +170,25 @@ async def save_tunnel_auth_token(body: AuthTokenRequest, repo: SettingsRepo) -> 
     """Save ngrok auth token to settings."""
     settings = await repo.get_email_settings()
     updated = settings.model_copy(update={"ngrok_auth_token": body.auth_token})
+    await repo.set_email_settings(updated)
+    return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Tunnel backend selection
+# ---------------------------------------------------------------------------
+
+
+class TunnelBackendRequest(BaseModel):
+    backend: str
+
+
+@router.put("/tunnel/backend", dependencies=[AdminSettings])
+async def save_tunnel_backend(body: TunnelBackendRequest, repo: SettingsRepo) -> dict:
+    """Save the preferred tunnel backend (ngrok or cloudflared)."""
+    if body.backend not in ("ngrok", "cloudflared"):
+        return {"success": False, "error": f"Unknown backend: {body.backend}"}
+    settings = await repo.get_email_settings()
+    updated = settings.model_copy(update={"tunnel_backend": body.backend})
     await repo.set_email_settings(updated)
     return {"success": True}

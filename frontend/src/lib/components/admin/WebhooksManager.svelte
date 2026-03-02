@@ -1,8 +1,7 @@
 <!--
-  WebhooksManager.svelte — Unified admin for webhook log, outbound callbacks,
-  and ngrok tunnel management.
+  WebhooksManager.svelte — Inbound webhook endpoint management and log viewer.
 
-  Three tabs: Log | Callbacks | Tunnel
+  Two tabs: Endpoints | Log
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -14,28 +13,29 @@
 		Code,
 		Globe,
 		Radio,
-		Power,
-		PowerOff,
 		Copy,
 		CheckCircle,
-		AlertCircle,
 		Trash2,
-		Webhook,
-		ArrowUpRight,
-		Download,
 		Shield,
-		Key,
-		Package,
-		Play,
-		Square,
+		ShieldCheck,
 		ExternalLink,
 		Mail,
+		Webhook,
+		ArrowUpRight,
+		AlertTriangle,
 	} from 'lucide-svelte';
 	import { apiJson } from '$lib/services/api.js';
 
 	// -----------------------------------------------------------------------
 	// Types
 	// -----------------------------------------------------------------------
+
+	interface WebhookEndpoint {
+		provider: string;
+		webhook_path: string;
+		signature_verification: boolean;
+		enabled: boolean;
+	}
 
 	interface WebhookLogEntry {
 		id: string;
@@ -49,52 +49,33 @@
 		payload_preview?: string;
 	}
 
-	interface CallbackConfig {
-		id: string;
-		url: string;
-		secret: string;
-		events: string[];
-		enabled: boolean;
-		created_at: string;
-	}
-
 	interface TunnelStatus {
 		active: boolean;
 		url: string | null;
-		available: boolean;
-		error: string | null;
 	}
-
-	interface PyngrokStatus {
-		installed: boolean;
-		version: string | null;
-	}
-
-	// -----------------------------------------------------------------------
-	// Constants
-	// -----------------------------------------------------------------------
-
-	const CALLBACK_EVENTS = [
-		{ id: 'email.sent', label: 'Email Sent' },
-		{ id: 'email.received', label: 'Email Received' },
-		{ id: 'email.failed', label: 'Email Failed' },
-		{ id: 'conversation.created', label: 'Conversation Created' },
-		{ id: 'conversation.updated', label: 'Conversation Updated' },
-		{ id: 'agent.error', label: 'Agent Error' },
-	];
 
 	// -----------------------------------------------------------------------
 	// Tabs
 	// -----------------------------------------------------------------------
 
-	type TabId = 'log' | 'callbacks' | 'tunnel';
-	let activeTab = $state<TabId>('log');
+	type TabId = 'endpoints' | 'log';
+	let activeTab = $state<TabId>('endpoints');
 
 	const tabs: { id: TabId; label: string; icon: any }[] = [
+		{ id: 'endpoints', label: 'Endpoints', icon: Globe },
 		{ id: 'log', label: 'Log', icon: Code },
-		{ id: 'callbacks', label: 'Callbacks', icon: ArrowUpRight },
-		{ id: 'tunnel', label: 'Tunnel', icon: Radio },
 	];
+
+	// -----------------------------------------------------------------------
+	// Endpoints state
+	// -----------------------------------------------------------------------
+
+	let endpoints = $state<WebhookEndpoint[]>([]);
+	let endpointsLoading = $state(false);
+	let endpointsError = $state('');
+	let emailEnabled = $state(true);
+	let tunnelStatus = $state<TunnelStatus>({ active: false, url: null });
+	let copiedPath = $state<string | null>(null);
 
 	// -----------------------------------------------------------------------
 	// Log state
@@ -108,74 +89,59 @@
 	let logDetail = $state<WebhookLogEntry | null>(null);
 
 	// -----------------------------------------------------------------------
-	// Callback state
-	// -----------------------------------------------------------------------
-
-	let callbacks = $state<CallbackConfig[]>([]);
-	let callbacksLoading = $state(false);
-	let showCallbackModal = $state(false);
-	let callbackUrl = $state('');
-	let callbackEvents = $state<string[]>([]);
-	let editingCallbackId = $state<string | null>(null);
-	let testingCallbackId = $state<string | null>(null);
-	let callbackTestResult = $state<{ success: boolean; status_code?: number; error?: string } | null>(null);
-
-	// -----------------------------------------------------------------------
-	// Tunnel state
-	// -----------------------------------------------------------------------
-
-	let tunnelStatus = $state<TunnelStatus>({ active: false, url: null, available: false, error: null });
-	let tunnelLoading = $state(false);
-	let pyngrokStatus = $state<PyngrokStatus>({ installed: false, version: null });
-	let pyngrokInstalling = $state(false);
-	let authToken = $state('');
-	let authTokenSaved = $state(false);
-	let authTokenSaving = $state(false);
-	let tunnelUrlCopied = $state(false);
-	let tunnelWebhookCopied = $state<string | null>(null);
-
-	// Integrations (auto-detected from settings)
-	interface Integration {
-		type: string;
-		provider: string;
-		enabled: boolean;
-		webhook_path: string;
-	}
-	let integrations = $state<Integration[]>([]);
-
-	// Tunnel backends
-	interface TunnelBackendInfo {
-		id: string;
-		label: string;
-		available: boolean;
-		requires_auth: boolean;
-	}
-	let tunnelBackends = $state<TunnelBackendInfo[]>([]);
-	let selectedBackend = $state('ngrok');
-
-	// -----------------------------------------------------------------------
-	// Tunnel readiness
-	// -----------------------------------------------------------------------
-
-	let tunnelReady = $derived(
-		selectedBackend === 'cloudflared'
-			? tunnelBackends.some(b => b.id === 'cloudflared' && b.available)
-			: authTokenSaved && pyngrokStatus.installed
-	);
-
-	// -----------------------------------------------------------------------
 	// Init
 	// -----------------------------------------------------------------------
 
 	$effect(() => {
-		loadLog();
-		loadCallbacks();
+		loadEndpoints();
 		loadTunnelStatus();
-		loadPyngrokStatus();
-		loadAuthToken();
-		loadIntegrations();
-		loadTunnelBackends();
+		loadLog();
 	});
+
+	$effect(() => {
+		return () => {
+			if (logAutoInterval) {
+				clearInterval(logAutoInterval);
+				logAutoInterval = null;
+			}
+		};
+	});
+
+	// -----------------------------------------------------------------------
+	// Endpoints functions
+	// -----------------------------------------------------------------------
+
+	async function loadEndpoints() {
+		endpointsLoading = true;
+		endpointsError = '';
+		try {
+			const res = await apiJson<{ endpoints: WebhookEndpoint[]; email_enabled: boolean }>('/webhook-admin/endpoints');
+			endpoints = res.endpoints || [];
+			emailEnabled = res.email_enabled ?? true;
+		} catch (e) {
+			endpointsError = e instanceof Error ? e.message : 'Failed to load endpoints';
+		} finally { endpointsLoading = false; }
+	}
+
+	async function loadTunnelStatus() {
+		try {
+			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/status');
+		} catch { /* ignore */ }
+	}
+
+	function getFullUrl(webhookPath: string): string {
+		if (tunnelStatus.active && tunnelStatus.url) {
+			return `${tunnelStatus.url}${webhookPath}`;
+		}
+		return webhookPath;
+	}
+
+	function copyUrl(webhookPath: string) {
+		const url = getFullUrl(webhookPath);
+		navigator.clipboard.writeText(url);
+		copiedPath = webhookPath;
+		setTimeout(() => (copiedPath = null), 2000);
+	}
 
 	// -----------------------------------------------------------------------
 	// Log functions
@@ -184,7 +150,7 @@
 	async function loadLog() {
 		logLoading = true;
 		try {
-			const res = await apiJson<{ entries: WebhookLogEntry[] }>('/dev-tools/log?limit=50');
+			const res = await apiJson<{ entries: WebhookLogEntry[] }>('/webhook-admin/log?limit=50');
 			logEntries = res.entries;
 		} catch { /* ignore */ }
 		finally { logLoading = false; }
@@ -192,7 +158,7 @@
 
 	async function clearLog() {
 		try {
-			await apiJson('/dev-tools/log', { method: 'DELETE' });
+			await apiJson('/webhook-admin/log', { method: 'DELETE' });
 			logEntries = [];
 		} catch { /* ignore */ }
 	}
@@ -205,7 +171,7 @@
 		}
 		logExpandedId = entryId;
 		try {
-			logDetail = await apiJson<WebhookLogEntry>(`/dev-tools/log/${entryId}`);
+			logDetail = await apiJson<WebhookLogEntry>(`/webhook-admin/log/${entryId}`);
 		} catch { logDetail = null; }
 	}
 
@@ -221,215 +187,6 @@
 	}
 
 	// -----------------------------------------------------------------------
-	// Callback functions
-	// -----------------------------------------------------------------------
-
-	async function loadCallbacks() {
-		callbacksLoading = true;
-		try {
-			const res = await apiJson<{ callbacks: CallbackConfig[] }>('/callbacks');
-			callbacks = res.callbacks || [];
-		} catch { /* ignore */ }
-		finally { callbacksLoading = false; }
-	}
-
-	function openCallbackModal(cb?: CallbackConfig) {
-		if (cb) {
-			editingCallbackId = cb.id;
-			callbackUrl = cb.url;
-			callbackEvents = [...cb.events];
-		} else {
-			editingCallbackId = null;
-			callbackUrl = '';
-			callbackEvents = [];
-		}
-		callbackTestResult = null;
-		showCallbackModal = true;
-	}
-
-	function closeCallbackModal() {
-		showCallbackModal = false;
-		editingCallbackId = null;
-		callbackUrl = '';
-		callbackEvents = [];
-	}
-
-	async function saveCallback() {
-		if (!callbackUrl.trim()) return;
-		try {
-			if (editingCallbackId) {
-				const updated = await apiJson<CallbackConfig>(`/callbacks/${editingCallbackId}`, {
-					method: 'PUT',
-					body: JSON.stringify({ url: callbackUrl.trim(), events: callbackEvents }),
-				});
-				callbacks = callbacks.map(cb =>
-					cb.id === editingCallbackId ? { ...cb, ...updated } : cb
-				);
-			} else {
-				const created = await apiJson<CallbackConfig>('/callbacks', {
-					method: 'POST',
-					body: JSON.stringify({ url: callbackUrl.trim(), events: callbackEvents }),
-				});
-				callbacks = [...callbacks, created];
-			}
-			closeCallbackModal();
-		} catch { /* ignore */ }
-	}
-
-	async function deleteCallback(id: string) {
-		try {
-			await apiJson(`/callbacks/${id}`, { method: 'DELETE' });
-			callbacks = callbacks.filter(cb => cb.id !== id);
-		} catch { /* ignore */ }
-	}
-
-	async function toggleCallbackEnabled(id: string) {
-		const cb = callbacks.find(c => c.id === id);
-		if (!cb) return;
-		try {
-			const updated = await apiJson<CallbackConfig>(`/callbacks/${id}`, {
-				method: 'PUT',
-				body: JSON.stringify({ enabled: !cb.enabled }),
-			});
-			callbacks = callbacks.map(c => c.id === id ? { ...c, ...updated } : c);
-		} catch { /* ignore */ }
-	}
-
-	async function testCallback(id: string) {
-		testingCallbackId = id;
-		callbackTestResult = null;
-		try {
-			callbackTestResult = await apiJson<{ success: boolean; status_code?: number; error?: string }>(
-				`/callbacks/${id}/test`, { method: 'POST' }
-			);
-		} catch (e) {
-			callbackTestResult = { success: false, error: e instanceof Error ? e.message : 'Test failed' };
-		} finally {
-			testingCallbackId = null;
-			setTimeout(() => (callbackTestResult = null), 5000);
-		}
-	}
-
-	function copySecret(secret: string) {
-		navigator.clipboard.writeText(secret);
-	}
-
-	// -----------------------------------------------------------------------
-	// Tunnel functions
-	// -----------------------------------------------------------------------
-
-	async function loadTunnelStatus() {
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/status');
-		} catch { /* ignore */ }
-	}
-
-	async function loadPyngrokStatus() {
-		try {
-			pyngrokStatus = await apiJson<PyngrokStatus>('/dev-tools/tunnel/pyngrok-status');
-		} catch { /* ignore */ }
-	}
-
-	async function loadAuthToken() {
-		try {
-			const res = await apiJson<{ ngrok_auth_token?: string }>('/settings/email');
-			if (res.ngrok_auth_token) {
-				authToken = res.ngrok_auth_token;
-				authTokenSaved = true;
-			}
-		} catch { /* ignore */ }
-	}
-
-	async function saveAuthToken() {
-		if (!authToken.trim()) return;
-		authTokenSaving = true;
-		try {
-			await apiJson('/dev-tools/tunnel/auth-token', {
-				method: 'PUT',
-				body: JSON.stringify({ auth_token: authToken.trim() }),
-			});
-			authTokenSaved = true;
-		} catch { /* ignore */ }
-		finally { authTokenSaving = false; }
-	}
-
-	async function installPyngrok() {
-		pyngrokInstalling = true;
-		try {
-			const res = await apiJson<{ success: boolean; error?: string }>('/dev-tools/tunnel/install-pyngrok', {
-				method: 'POST',
-			});
-			if (res.success) {
-				await loadPyngrokStatus();
-			}
-		} catch { /* ignore */ }
-		finally { pyngrokInstalling = false; }
-	}
-
-	async function startTunnel() {
-		tunnelLoading = true;
-		tunnelStatus = { ...tunnelStatus, error: null };
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/start', { method: 'POST' });
-		} catch (e) {
-			tunnelStatus = { ...tunnelStatus, error: e instanceof Error ? e.message : 'Failed to start tunnel' };
-		} finally {
-			tunnelLoading = false;
-		}
-	}
-
-	async function stopTunnel() {
-		tunnelLoading = true;
-		try {
-			tunnelStatus = await apiJson<TunnelStatus>('/dev-tools/tunnel/stop', { method: 'POST' });
-		} catch (e) {
-			tunnelStatus = { ...tunnelStatus, error: e instanceof Error ? e.message : 'Failed to stop tunnel' };
-		} finally {
-			tunnelLoading = false;
-		}
-	}
-
-	function copyTunnelUrl() {
-		if (tunnelStatus.url) {
-			navigator.clipboard.writeText(tunnelStatus.url);
-			tunnelUrlCopied = true;
-			setTimeout(() => (tunnelUrlCopied = false), 2000);
-		}
-	}
-
-	function copyTunnelWebhookUrl(webhookPath: string) {
-		if (tunnelStatus.url) {
-			navigator.clipboard.writeText(`${tunnelStatus.url}${webhookPath}`);
-			tunnelWebhookCopied = webhookPath;
-			setTimeout(() => (tunnelWebhookCopied = null), 2000);
-		}
-	}
-
-	async function loadIntegrations() {
-		try {
-			const res = await apiJson<{ integrations: Integration[] }>('/dev-tools/integrations');
-			integrations = res.integrations || [];
-		} catch { /* ignore */ }
-	}
-
-	async function loadTunnelBackends() {
-		try {
-			const res = await apiJson<{ backends: TunnelBackendInfo[] }>('/dev-tools/tunnel/backends');
-			tunnelBackends = res.backends || [];
-		} catch { /* ignore */ }
-	}
-
-	async function saveTunnelBackend(backend: string) {
-		selectedBackend = backend;
-		try {
-			await apiJson('/settings/email', {
-				method: 'PUT',
-				body: JSON.stringify({ tunnel_backend: backend }),
-			});
-		} catch { /* ignore */ }
-	}
-
-	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
 
@@ -442,6 +199,15 @@
 		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
 		return `${Math.floor(diff / 86400)}d ago`;
 	}
+
+	function providerLabel(provider: string): string {
+		const labels: Record<string, string> = {
+			resend: 'Resend',
+			sendgrid: 'SendGrid',
+			ses: 'Amazon SES',
+		};
+		return labels[provider] || provider;
+	}
 </script>
 
 <div class="flex h-full flex-col overflow-hidden">
@@ -450,7 +216,7 @@
 		<div class="mb-4">
 			<h1 class="text-lg font-semibold text-text-primary">Webhooks</h1>
 			<p class="text-sm text-text-secondary">
-				Inbound webhook log, outbound callbacks, and dev tunnel management
+				Manage inbound webhook endpoints and view incoming event log
 			</p>
 		</div>
 
@@ -471,6 +237,115 @@
 	<!-- Tab content -->
 	<div class="flex-1 overflow-y-auto px-6 py-6">
 		<div class="flex flex-col gap-6">
+
+			<!-- =========================================================== -->
+			<!-- ENDPOINTS TAB                                                -->
+			<!-- =========================================================== -->
+			{#if activeTab === 'endpoints'}
+				{#if endpointsError}
+					<div class="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3">
+						<AlertTriangle size={16} class="shrink-0 text-red-500" />
+						<p class="flex-1 text-xs text-text-primary">{endpointsError}</p>
+						<button onclick={() => loadEndpoints()} class="text-xs font-medium text-accent hover:underline">Retry</button>
+					</div>
+				{/if}
+				{#if endpointsLoading}
+					<div class="flex justify-center py-10">
+						<Loader2 size={20} class="animate-spin text-text-secondary" />
+					</div>
+				{:else if endpoints.length === 0 && !endpointsError}
+					<section class="rounded-lg border border-border bg-surface p-6 text-center">
+						<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-secondary">
+							<Mail size={20} class="text-text-secondary" />
+						</div>
+						<h2 class="text-sm font-semibold text-text-primary">No email provider configured</h2>
+						<p class="mt-1 text-xs text-text-secondary">
+							Set up an email provider to start receiving inbound webhooks.
+						</p>
+						<a href="/admin/email" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
+							Set Up Email
+							<ExternalLink size={10} />
+						</a>
+					</section>
+				{:else}
+					<!-- Disabled banner -->
+					{#if !emailEnabled}
+						<div class="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
+							<AlertTriangle size={16} class="shrink-0 text-warning" />
+							<div class="flex-1">
+								<p class="text-xs font-medium text-text-primary">Email channel is disabled</p>
+								<p class="text-[11px] text-text-secondary">
+									Webhooks are configured but won't process incoming emails until the channel is enabled.
+								</p>
+							</div>
+							<a href="/admin/email" class="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning/20">
+								Enable in Email Settings
+								<ExternalLink size={10} />
+							</a>
+						</div>
+					{/if}
+
+					<section class="flex flex-col gap-3">
+						{#each endpoints as endpoint}
+							<div class="rounded-lg border {endpoint.enabled ? 'border-border' : 'border-border/50'} bg-surface p-4 {!endpoint.enabled ? 'opacity-80' : ''}">
+								<div class="flex items-start justify-between gap-3">
+									<div class="flex items-center gap-3">
+										<div class="flex h-9 w-9 items-center justify-center rounded-lg {endpoint.enabled ? 'bg-accent/10' : 'bg-surface-secondary'}">
+											<Webhook size={18} class="{endpoint.enabled ? 'text-accent' : 'text-text-secondary'}" />
+										</div>
+										<div>
+											<div class="flex items-center gap-2">
+												<span class="text-sm font-semibold text-text-primary">{providerLabel(endpoint.provider)}</span>
+												{#if endpoint.enabled}
+													<span class="inline-flex rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success">Active</span>
+												{:else}
+													<span class="inline-flex rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">Inactive</span>
+												{/if}
+											</div>
+											<p class="mt-0.5 text-[11px] text-text-secondary">Inbound email webhook</p>
+										</div>
+									</div>
+									<div class="flex items-center gap-2">
+										{#if endpoint.signature_verification}
+											<span class="inline-flex items-center gap-1 rounded-md border border-success/20 bg-success/5 px-2 py-1 text-[10px] font-medium text-success">
+												<ShieldCheck size={10} />
+												Signature Verified
+											</span>
+										{:else}
+											<span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-text-secondary">
+												<Shield size={10} />
+												No Signature
+											</span>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Webhook URL -->
+								<div class="mt-3">
+									<label class="mb-1 block text-[11px] font-medium text-text-secondary">Webhook URL</label>
+									<div class="flex items-center gap-2">
+										<code class="flex-1 rounded-md border border-border bg-surface-secondary/30 px-3 py-1.5 text-xs text-text-primary">
+											{getFullUrl(endpoint.webhook_path)}
+										</code>
+										<button
+											type="button"
+											onclick={() => copyUrl(endpoint.webhook_path)}
+											class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
+										>
+											{#if copiedPath === endpoint.webhook_path}<CheckCircle size={10} class="text-success" />{:else}<Copy size={10} />{/if}
+										</button>
+									</div>
+									{#if !tunnelStatus.active}
+										<p class="mt-1 text-[10px] text-text-secondary">
+											Showing relative path. <a href="/admin/dev-tools" class="text-accent hover:underline">Start a tunnel</a> to get a public URL.
+										</p>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</section>
+				{/if}
+			{/if}
 
 			<!-- =========================================================== -->
 			<!-- LOG TAB                                                      -->
@@ -553,413 +428,36 @@
 				</section>
 			{/if}
 
-			<!-- =========================================================== -->
-			<!-- CALLBACKS TAB                                                -->
-			<!-- =========================================================== -->
-			{#if activeTab === 'callbacks'}
-				<section class="rounded-lg border border-border bg-surface p-5">
-					<div class="mb-3 flex items-center justify-between">
-						<h2 class="flex items-center gap-2 text-sm font-semibold text-text-primary">
-							<Globe size={16} class="text-ember" />
-							Outbound Callbacks
-						</h2>
-						<button type="button" onclick={() => openCallbackModal()}
-							class="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover">
-							Add Callback
-						</button>
+			<!-- Cross-links -->
+			<div class="flex gap-3">
+				<a
+					href="/admin/callbacks"
+					class="flex flex-1 items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-hover"
+				>
+					<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+						<ArrowUpRight size={14} class="text-accent" />
 					</div>
-					<p class="mb-4 text-xs text-text-secondary">
-						Register external webhook URLs that receive callbacks when events occur (email sent, received, etc.).
-					</p>
-
-					{#if callbacksLoading}
-						<div class="flex justify-center py-6">
-							<Loader2 size={20} class="animate-spin text-text-secondary" />
-						</div>
-					{:else if callbacks.length === 0}
-						<p class="py-4 text-center text-xs text-text-secondary italic">No callbacks configured yet.</p>
-					{:else}
-						<div class="flex flex-col gap-3">
-							{#each callbacks as cb}
-							<div class="rounded-md border border-border p-3">
-								<div class="flex items-start justify-between gap-3">
-									<div class="min-w-0 flex-1">
-										<div class="flex items-center gap-2">
-											<code class="truncate text-xs text-text-primary">{cb.url}</code>
-											<span class="inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium {cb.enabled ? 'bg-success/10 text-success' : 'bg-surface-secondary text-text-secondary'}">
-												{cb.enabled ? 'Active' : 'Disabled'}
-											</span>
-										</div>
-										{#if cb.events.length > 0}
-										<div class="mt-1.5 flex flex-wrap gap-1">
-											{#each cb.events as ev}
-											<span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{ev}</span>
-											{/each}
-										</div>
-										{:else}
-										<span class="mt-1 text-[10px] text-text-secondary">All events</span>
-										{/if}
-									</div>
-									<div class="flex items-center gap-1.5">
-										<button type="button" onclick={() => toggleCallbackEnabled(cb.id)} class="rounded-md border border-border px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover">{cb.enabled ? 'Disable' : 'Enable'}</button>
-										<button type="button" onclick={() => testCallback(cb.id)} disabled={testingCallbackId === cb.id} class="rounded-md border border-border px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover disabled:opacity-50">{#if testingCallbackId === cb.id}<Loader2 size={10} class="animate-spin" />{:else}Test{/if}</button>
-										<button type="button" onclick={() => openCallbackModal(cb)} class="rounded-md border border-border px-2 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-hover">Edit</button>
-										<button type="button" onclick={() => deleteCallback(cb.id)} class="rounded-md border border-danger/30 px-2 py-1 text-[11px] text-danger transition-colors hover:bg-danger/10">Delete</button>
-									</div>
-								</div>
-								{#if cb.secret}
-								<div class="mt-2 flex items-center gap-2">
-									<span class="text-[10px] text-text-secondary">Secret:</span>
-									<code class="text-[10px] text-text-secondary">{cb.secret.slice(0, 8)}...</code>
-									<button type="button" onclick={() => copySecret(cb.secret)} class="text-[10px] text-accent hover:underline">Copy</button>
-								</div>
-								{/if}
-							</div>
-							{/each}
-						</div>
-					{/if}
-
-					{#if callbackTestResult}
-						<div class="mt-3 rounded-md border px-3 py-2 text-xs {callbackTestResult.success ? 'border-success/30 bg-success/5 text-success' : 'border-danger/30 bg-danger/5 text-danger'}">
-							{#if callbackTestResult.success}Test payload delivered (status: {callbackTestResult.status_code}){:else}Test failed: {callbackTestResult.error}{/if}
-						</div>
-					{/if}
-				</section>
-			{/if}
-
-			<!-- =========================================================== -->
-			<!-- TUNNEL TAB                                                   -->
-			<!-- =========================================================== -->
-			{#if activeTab === 'tunnel'}
-				<!-- Backend Selector -->
-				<section class="rounded-lg border border-border bg-surface p-5">
-					<div class="mb-3">
-						<h2 class="flex items-center gap-2 text-sm font-semibold text-text-primary">
-							<Globe size={16} class="text-ember" />
-							Tunnel Backend
-						</h2>
-						<p class="mt-1 text-[11px] text-text-secondary">
-							Choose how to expose your local server for webhook delivery.
-						</p>
+					<div class="flex-1">
+						<span class="text-xs font-semibold text-text-primary">Outbound Callbacks</span>
+						<p class="text-[10px] text-text-secondary">Manage callback endpoints and delivery log</p>
 					</div>
-					<div class="flex gap-3">
-						{#each tunnelBackends as backend}
-							<button
-								type="button"
-								onclick={() => saveTunnelBackend(backend.id)}
-								class="flex flex-1 flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors
-									{selectedBackend === backend.id ? 'border-accent bg-accent/5' : 'border-border hover:bg-surface-hover'}
-									{!backend.available ? 'opacity-50' : ''}"
-								disabled={!backend.available}
-							>
-								<span class="text-xs font-medium text-text-primary">{backend.label}</span>
-								<span class="text-[10px] text-text-secondary">
-									{#if backend.id === 'ngrok'}
-										Requires auth token + pyngrok
-									{:else}
-										Zero-config, no account needed
-									{/if}
-								</span>
-								{#if !backend.available}
-									<span class="text-[10px] text-warning">Not installed</span>
-								{/if}
-							</button>
-						{/each}
+					<ExternalLink size={14} class="text-text-secondary" />
+				</a>
+				<a
+					href="/admin/dev-tools"
+					class="flex flex-1 items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-hover"
+				>
+					<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10">
+						<Radio size={14} class="text-accent" />
 					</div>
-				</section>
-
-				<!-- ngrok setup (only when ngrok selected) -->
-				{#if selectedBackend === 'ngrok'}
-				<!-- Step 1: Auth Token -->
-				<section class="rounded-lg border border-border bg-surface p-5">
-					<div class="mb-3 flex items-center gap-3">
-						<div class="flex h-7 w-7 items-center justify-center rounded-full {authTokenSaved ? 'bg-success/10' : 'bg-surface-secondary'}">
-							{#if authTokenSaved}
-								<CheckCircle size={14} class="text-success" />
-							{:else}
-								<Key size={14} class="text-text-secondary" />
-							{/if}
-						</div>
-						<div>
-							<h2 class="text-sm font-semibold text-text-primary">ngrok Auth Token</h2>
-							<p class="text-[11px] text-text-secondary">Required to create tunnels. Get a free token from ngrok.com</p>
-						</div>
+					<div class="flex-1">
+						<span class="text-xs font-semibold text-text-primary">Dev Tools</span>
+						<p class="text-[10px] text-text-secondary">Set up a tunnel for local webhook testing</p>
 					</div>
-
-					<div class="flex gap-2">
-						<input
-							type="password"
-							bind:value={authToken}
-							placeholder="Enter your ngrok auth token"
-							oninput={() => { if (authTokenSaved) authTokenSaved = false; }}
-							class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none transition-colors focus:border-accent"
-						/>
-						<button
-							type="button"
-							onclick={saveAuthToken}
-							disabled={authTokenSaving || !authToken.trim()}
-							class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50
-								{authTokenSaved ? 'border border-success/30 bg-success/10 text-success' : 'bg-accent text-white hover:bg-accent-hover'}"
-						>
-							{#if authTokenSaving}
-								<Loader2 size={12} class="animate-spin" />
-							{:else if authTokenSaved}
-								<CheckCircle size={12} />
-								Saved
-							{:else}
-								Save
-							{/if}
-						</button>
-					</div>
-					<p class="mt-2 text-[10px] text-text-secondary">
-						Get your free auth token from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer" class="text-accent underline">ngrok dashboard</a>.
-					</p>
-				</section>
-
-				<!-- Step 2: pyngrok Status -->
-				<section class="rounded-lg border border-border bg-surface p-5">
-					<div class="mb-3 flex items-center gap-3">
-						<div class="flex h-7 w-7 items-center justify-center rounded-full {pyngrokStatus.installed ? 'bg-success/10' : 'bg-surface-secondary'}">
-							{#if pyngrokStatus.installed}
-								<CheckCircle size={14} class="text-success" />
-							{:else}
-								<Package size={14} class="text-text-secondary" />
-							{/if}
-						</div>
-						<div class="flex-1">
-							<h2 class="text-sm font-semibold text-text-primary">pyngrok</h2>
-							<p class="text-[11px] text-text-secondary">Python wrapper for ngrok, required for tunnel management</p>
-						</div>
-						<span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium {pyngrokStatus.installed ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}">
-							{pyngrokStatus.installed ? `v${pyngrokStatus.version}` : 'Not installed'}
-						</span>
-					</div>
-
-					{#if !pyngrokStatus.installed}
-						<button
-							type="button"
-							onclick={installPyngrok}
-							disabled={pyngrokInstalling}
-							class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-						>
-							{#if pyngrokInstalling}
-								<Loader2 size={12} class="animate-spin" />
-								Installing…
-							{:else}
-								<Download size={12} />
-								Install pyngrok
-							{/if}
-						</button>
-						<p class="mt-2 text-[10px] text-text-secondary">
-							This will run <code class="rounded bg-surface-secondary px-1">pip install pyngrok</code> in the server's Python environment.
-						</p>
-					{/if}
-				</section>
-				{/if}
-
-				<!-- Tunnel Controls -->
-				<section class="rounded-lg border {tunnelStatus.active ? 'border-success/30 bg-success/5' : 'border-border bg-surface'} p-5">
-					<div class="mb-3 flex items-center gap-3">
-						<div class="flex h-7 w-7 items-center justify-center rounded-full {tunnelStatus.active ? 'bg-success/10' : 'bg-surface-secondary'}">
-							{#if tunnelStatus.active}
-								<Radio size={14} class="text-success" />
-							{:else}
-								<Radio size={14} class="text-text-secondary" />
-							{/if}
-						</div>
-						<div class="flex-1">
-							<h2 class="text-sm font-semibold text-text-primary">Tunnel</h2>
-							<p class="text-[11px] text-text-secondary">
-								{#if tunnelStatus.active}
-									Active — forwarding to localhost
-								{:else}
-									Expose your local server for webhook delivery
-								{/if}
-							</p>
-						</div>
-						{#if tunnelStatus.active}
-							<span class="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-								<span class="inline-block h-1.5 w-1.5 rounded-full bg-success animate-pulse"></span>
-								Active
-							</span>
-						{/if}
-					</div>
-
-					<div class="flex items-center gap-2">
-						{#if tunnelStatus.active}
-							<button
-								type="button"
-								onclick={stopTunnel}
-								disabled={tunnelLoading}
-								class="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-50"
-							>
-								{#if tunnelLoading}
-									<Loader2 size={12} class="animate-spin" />
-								{:else}
-									<Square size={12} />
-								{/if}
-								Stop Tunnel
-							</button>
-						{:else}
-							<button
-								type="button"
-								onclick={startTunnel}
-								disabled={tunnelLoading || !tunnelReady}
-								class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-							>
-								{#if tunnelLoading}
-									<Loader2 size={12} class="animate-spin" />
-									Starting…
-								{:else}
-									<Play size={12} />
-									Start Tunnel
-								{/if}
-							</button>
-							{#if !tunnelReady}
-								<span class="text-[11px] text-text-secondary">
-									{#if selectedBackend === 'cloudflared'}
-										cloudflared not available — install it first
-									{:else if !authTokenSaved}
-										Save auth token first
-									{:else}
-										Install pyngrok first
-									{/if}
-								</span>
-							{/if}
-						{/if}
-					</div>
-
-					{#if tunnelStatus.error}
-						<div class="mt-3 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-							{tunnelStatus.error}
-						</div>
-					{/if}
-
-					{#if tunnelStatus.active && tunnelStatus.url}
-						<div class="mt-4 flex flex-col gap-3">
-							<!-- Tunnel URL -->
-							<div>
-								<label class="mb-1 block text-[11px] font-medium text-text-secondary">Tunnel URL</label>
-								<div class="flex items-center gap-2">
-									<code class="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary">
-										{tunnelStatus.url}
-									</code>
-									<button
-										type="button"
-										onclick={copyTunnelUrl}
-										class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
-									>
-										{#if tunnelUrlCopied}<CheckCircle size={10} class="text-success" />{:else}<Copy size={10} />{/if}
-									</button>
-								</div>
-							</div>
-
-							<!-- Webhook URLs (auto-detected) -->
-							{#if integrations.length > 0}
-								<div>
-									<label class="mb-1 block text-[11px] font-medium text-text-secondary">Webhook URLs</label>
-									<div class="flex flex-col gap-2">
-										{#each integrations as integration}
-											<div class="flex items-center gap-2">
-												<div class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-accent/10">
-													<Mail size={12} class="text-accent" />
-												</div>
-												<code class="flex-1 rounded-md border border-success/30 bg-success/5 px-3 py-1.5 text-xs font-medium text-success">
-													{tunnelStatus.url}{integration.webhook_path}
-												</code>
-												<span class="shrink-0 text-[10px] capitalize text-text-secondary">{integration.provider}</span>
-												<button
-													type="button"
-													onclick={() => copyTunnelWebhookUrl(integration.webhook_path)}
-													class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-hover"
-												>
-													{#if tunnelWebhookCopied === integration.webhook_path}<CheckCircle size={10} class="text-success" />{:else}<Copy size={10} />{/if}
-												</button>
-											</div>
-										{/each}
-									</div>
-									<p class="mt-1 text-[10px] text-text-secondary">
-										Paste this URL in your email provider's webhook settings.
-									</p>
-								</div>
-							{:else}
-								<div class="rounded-md border border-border/50 bg-surface-secondary/20 px-3 py-3 text-center">
-									<p class="text-xs text-text-secondary">No integrations configured.</p>
-									<a href="/admin/email" class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
-										Configure email integration
-										<ExternalLink size={10} />
-									</a>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</section>
-			{/if}
+					<ExternalLink size={14} class="text-text-secondary" />
+				</a>
+			</div>
 
 		</div>
 	</div>
 </div>
-
-<!-- Callback Add/Edit Modal -->
-{#if showCallbackModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-xl">
-			<h3 class="mb-4 text-sm font-semibold text-text-primary">
-				{editingCallbackId ? 'Edit Callback' : 'Add Callback'}
-			</h3>
-
-			<div class="flex flex-col gap-4">
-				<div>
-					<label class="mb-1 block text-xs font-medium text-text-secondary">Webhook URL</label>
-					<input
-						type="url"
-						bind:value={callbackUrl}
-						placeholder="https://example.com/webhook"
-						class="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-text-primary outline-none transition-colors focus:border-accent"
-					/>
-				</div>
-
-				<div>
-					<label class="mb-2 block text-xs font-medium text-text-secondary">Events (leave empty for all)</label>
-					<div class="flex flex-wrap gap-2">
-						{#each CALLBACK_EVENTS as ev}
-							<label class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors cursor-pointer {callbackEvents.includes(ev.id) ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary hover:bg-surface-hover'}">
-								<input
-									type="checkbox"
-									checked={callbackEvents.includes(ev.id)}
-									onchange={() => {
-										if (callbackEvents.includes(ev.id)) {
-											callbackEvents = callbackEvents.filter(e => e !== ev.id);
-										} else {
-											callbackEvents = [...callbackEvents, ev.id];
-										}
-									}}
-									class="sr-only"
-								/>
-								{ev.label}
-							</label>
-						{/each}
-					</div>
-				</div>
-			</div>
-
-			<div class="mt-6 flex items-center justify-end gap-2">
-				<button
-					type="button"
-					onclick={closeCallbackModal}
-					class="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					onclick={saveCallback}
-					disabled={!callbackUrl.trim()}
-					class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-				>
-					{editingCallbackId ? 'Update' : 'Add Callback'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}

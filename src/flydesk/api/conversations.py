@@ -235,6 +235,14 @@ async def delete_conversation(
         action="conversation_deleted",
         detail={"title": conversation.title},
     ))
+
+    callback_dispatcher = getattr(request.app.state, "callback_dispatcher", None)
+    if callback_dispatcher is not None:
+        await callback_dispatcher.dispatch("conversation.closed", {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+        })
+
     return Response(status_code=204)
 
 

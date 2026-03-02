@@ -11,8 +11,6 @@
 Receives inbound emails from provider webhooks (Resend, SES, etc.),
 parses them via the :class:`EmailChannelAdapter`, and optionally
 invokes the agent to generate an auto-reply.
-
-Also provides a webhook log API for debugging inbound email processing.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ import uuid as _uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from flydesk.api.deps import get_email_channel_adapter, get_settings_repo
 from flydesk.auth.models import UserSession
@@ -33,7 +31,6 @@ from flydesk.conversation.models import Conversation, Message, MessageRole
 from flydesk.email.channel_adapter import EmailChannelAdapter
 from flydesk.email.webhook_log import WebhookLogEntry
 from flydesk.email.webhook_log_repository import WebhookLogRepository
-from flydesk.rbac.guards import AdminSettings
 from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -344,58 +341,3 @@ async def receive_inbound_email(
 
     logger.info("Processed inbound email for conversation %s", conversation_id)
     return {"status": status, "conversation_id": conversation_id}
-
-
-# ---------------------------------------------------------------------------
-# Webhook log API
-# ---------------------------------------------------------------------------
-
-
-@router.get("/webhook-log", dependencies=[AdminSettings])
-async def list_webhook_log(
-    webhook_log: WebhookLogDep,
-    limit: int = Query(default=50, ge=1, le=100),
-) -> dict:
-    """Return recent webhook log entries (newest first)."""
-    entries = await webhook_log.list(limit=limit)
-    return {
-        "entries": [
-            {
-                "id": e.id,
-                "timestamp": e.timestamp.isoformat(),
-                "provider": e.provider,
-                "status": e.status,
-                "from_address": e.from_address,
-                "subject": e.subject,
-                "processing_time_ms": round(e.processing_time_ms, 1),
-                "error": e.error,
-            }
-            for e in entries
-        ]
-    }
-
-
-@router.get("/webhook-log/{entry_id}", dependencies=[AdminSettings])
-async def get_webhook_log_entry(entry_id: str, webhook_log: WebhookLogDep) -> dict:
-    """Return a single webhook log entry with full payload."""
-    entry = await webhook_log.get(entry_id)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="Log entry not found")
-    return {
-        "id": entry.id,
-        "timestamp": entry.timestamp.isoformat(),
-        "provider": entry.provider,
-        "status": entry.status,
-        "from_address": entry.from_address,
-        "subject": entry.subject,
-        "payload_preview": entry.payload_preview,
-        "processing_time_ms": round(entry.processing_time_ms, 1),
-        "error": entry.error,
-    }
-
-
-@router.delete("/webhook-log", dependencies=[AdminSettings])
-async def clear_webhook_log(webhook_log: WebhookLogDep) -> dict:
-    """Clear all webhook log entries."""
-    await webhook_log.clear()
-    return {"success": True}

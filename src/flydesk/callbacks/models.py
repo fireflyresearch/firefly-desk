@@ -25,6 +25,10 @@ class CallbackEvent(StrEnum):
     EMAIL_FAILED = "email.failed"
     CONVERSATION_CREATED = "conversation.created"
     CONVERSATION_UPDATED = "conversation.updated"
+    CONVERSATION_CLOSED = "conversation.closed"
+    DOCUMENT_INDEXED = "document.indexed"
+    DOCUMENT_DELETED = "document.deleted"
+    KNOWLEDGE_UPDATED = "knowledge.updated"
     AGENT_ERROR = "agent.error"
 
 

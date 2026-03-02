@@ -6,12 +6,11 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""In-memory webhook log for debugging inbound email processing."""
+"""Webhook log entry dataclass for inbound email processing."""
 
 from __future__ import annotations
 
 import uuid
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -29,30 +28,3 @@ class WebhookLogEntry:
     payload_preview: str = ""  # first 500 chars of JSON
     processing_time_ms: float = 0.0
     error: str | None = None
-
-
-class WebhookLog:
-    """In-memory ring buffer of recent webhook payloads (max 100 entries)."""
-
-    def __init__(self, max_entries: int = 100) -> None:
-        self._entries: deque[WebhookLogEntry] = deque(maxlen=max_entries)
-
-    def record(self, entry: WebhookLogEntry) -> None:
-        """Append an entry, evicting the oldest if over the limit."""
-        self._entries.append(entry)
-
-    def list(self, limit: int = 50) -> list[WebhookLogEntry]:
-        """Return the most recent entries (newest first)."""
-        entries = list(reversed(self._entries))
-        return entries[:limit]
-
-    def get(self, entry_id: str) -> WebhookLogEntry | None:
-        """Look up a single entry by ID."""
-        for entry in self._entries:
-            if entry.id == entry_id:
-                return entry
-        return None
-
-    def clear(self) -> None:
-        """Remove all entries."""
-        self._entries.clear()
