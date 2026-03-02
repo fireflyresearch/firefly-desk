@@ -2,7 +2,8 @@
   CatalogManager.svelte - CRUD interface for external system catalog.
 
   Lists systems in a table with expandable endpoint rows. Uses the
-  SystemWizard modal for creating and editing systems.
+  SystemWizard modal for creating and editing systems. Accepts an
+  `activeView` prop to render specific sections when used with tabs.
 
   Copyright 2026 Firefly Software Solutions Inc. All rights reserved.
   Licensed under the Apache License, Version 2.0.
@@ -31,6 +32,18 @@
 	import SystemWizard from './SystemWizard.svelte';
 	import EndpointWizard from './EndpointWizard.svelte';
 	import SystemTagManager from './SystemTagManager.svelte';
+
+	// -----------------------------------------------------------------------
+	// Props
+	// -----------------------------------------------------------------------
+
+	type CatalogView = 'systems' | 'discovery' | 'tags' | 'import';
+
+	let {
+		activeView = 'systems'
+	}: {
+		activeView?: CatalogView;
+	} = $props();
 
 	// -----------------------------------------------------------------------
 	// Types
@@ -822,27 +835,19 @@
 </script>
 
 <div class="flex h-full flex-col gap-4 p-6">
-	<!-- Header -->
-	<div class="flex shrink-0 items-center justify-between">
-		<div>
-			<h1 class="text-lg font-semibold text-text-primary">System Catalog</h1>
-			<p class="text-sm text-text-secondary">Manage external systems and their endpoints</p>
+	<!-- Error banner (shared across views) -->
+	{#if error}
+		<div class="shrink-0 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+			{error}
 		</div>
-		<div class="flex items-center gap-2">
-			<button
-				type="button"
-				onclick={triggerDetectSystems}
-				disabled={isDetecting}
-				class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
-			>
-				{#if isDetecting}
-					<Loader2 size={16} class="animate-spin" />
-					Detecting...
-				{:else}
-					<Sparkles size={16} />
-					Detect Systems
-				{/if}
-			</button>
+	{/if}
+
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	<!-- Systems view                                                       -->
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	{#if activeView === 'systems'}
+		<!-- Add System button -->
+		<div class="flex shrink-0 items-center justify-end">
 			<button
 				type="button"
 				onclick={openAddForm}
@@ -852,25 +857,672 @@
 				Add System
 			</button>
 		</div>
-	</div>
 
-	<!-- Detection Settings -->
-	<div class="shrink-0 rounded-lg border border-border bg-surface">
-		<button
-			type="button"
-			onclick={() => (showDiscoverySettings = !showDiscoverySettings)}
-			class="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover"
-		>
-			<Settings size={14} />
-			Detection Settings
-			<ChevronRight
-				size={14}
-				class="ml-auto transition-transform {showDiscoverySettings ? 'rotate-90' : ''}"
+		<!-- System Wizard modal (edit mode) -->
+		{#if showForm}
+			<SystemWizard
+				editingSystem={editingSystemFull}
+				onClose={closeWizard}
+				onSaved={onWizardSaved}
+				{workspaces}
 			/>
-		</button>
+		{/if}
 
-		{#if showDiscoverySettings}
-			<div class="border-t border-border px-4 py-3">
+		<!-- Endpoint Wizard modal -->
+		{#if showEndpointWizard}
+			<EndpointWizard
+				systemId={endpointWizardSystemId}
+				editingEndpoint={editingEndpoint}
+				onClose={closeEndpointWizard}
+				onSaved={onEndpointSaved}
+			/>
+		{/if}
+
+		<!-- Search & filter bar -->
+		<div class="flex shrink-0 items-center gap-2">
+			<div class="relative flex-1">
+				<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+				<input
+					type="text"
+					bind:value={searchTerm}
+					oninput={onSearchInput}
+					placeholder="Search systems..."
+					class="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-xs text-text-primary outline-none focus:border-accent"
+				/>
+			</div>
+			<select
+				bind:value={statusFilter}
+				onchange={onStatusFilterChange}
+				class="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
+			>
+				<option value="">All Statuses</option>
+				<option value="active">Active</option>
+				<option value="draft">Draft</option>
+				<option value="disabled">Disabled</option>
+				<option value="deprecated">Deprecated</option>
+				<option value="degraded">Degraded</option>
+			</select>
+
+			<!-- Tag filter dropdown -->
+			<div class="relative">
+				<button
+					type="button"
+					onclick={() => (showTagFilter = !showTagFilter)}
+					class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-surface-hover {selectedTagIds.length > 0 ? 'border-accent/50' : ''}"
+				>
+					<Tag size={12} />
+					Tags
+					{#if selectedTagIds.length > 0}
+						<span class="rounded-full bg-accent px-1.5 text-[10px] font-medium text-white">{selectedTagIds.length}</span>
+					{/if}
+				</button>
+
+				{#if showTagFilter}
+					<div class="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-surface shadow-lg">
+						<div class="max-h-48 overflow-y-auto p-2">
+							{#each allTags as tag}
+								<label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-hover">
+									<input
+										type="checkbox"
+										checked={selectedTagIds.includes(tag.id)}
+										onchange={() => toggleTagFilter(tag.id)}
+										class="accent-accent"
+									/>
+									<span
+										class="inline-block h-2 w-2 rounded-full"
+										style="background-color: {tag.color ?? '#6366f1'};"
+									></span>
+									<span class="text-text-primary">{tag.name}</span>
+								</label>
+							{/each}
+							{#if allTags.length === 0}
+								<p class="px-2 py-1.5 text-xs text-text-secondary">No tags available</p>
+							{/if}
+						</div>
+						{#if selectedTagIds.length > 0}
+							<div class="border-t border-border px-2 py-1.5">
+								<button
+									type="button"
+									onclick={clearTagFilter}
+									class="w-full rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+								>
+									Clear filter
+								</button>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Bulk action bar -->
+		{#if selectedIds.size > 0}
+			<div class="flex shrink-0 items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-4 py-2">
+				<span class="text-xs font-medium text-accent">{selectedIds.size} selected</span>
+				<button
+					type="button"
+					onclick={bulkDelete}
+					class="rounded px-2 py-1 text-xs font-medium text-danger hover:bg-danger/10"
+				>
+					Delete Selected
+				</button>
+				<button
+					type="button"
+					onclick={() => bulkSetStatus('active')}
+					class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+				>
+					Activate
+				</button>
+				<button
+					type="button"
+					onclick={() => bulkSetStatus('disabled')}
+					class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
+				>
+					Disable
+				</button>
+				<button
+					type="button"
+					onclick={() => { selectedIds = new Set(); }}
+					class="ml-auto rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
+				>
+					Clear Selection
+				</button>
+			</div>
+		{/if}
+
+		<!-- Table -->
+		{#if loading}
+			<div class="flex flex-1 items-center justify-center">
+				<Loader2 size={24} class="animate-spin text-text-secondary" />
+			</div>
+		{:else}
+			<div class="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+				<div class="overflow-x-auto">
+					<table class="w-full text-left text-sm">
+						<thead>
+							<tr class="border-b border-border bg-surface-secondary">
+								<th class="w-8 px-4 py-2">
+									<input
+										type="checkbox"
+										checked={selectAll}
+										onchange={toggleSelectAll}
+										class="accent-accent"
+									/>
+								</th>
+								<th class="w-8 px-4 py-2"></th>
+								<th class="px-4 py-2 text-xs font-medium text-text-secondary">Name</th>
+								<th class="px-4 py-2 text-xs font-medium text-text-secondary">Base URL</th>
+								<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
+								<th class="px-4 py-2 text-xs font-medium text-text-secondary">Workspace</th>
+								<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
+								<th class="w-24 px-4 py-2 text-xs font-medium text-text-secondary">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each systems as system, i}
+								{@const expanded = expandedIds.has(system.id)}
+								<tr
+									class="border-b border-border last:border-b-0 {i % 2 === 1
+										? 'bg-surface-secondary/50'
+										: ''}"
+								>
+									<td class="w-8 px-4 py-2">
+										<input
+											type="checkbox"
+											checked={selectedIds.has(system.id)}
+											onchange={() => toggleSelect(system.id)}
+											class="accent-accent"
+											onclick={(e) => e.stopPropagation()}
+										/>
+									</td>
+									<td class="px-4 py-2">
+										<button
+											type="button"
+											onclick={() => toggleExpand(system.id)}
+											class="text-text-secondary hover:text-text-primary"
+										>
+											{#if expanded}
+												<ChevronDown size={14} />
+											{:else}
+												<ChevronRight size={14} />
+											{/if}
+										</button>
+									</td>
+									<td class="px-4 py-2 font-medium text-text-primary">{system.name}</td>
+									<td class="px-4 py-2 font-mono text-xs text-text-secondary">
+										{system.base_url}
+									</td>
+									<td class="px-4 py-2">
+										<div class="flex items-center gap-2">
+											<span
+												class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
+											>
+												{system.status}
+											</span>
+											{#if STATUS_TRANSITIONS[system.status]?.length > 0}
+												<div class="flex gap-1">
+													{#each STATUS_TRANSITIONS[system.status] as action}
+														{#if action.target === 'deprecated' && confirmingDeprecateId === system.id}
+															<div class="flex items-center gap-1.5">
+																<span class="text-xs text-danger">Deprecate?</span>
+																<button
+																	type="button"
+																	onclick={() => { confirmingDeprecateId = null; transitionStatus(system.id, 'deprecated'); }}
+																	class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
+																	disabled={transitioning}
+																>
+																	Yes
+																</button>
+																<button
+																	type="button"
+																	onclick={() => { confirmingDeprecateId = null; }}
+																	class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
+																>
+																	No
+																</button>
+															</div>
+														{:else if action.target === 'deprecated'}
+															<button
+																type="button"
+																class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+																onclick={() => { confirmingDeprecateId = system.id; }}
+																title="{action.label} {system.name}"
+																disabled={transitioning}
+															>
+																{action.label}
+															</button>
+														{:else}
+															<button
+																type="button"
+																class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+																onclick={() => transitionStatus(system.id, action.target)}
+																title="{action.label} {system.name}"
+																disabled={transitioning}
+															>
+																{action.label}
+															</button>
+														{/if}
+													{/each}
+												</div>
+											{/if}
+										</div>
+									</td>
+									<td class="px-4 py-2 text-xs text-text-secondary">
+										{workspaces.find((w) => w.id === system.workspace_id)?.name || '--'}
+									</td>
+									<td class="px-4 py-2">
+										{#if system.tags.length > 0}
+											<div class="flex flex-wrap gap-1">
+												{#each system.tags as tag}
+													<span
+														class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+														style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
+													>
+														<span
+															class="inline-block h-1.5 w-1.5 rounded-full"
+															style="background-color: {tag.color ?? '#6366f1'};"
+														></span>
+														{tag.name}
+													</span>
+												{/each}
+											</div>
+										{:else}
+											<span class="text-xs text-text-secondary">--</span>
+										{/if}
+									</td>
+									<td class="px-4 py-2">
+										{#if confirmingDeleteId === system.id}
+											<div class="flex items-center gap-1.5">
+												<span class="text-xs text-danger">Delete?</span>
+												<button
+													type="button"
+													onclick={() => confirmAndDelete(system.id)}
+													class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
+												>
+													Yes
+												</button>
+												<button
+													type="button"
+													onclick={cancelDeleteConfirm}
+													class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
+												>
+													No
+												</button>
+											</div>
+										{:else}
+											<div class="flex items-center gap-1">
+												<button
+													type="button"
+													onclick={() => openEditForm(system)}
+													class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+													title="Edit"
+												>
+													<Pencil size={14} />
+												</button>
+												<button
+													type="button"
+													onclick={() => startDelete(system.id)}
+													class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+													title="Delete"
+												>
+													<Trash2 size={14} />
+												</button>
+											</div>
+										{/if}
+									</td>
+								</tr>
+
+								<!-- Expanded endpoints & tags -->
+								{#if expanded}
+									<tr class="bg-surface-secondary/30">
+										<td colspan="8" class="px-8 py-3">
+											<!-- Tag assignment -->
+											<div class="mb-3">
+												<div class="flex items-center gap-2 mb-2">
+													<span class="text-xs font-medium text-text-secondary">Tags:</span>
+													<button
+														type="button"
+														onclick={() => toggleTagAssignment(system.id)}
+														class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
+													>
+														<Plus size={10} />
+														{assigningTagSystemId === system.id ? 'Done' : 'Manage'}
+													</button>
+												</div>
+
+												<div class="flex flex-wrap items-center gap-1.5">
+													{#each system.tags as tag}
+														<span
+															class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+															style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
+														>
+															<span
+																class="inline-block h-1.5 w-1.5 rounded-full"
+																style="background-color: {tag.color ?? '#6366f1'};"
+															></span>
+															{tag.name}
+															{#if assigningTagSystemId === system.id}
+																<button
+																	type="button"
+																	onclick={() => removeTag(system.id, tag.id)}
+																	class="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+																	title="Remove tag"
+																>
+																	<X size={10} />
+																</button>
+															{/if}
+														</span>
+													{/each}
+													{#if system.tags.length === 0 && assigningTagSystemId !== system.id}
+														<span class="text-xs text-text-secondary">No tags assigned</span>
+													{/if}
+												</div>
+
+												{#if assigningTagSystemId === system.id}
+													<div class="mt-2 flex flex-wrap gap-1.5">
+														{#each allTags.filter((t) => !system.tags.some((st) => st.id === t.id)) as tag}
+															<button
+																type="button"
+																onclick={() => assignTag(system.id, tag.id)}
+																class="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+															>
+																<span
+																	class="inline-block h-1.5 w-1.5 rounded-full"
+																	style="background-color: {tag.color ?? '#6366f1'};"
+																></span>
+																<Plus size={10} />
+																{tag.name}
+															</button>
+														{/each}
+														{#if allTags.filter((t) => !system.tags.some((st) => st.id === t.id)).length === 0}
+															<span class="text-xs text-text-secondary">All tags assigned</span>
+														{/if}
+													</div>
+												{/if}
+											</div>
+
+											<hr class="mb-3 border-border/50" />
+
+											{#if endpointCache[system.id] && endpointCache[system.id].length > 0}
+												<table class="w-full text-left text-xs">
+													<thead>
+														<tr class="border-b border-border">
+															<th class="px-3 py-1.5 font-medium text-text-secondary">
+																Method
+															</th>
+															<th class="px-3 py-1.5 font-medium text-text-secondary">
+																Path
+															</th>
+															<th class="px-3 py-1.5 font-medium text-text-secondary">
+																Description
+															</th>
+															<th class="px-3 py-1.5 font-medium text-text-secondary">
+																Actions
+															</th>
+														</tr>
+													</thead>
+													<tbody>
+														{#each endpointCache[system.id] as ep}
+															<tr class="border-b border-border/50 last:border-b-0">
+																<td class="px-3 py-1.5">
+																	<span class="rounded px-1.5 py-0.5 font-mono font-medium {methodVariant(ep.method)}">
+																		{ep.method}
+																	</span>
+																	{#if ep.protocol_type && ep.protocol_type !== 'rest'}
+																		<span class="ml-1 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-accent">
+																			{ep.protocol_type}
+																		</span>
+																	{/if}
+																</td>
+																<td class="px-3 py-1.5 font-mono text-text-primary">
+																	{ep.path}
+																</td>
+																<td class="px-3 py-1.5 text-text-secondary">
+																	{ep.description}
+																</td>
+																<td class="px-3 py-1.5">
+																	<div class="flex items-center gap-1">
+																		<button
+																			type="button"
+																			onclick={() => openEditEndpoint(ep)}
+																			class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+																			title="Edit endpoint"
+																		>
+																			<Pencil size={12} />
+																		</button>
+																		<button
+																			type="button"
+																			onclick={() => deleteEndpoint(ep.id, system.id)}
+																			class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+																			title="Delete endpoint"
+																		>
+																			<Trash2 size={12} />
+																		</button>
+																	</div>
+																</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+
+												<div class="mt-2">
+													<button
+														type="button"
+														onclick={() => openAddEndpoint(system.id)}
+														class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+													>
+														<Plus size={12} />
+														Add Endpoint
+													</button>
+												</div>
+											{:else}
+												<p class="text-xs text-text-secondary">
+													No endpoints configured for this system.
+												</p>
+												<div class="mt-2">
+													<button
+														type="button"
+														onclick={() => openAddEndpoint(system.id)}
+														class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
+													>
+														<Plus size={12} />
+														Add Endpoint
+													</button>
+												</div>
+											{/if}
+
+											<!-- Linked Documents Section -->
+											<hr class="my-3 border-border/50" />
+
+											<div class="flex flex-col gap-2">
+												<div class="flex items-center gap-2">
+													<Link size={14} class="text-text-secondary" />
+													<span class="text-xs font-medium text-text-secondary">Linked Documents</span>
+													<button
+														type="button"
+														onclick={() => toggleDocLinkPanel(system.id)}
+														class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
+													>
+														<Plus size={10} />
+														{showDocLinkPanel[system.id] ? 'Done' : 'Manage'}
+													</button>
+												</div>
+
+												<!-- Display linked docs -->
+												{#if loadingLinkedDocs[system.id]}
+													<div class="flex items-center gap-2 py-1">
+														<Loader2 size={12} class="animate-spin text-text-secondary" />
+														<span class="text-[10px] text-text-secondary">Loading...</span>
+													</div>
+												{:else if linkedDocsCache[system.id]?.length > 0}
+													<div class="flex flex-col gap-1">
+														{#each linkedDocsCache[system.id] as doc}
+															<div class="flex items-center gap-2 rounded border border-border/50 bg-surface/50 px-2.5 py-1.5">
+																<span class="flex-1 truncate font-mono text-[10px] text-text-primary">{doc.document_id}</span>
+																{#if showDocLinkPanel[system.id]}
+																	<select
+																		value={doc.role}
+																		onchange={(e) => updateDocRole(system.id, doc.document_id, (e.target as HTMLSelectElement).value)}
+																		class="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
+																	>
+																		{#each DOC_ROLES as role}
+																			<option value={role}>{roleLabel(role)}</option>
+																		{/each}
+																	</select>
+																{/if}
+																<span class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {roleBadgeClass(doc.role)}">
+																	{roleLabel(doc.role)}
+																</span>
+																{#if showDocLinkPanel[system.id]}
+																	<button
+																		type="button"
+																		onclick={() => unlinkDoc(system.id, doc.document_id)}
+																		class="rounded p-0.5 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
+																		title="Unlink document"
+																	>
+																		<Unlink size={10} />
+																	</button>
+																{/if}
+															</div>
+														{/each}
+													</div>
+												{:else if !showDocLinkPanel[system.id]}
+													<span class="text-[10px] text-text-secondary">No linked documents</span>
+												{/if}
+
+												<!-- Search panel for linking -->
+												{#if showDocLinkPanel[system.id]}
+													<div class="mt-1 flex flex-col gap-1.5 rounded-md border border-border/50 bg-surface-secondary/20 p-2">
+														<div class="relative">
+															<Search size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
+															<input
+																type="text"
+																value={docLinkSearchQuery[system.id] ?? ''}
+																oninput={(e) => { docLinkSearchQuery = { ...docLinkSearchQuery, [system.id]: (e.target as HTMLInputElement).value }; onDocLinkSearchInput(system.id); }}
+																placeholder="Search KB documents..."
+																class="w-full rounded border border-border bg-surface py-1.5 pl-7 pr-2 text-[10px] text-text-primary outline-none focus:border-accent"
+															/>
+															{#if docLinkSearching[system.id]}
+																<Loader2 size={10} class="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-text-secondary" />
+															{/if}
+														</div>
+
+														{#if (docLinkSearchResults[system.id] ?? []).length > 0}
+															<div class="max-h-32 overflow-y-auto">
+																{#each docLinkSearchResults[system.id] as doc}
+																	{@const alreadyLinked = (linkedDocsCache[system.id] ?? []).some((d) => d.document_id === doc.id)}
+																	<div class="flex items-center gap-2 rounded px-2 py-1 hover:bg-surface-hover">
+																		<div class="min-w-0 flex-1">
+																			<p class="truncate text-[10px] font-medium text-text-primary">{doc.title}</p>
+																			<p class="truncate font-mono text-[9px] text-text-secondary">{doc.id}</p>
+																		</div>
+																		{#if doc.doc_type}
+																			<span class="shrink-0 rounded bg-surface-secondary px-1 py-0.5 text-[9px] text-text-secondary">{doc.doc_type}</span>
+																		{/if}
+																		{#if alreadyLinked}
+																			<span class="shrink-0 text-[9px] text-text-secondary">Linked</span>
+																		{:else}
+																			<button
+																				type="button"
+																				onclick={() => linkDoc(system.id, doc.id)}
+																				class="shrink-0 rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/10"
+																			>
+																				Link
+																			</button>
+																		{/if}
+																	</div>
+																{/each}
+															</div>
+														{:else if (docLinkSearchQuery[system.id] ?? '').trim() && !docLinkSearching[system.id]}
+															<p class="text-[10px] text-text-secondary">No documents found.</p>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										</td>
+									</tr>
+								{/if}
+							{:else}
+								<tr>
+									<td colspan="8" class="px-4 py-8 text-center text-sm text-text-secondary">
+										No systems in the catalog. Add one to get started.
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- Pagination -->
+			{#if !loading && totalSystems > 0}
+				<div class="flex shrink-0 items-center justify-between mt-3">
+					<span class="text-xs text-text-secondary">
+						Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalSystems)} of {totalSystems}
+					</span>
+					<div class="flex items-center gap-1">
+						<button
+							type="button"
+							onclick={() => goToPage(currentPage - 1)}
+							disabled={currentPage <= 1}
+							class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+						>
+							Prev
+						</button>
+						{#each Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+							const start = Math.max(1, currentPage - 2);
+							return Math.min(start + i, totalPages);
+						}).filter((v, i, a) => a.indexOf(v) === i) as page}
+							<button
+								type="button"
+								onclick={() => goToPage(page)}
+								class="rounded-md px-2 py-1 text-xs font-medium {page === currentPage ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
+							>
+								{page}
+							</button>
+						{/each}
+						<button
+							type="button"
+							onclick={() => goToPage(currentPage + 1)}
+							disabled={currentPage >= totalPages}
+							class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
+						>
+							Next
+						</button>
+					</div>
+				</div>
+			{/if}
+		{/if}
+
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	<!-- Discovery view                                                     -->
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	{:else if activeView === 'discovery'}
+		<!-- Detect button -->
+		<div class="flex shrink-0 items-center justify-end">
+			<button
+				type="button"
+				onclick={triggerDetectSystems}
+				disabled={isDetecting}
+				class="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+			>
+				{#if isDetecting}
+					<Loader2 size={16} class="animate-spin" />
+					Detecting...
+				{:else}
+					<Sparkles size={16} />
+					Run Discovery
+				{/if}
+			</button>
+		</div>
+
+		<!-- Discovery Settings (always visible) -->
+		<div class="shrink-0 rounded-lg border border-border bg-surface">
+			<div class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-text-primary border-b border-border">
+				<Settings size={14} class="text-accent" />
+				Discovery Settings
+			</div>
+			<div class="px-4 py-3">
 				{#if loadingDiscoverySettings}
 					<div class="flex justify-center py-2">
 						<Loader2 size={14} class="animate-spin text-text-secondary" />
@@ -966,748 +1618,111 @@
 					</div>
 				{/if}
 			</div>
-		{/if}
-	</div>
-
-	<!-- Error banner -->
-	{#if error}
-		<div class="shrink-0 rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
-			{error}
 		</div>
-	{/if}
 
-	<!-- System Wizard modal -->
-	{#if showForm}
+		<!-- Detection log panel -->
+		{#if detectionLog.length > 0}
+			<div class="shrink-0 rounded-lg border border-border bg-surface">
+				<div class="flex items-center justify-between border-b border-border px-4 py-2.5">
+					<div class="flex items-center gap-2">
+						<Sparkles size={16} class="text-accent" />
+						<span class="text-sm font-medium text-text-primary">Detection Log</span>
+						{#if isDetecting}
+							<span class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+								<Loader2 size={10} class="animate-spin" />
+								Running
+							</span>
+						{:else if detectJobStatus === 'completed'}
+							<span class="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+								Complete
+							</span>
+						{:else if detectJobStatus === 'failed'}
+							<span class="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
+								Failed
+							</span>
+						{/if}
+					</div>
+					<button
+						type="button"
+						onclick={() => { detectionLog = []; }}
+						class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+						title="Clear log"
+					>
+						<X size={14} />
+					</button>
+				</div>
+				<div
+					bind:this={detectionLogEl}
+					class="max-h-64 overflow-y-auto px-4 py-3"
+				>
+					<div class="space-y-1">
+						{#each detectionLog as entry, i}
+							<div class="flex items-start gap-3 rounded px-2 py-1.5 text-sm hover:bg-surface-hover/50">
+								<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-secondary text-text-secondary">
+									{#if entry.type === 'done'}
+										<CheckCircle2 size={12} class="text-success" />
+									{:else if entry.type === 'error'}
+										<AlertCircle size={12} class="text-danger" />
+									{:else}
+										<Sparkles size={12} class="text-accent" />
+									{/if}
+								</div>
+								<div class="min-w-0 flex-1">
+									<p class="text-text-primary">{entry.message}</p>
+									<p class="text-[10px] text-text-secondary/60">{entry.timestamp.toLocaleTimeString()} · {entry.pct}%</p>
+								</div>
+							</div>
+						{/each}
+						{#if isDetecting}
+							<div class="flex items-center gap-3 px-2 py-1.5">
+								<Loader2 size={12} class="animate-spin text-accent" />
+								<span class="text-xs text-text-secondary">Processing...</span>
+							</div>
+						{/if}
+					</div>
+				</div>
+				{#if isDetecting || detectJobStatus === 'completed'}
+					<div class="border-t border-border px-4 py-2">
+						<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary">
+							<div
+								class="h-full rounded-full transition-all duration-500 {detectJobStatus === 'completed' ? 'bg-success' : detectJobStatus === 'failed' ? 'bg-danger' : 'bg-accent'}"
+								style="width: {detectProgress}%"
+							></div>
+						</div>
+						<div class="mt-1 flex justify-between text-[10px] text-text-secondary/60">
+							<span>{detectJobStatus === 'completed' ? 'Detection complete' : 'Detecting...'}</span>
+							<span>{detectProgress}%</span>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{:else}
+			<div class="flex flex-1 items-center justify-center">
+				<div class="text-center">
+					<Sparkles size={32} class="mx-auto mb-2 text-text-secondary/30" />
+					<p class="text-sm text-text-secondary">No detection runs yet.</p>
+					<p class="text-xs text-text-secondary/60">Configure settings above and click "Run Discovery" to begin.</p>
+				</div>
+			</div>
+		{/if}
+
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	<!-- Tags view                                                          -->
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	{:else if activeView === 'tags'}
+		<div class="rounded-lg border border-border bg-surface p-4">
+			<SystemTagManager onTagsChanged={loadAllTags} />
+		</div>
+
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	<!-- Import view                                                        -->
+	<!-- ═══════════════════════════════════════════════════════════════════ -->
+	{:else if activeView === 'import'}
 		<SystemWizard
-			editingSystem={editingSystemFull}
-			onClose={closeWizard}
+			editingSystem={null}
+			onClose={() => {}}
 			onSaved={onWizardSaved}
 			{workspaces}
 		/>
-	{/if}
-
-	<!-- Endpoint Wizard modal -->
-	{#if showEndpointWizard}
-		<EndpointWizard
-			systemId={endpointWizardSystemId}
-			editingEndpoint={editingEndpoint}
-			onClose={closeEndpointWizard}
-			onSaved={onEndpointSaved}
-		/>
-	{/if}
-
-	<!-- Manage Tags collapsible section -->
-	<div class="shrink-0 rounded-lg border border-border bg-surface">
-		<button
-			type="button"
-			onclick={() => (showTagManager = !showTagManager)}
-			class="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover"
-		>
-			<Tag size={14} />
-			Manage Tags
-			<ChevronRight
-				size={14}
-				class="ml-auto transition-transform {showTagManager ? 'rotate-90' : ''}"
-			/>
-		</button>
-
-		{#if showTagManager}
-			<div class="border-t border-border px-4 py-3">
-				<SystemTagManager onTagsChanged={loadAllTags} />
-			</div>
-		{/if}
-	</div>
-
-	<!-- Search & filter bar -->
-	<div class="flex shrink-0 items-center gap-2">
-		<div class="relative flex-1">
-			<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-			<input
-				type="text"
-				bind:value={searchTerm}
-				oninput={onSearchInput}
-				placeholder="Search systems..."
-				class="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-xs text-text-primary outline-none focus:border-accent"
-			/>
-		</div>
-		<select
-			bind:value={statusFilter}
-			onchange={onStatusFilterChange}
-			class="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
-		>
-			<option value="">All Statuses</option>
-			<option value="active">Active</option>
-			<option value="draft">Draft</option>
-			<option value="disabled">Disabled</option>
-			<option value="deprecated">Deprecated</option>
-			<option value="degraded">Degraded</option>
-		</select>
-
-		<!-- Tag filter dropdown -->
-		<div class="relative">
-			<button
-				type="button"
-				onclick={() => (showTagFilter = !showTagFilter)}
-				class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-surface-hover {selectedTagIds.length > 0 ? 'border-accent/50' : ''}"
-			>
-				<Tag size={12} />
-				Tags
-				{#if selectedTagIds.length > 0}
-					<span class="rounded-full bg-accent px-1.5 text-[10px] font-medium text-white">{selectedTagIds.length}</span>
-				{/if}
-			</button>
-
-			{#if showTagFilter}
-				<div class="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-surface shadow-lg">
-					<div class="max-h-48 overflow-y-auto p-2">
-						{#each allTags as tag}
-							<label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-hover">
-								<input
-									type="checkbox"
-									checked={selectedTagIds.includes(tag.id)}
-									onchange={() => toggleTagFilter(tag.id)}
-									class="accent-accent"
-								/>
-								<span
-									class="inline-block h-2 w-2 rounded-full"
-									style="background-color: {tag.color ?? '#6366f1'};"
-								></span>
-								<span class="text-text-primary">{tag.name}</span>
-							</label>
-						{/each}
-						{#if allTags.length === 0}
-							<p class="px-2 py-1.5 text-xs text-text-secondary">No tags available</p>
-						{/if}
-					</div>
-					{#if selectedTagIds.length > 0}
-						<div class="border-t border-border px-2 py-1.5">
-							<button
-								type="button"
-								onclick={clearTagFilter}
-								class="w-full rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
-							>
-								Clear filter
-							</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
-		</div>
-	</div>
-
-	<!-- Bulk action bar -->
-	{#if selectedIds.size > 0}
-		<div class="flex shrink-0 items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-4 py-2">
-			<span class="text-xs font-medium text-accent">{selectedIds.size} selected</span>
-			<button
-				type="button"
-				onclick={bulkDelete}
-				class="rounded px-2 py-1 text-xs font-medium text-danger hover:bg-danger/10"
-			>
-				Delete Selected
-			</button>
-			<button
-				type="button"
-				onclick={() => bulkSetStatus('active')}
-				class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-			>
-				Activate
-			</button>
-			<button
-				type="button"
-				onclick={() => bulkSetStatus('disabled')}
-				class="rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover"
-			>
-				Disable
-			</button>
-			<button
-				type="button"
-				onclick={() => { selectedIds = new Set(); }}
-				class="ml-auto rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover"
-			>
-				Clear Selection
-			</button>
-		</div>
-	{/if}
-
-	<!-- Table -->
-	{#if loading}
-		<div class="flex flex-1 items-center justify-center">
-			<Loader2 size={24} class="animate-spin text-text-secondary" />
-		</div>
-	{:else}
-		<div class="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
-			<div class="overflow-x-auto">
-				<table class="w-full text-left text-sm">
-					<thead>
-						<tr class="border-b border-border bg-surface-secondary">
-							<th class="w-8 px-4 py-2">
-								<input
-									type="checkbox"
-									checked={selectAll}
-									onchange={toggleSelectAll}
-									class="accent-accent"
-								/>
-							</th>
-							<th class="w-8 px-4 py-2"></th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Name</th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Base URL</th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Status</th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Workspace</th>
-							<th class="px-4 py-2 text-xs font-medium text-text-secondary">Tags</th>
-							<th class="w-24 px-4 py-2 text-xs font-medium text-text-secondary">Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each systems as system, i}
-							{@const expanded = expandedIds.has(system.id)}
-							<tr
-								class="border-b border-border last:border-b-0 {i % 2 === 1
-									? 'bg-surface-secondary/50'
-									: ''}"
-							>
-								<td class="w-8 px-4 py-2">
-									<input
-										type="checkbox"
-										checked={selectedIds.has(system.id)}
-										onchange={() => toggleSelect(system.id)}
-										class="accent-accent"
-										onclick={(e) => e.stopPropagation()}
-									/>
-								</td>
-								<td class="px-4 py-2">
-									<button
-										type="button"
-										onclick={() => toggleExpand(system.id)}
-										class="text-text-secondary hover:text-text-primary"
-									>
-										{#if expanded}
-											<ChevronDown size={14} />
-										{:else}
-											<ChevronRight size={14} />
-										{/if}
-									</button>
-								</td>
-								<td class="px-4 py-2 font-medium text-text-primary">{system.name}</td>
-								<td class="px-4 py-2 font-mono text-xs text-text-secondary">
-									{system.base_url}
-								</td>
-								<td class="px-4 py-2">
-									<div class="flex items-center gap-2">
-										<span
-											class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {statusVariant(system.status)}"
-										>
-											{system.status}
-										</span>
-										{#if STATUS_TRANSITIONS[system.status]?.length > 0}
-											<div class="flex gap-1">
-												{#each STATUS_TRANSITIONS[system.status] as action}
-													{#if action.target === 'deprecated' && confirmingDeprecateId === system.id}
-														<div class="flex items-center gap-1.5">
-															<span class="text-xs text-danger">Deprecate?</span>
-															<button
-																type="button"
-																onclick={() => { confirmingDeprecateId = null; transitionStatus(system.id, 'deprecated'); }}
-																class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
-																disabled={transitioning}
-															>
-																Yes
-															</button>
-															<button
-																type="button"
-																onclick={() => { confirmingDeprecateId = null; }}
-																class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
-															>
-																No
-															</button>
-														</div>
-													{:else if action.target === 'deprecated'}
-														<button
-															type="button"
-															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
-															onclick={() => { confirmingDeprecateId = system.id; }}
-															title="{action.label} {system.name}"
-															disabled={transitioning}
-														>
-															{action.label}
-														</button>
-													{:else}
-														<button
-															type="button"
-															class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
-															onclick={() => transitionStatus(system.id, action.target)}
-															title="{action.label} {system.name}"
-															disabled={transitioning}
-														>
-															{action.label}
-														</button>
-													{/if}
-												{/each}
-											</div>
-										{/if}
-									</div>
-								</td>
-								<td class="px-4 py-2 text-xs text-text-secondary">
-									{workspaces.find((w) => w.id === system.workspace_id)?.name || '--'}
-								</td>
-								<td class="px-4 py-2">
-									{#if system.tags.length > 0}
-										<div class="flex flex-wrap gap-1">
-											{#each system.tags as tag}
-												<span
-													class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-													style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
-												>
-													<span
-														class="inline-block h-1.5 w-1.5 rounded-full"
-														style="background-color: {tag.color ?? '#6366f1'};"
-													></span>
-													{tag.name}
-												</span>
-											{/each}
-										</div>
-									{:else}
-										<span class="text-xs text-text-secondary">--</span>
-									{/if}
-								</td>
-								<td class="px-4 py-2">
-									{#if confirmingDeleteId === system.id}
-										<div class="flex items-center gap-1.5">
-											<span class="text-xs text-danger">Delete?</span>
-											<button
-												type="button"
-												onclick={() => confirmAndDelete(system.id)}
-												class="rounded px-1.5 py-0.5 text-xs font-medium text-danger hover:bg-danger/10"
-											>
-												Yes
-											</button>
-											<button
-												type="button"
-												onclick={cancelDeleteConfirm}
-												class="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-hover"
-											>
-												No
-											</button>
-										</div>
-									{:else}
-										<div class="flex items-center gap-1">
-											<button
-												type="button"
-												onclick={() => openEditForm(system)}
-												class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-												title="Edit"
-											>
-												<Pencil size={14} />
-											</button>
-											<button
-												type="button"
-												onclick={() => startDelete(system.id)}
-												class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
-												title="Delete"
-											>
-												<Trash2 size={14} />
-											</button>
-										</div>
-									{/if}
-								</td>
-							</tr>
-
-							<!-- Expanded endpoints & tags -->
-							{#if expanded}
-								<tr class="bg-surface-secondary/30">
-									<td colspan="8" class="px-8 py-3">
-										<!-- Tag assignment -->
-										<div class="mb-3">
-											<div class="flex items-center gap-2 mb-2">
-												<span class="text-xs font-medium text-text-secondary">Tags:</span>
-												<button
-													type="button"
-													onclick={() => toggleTagAssignment(system.id)}
-													class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
-												>
-													<Plus size={10} />
-													{assigningTagSystemId === system.id ? 'Done' : 'Manage'}
-												</button>
-											</div>
-
-											<div class="flex flex-wrap items-center gap-1.5">
-												{#each system.tags as tag}
-													<span
-														class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-														style="background-color: {tag.color ?? '#6366f1'}20; color: {tag.color ?? '#6366f1'};"
-													>
-														<span
-															class="inline-block h-1.5 w-1.5 rounded-full"
-															style="background-color: {tag.color ?? '#6366f1'};"
-														></span>
-														{tag.name}
-														{#if assigningTagSystemId === system.id}
-															<button
-																type="button"
-																onclick={() => removeTag(system.id, tag.id)}
-																class="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
-																title="Remove tag"
-															>
-																<X size={10} />
-															</button>
-														{/if}
-													</span>
-												{/each}
-												{#if system.tags.length === 0 && assigningTagSystemId !== system.id}
-													<span class="text-xs text-text-secondary">No tags assigned</span>
-												{/if}
-											</div>
-
-											{#if assigningTagSystemId === system.id}
-												<div class="mt-2 flex flex-wrap gap-1.5">
-													{#each allTags.filter((t) => !system.tags.some((st) => st.id === t.id)) as tag}
-														<button
-															type="button"
-															onclick={() => assignTag(system.id, tag.id)}
-															class="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
-														>
-															<span
-																class="inline-block h-1.5 w-1.5 rounded-full"
-																style="background-color: {tag.color ?? '#6366f1'};"
-															></span>
-															<Plus size={10} />
-															{tag.name}
-														</button>
-													{/each}
-													{#if allTags.filter((t) => !system.tags.some((st) => st.id === t.id)).length === 0}
-														<span class="text-xs text-text-secondary">All tags assigned</span>
-													{/if}
-												</div>
-											{/if}
-										</div>
-
-										<hr class="mb-3 border-border/50" />
-
-										{#if endpointCache[system.id] && endpointCache[system.id].length > 0}
-											<table class="w-full text-left text-xs">
-												<thead>
-													<tr class="border-b border-border">
-														<th class="px-3 py-1.5 font-medium text-text-secondary">
-															Method
-														</th>
-														<th class="px-3 py-1.5 font-medium text-text-secondary">
-															Path
-														</th>
-														<th class="px-3 py-1.5 font-medium text-text-secondary">
-															Description
-														</th>
-														<th class="px-3 py-1.5 font-medium text-text-secondary">
-															Actions
-														</th>
-													</tr>
-												</thead>
-												<tbody>
-													{#each endpointCache[system.id] as ep}
-														<tr class="border-b border-border/50 last:border-b-0">
-															<td class="px-3 py-1.5">
-																<span class="rounded px-1.5 py-0.5 font-mono font-medium {methodVariant(ep.method)}">
-																	{ep.method}
-																</span>
-																{#if ep.protocol_type && ep.protocol_type !== 'rest'}
-																	<span class="ml-1 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-accent">
-																		{ep.protocol_type}
-																	</span>
-																{/if}
-															</td>
-															<td class="px-3 py-1.5 font-mono text-text-primary">
-																{ep.path}
-															</td>
-															<td class="px-3 py-1.5 text-text-secondary">
-																{ep.description}
-															</td>
-															<td class="px-3 py-1.5">
-																<div class="flex items-center gap-1">
-																	<button
-																		type="button"
-																		onclick={() => openEditEndpoint(ep)}
-																		class="rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-																		title="Edit endpoint"
-																	>
-																		<Pencil size={12} />
-																	</button>
-																	<button
-																		type="button"
-																		onclick={() => deleteEndpoint(ep.id, system.id)}
-																		class="rounded p-1 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
-																		title="Delete endpoint"
-																	>
-																		<Trash2 size={12} />
-																	</button>
-																</div>
-															</td>
-														</tr>
-													{/each}
-												</tbody>
-											</table>
-
-											<div class="mt-2">
-												<button
-													type="button"
-													onclick={() => openAddEndpoint(system.id)}
-													class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
-												>
-													<Plus size={12} />
-													Add Endpoint
-												</button>
-											</div>
-										{:else}
-											<p class="text-xs text-text-secondary">
-												No endpoints configured for this system.
-											</p>
-											<div class="mt-2">
-												<button
-													type="button"
-													onclick={() => openAddEndpoint(system.id)}
-													class="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
-												>
-													<Plus size={12} />
-													Add Endpoint
-												</button>
-											</div>
-										{/if}
-
-										<!-- Linked Documents Section -->
-										<hr class="my-3 border-border/50" />
-
-										<div class="flex flex-col gap-2">
-											<div class="flex items-center gap-2">
-												<Link size={14} class="text-text-secondary" />
-												<span class="text-xs font-medium text-text-secondary">Linked Documents</span>
-												<button
-													type="button"
-													onclick={() => toggleDocLinkPanel(system.id)}
-													class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-surface-hover"
-												>
-													<Plus size={10} />
-													{showDocLinkPanel[system.id] ? 'Done' : 'Manage'}
-												</button>
-											</div>
-
-											<!-- Display linked docs -->
-											{#if loadingLinkedDocs[system.id]}
-												<div class="flex items-center gap-2 py-1">
-													<Loader2 size={12} class="animate-spin text-text-secondary" />
-													<span class="text-[10px] text-text-secondary">Loading...</span>
-												</div>
-											{:else if linkedDocsCache[system.id]?.length > 0}
-												<div class="flex flex-col gap-1">
-													{#each linkedDocsCache[system.id] as doc}
-														<div class="flex items-center gap-2 rounded border border-border/50 bg-surface/50 px-2.5 py-1.5">
-															<span class="flex-1 truncate font-mono text-[10px] text-text-primary">{doc.document_id}</span>
-															{#if showDocLinkPanel[system.id]}
-																<select
-																	value={doc.role}
-																	onchange={(e) => updateDocRole(system.id, doc.document_id, (e.target as HTMLSelectElement).value)}
-																	class="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent"
-																>
-																	{#each DOC_ROLES as role}
-																		<option value={role}>{roleLabel(role)}</option>
-																	{/each}
-																</select>
-															{/if}
-															<span class="rounded-full px-1.5 py-0.5 text-[10px] font-medium {roleBadgeClass(doc.role)}">
-																{roleLabel(doc.role)}
-															</span>
-															{#if showDocLinkPanel[system.id]}
-																<button
-																	type="button"
-																	onclick={() => unlinkDoc(system.id, doc.document_id)}
-																	class="rounded p-0.5 text-text-secondary transition-colors hover:bg-danger/10 hover:text-danger"
-																	title="Unlink document"
-																>
-																	<Unlink size={10} />
-																</button>
-															{/if}
-														</div>
-													{/each}
-												</div>
-											{:else if !showDocLinkPanel[system.id]}
-												<span class="text-[10px] text-text-secondary">No linked documents</span>
-											{/if}
-
-											<!-- Search panel for linking -->
-											{#if showDocLinkPanel[system.id]}
-												<div class="mt-1 flex flex-col gap-1.5 rounded-md border border-border/50 bg-surface-secondary/20 p-2">
-													<div class="relative">
-														<Search size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
-														<input
-															type="text"
-															value={docLinkSearchQuery[system.id] ?? ''}
-															oninput={(e) => { docLinkSearchQuery = { ...docLinkSearchQuery, [system.id]: (e.target as HTMLInputElement).value }; onDocLinkSearchInput(system.id); }}
-															placeholder="Search KB documents..."
-															class="w-full rounded border border-border bg-surface py-1.5 pl-7 pr-2 text-[10px] text-text-primary outline-none focus:border-accent"
-														/>
-														{#if docLinkSearching[system.id]}
-															<Loader2 size={10} class="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-text-secondary" />
-														{/if}
-													</div>
-
-													{#if (docLinkSearchResults[system.id] ?? []).length > 0}
-														<div class="max-h-32 overflow-y-auto">
-															{#each docLinkSearchResults[system.id] as doc}
-																{@const alreadyLinked = (linkedDocsCache[system.id] ?? []).some((d) => d.document_id === doc.id)}
-																<div class="flex items-center gap-2 rounded px-2 py-1 hover:bg-surface-hover">
-																	<div class="min-w-0 flex-1">
-																		<p class="truncate text-[10px] font-medium text-text-primary">{doc.title}</p>
-																		<p class="truncate font-mono text-[9px] text-text-secondary">{doc.id}</p>
-																	</div>
-																	{#if doc.doc_type}
-																		<span class="shrink-0 rounded bg-surface-secondary px-1 py-0.5 text-[9px] text-text-secondary">{doc.doc_type}</span>
-																	{/if}
-																	{#if alreadyLinked}
-																		<span class="shrink-0 text-[9px] text-text-secondary">Linked</span>
-																	{:else}
-																		<button
-																			type="button"
-																			onclick={() => linkDoc(system.id, doc.id)}
-																			class="shrink-0 rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/10"
-																		>
-																			Link
-																		</button>
-																	{/if}
-																</div>
-															{/each}
-														</div>
-													{:else if (docLinkSearchQuery[system.id] ?? '').trim() && !docLinkSearching[system.id]}
-														<p class="text-[10px] text-text-secondary">No documents found.</p>
-													{/if}
-												</div>
-											{/if}
-										</div>
-									</td>
-								</tr>
-							{/if}
-						{:else}
-							<tr>
-								<td colspan="8" class="px-4 py-8 text-center text-sm text-text-secondary">
-									No systems in the catalog. Add one to get started.
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</div>
-
-		<!-- Pagination -->
-		{#if !loading && totalSystems > 0}
-			<div class="flex shrink-0 items-center justify-between mt-3">
-				<span class="text-xs text-text-secondary">
-					Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalSystems)} of {totalSystems}
-				</span>
-				<div class="flex items-center gap-1">
-					<button
-						type="button"
-						onclick={() => goToPage(currentPage - 1)}
-						disabled={currentPage <= 1}
-						class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
-					>
-						Prev
-					</button>
-					{#each Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-						const start = Math.max(1, currentPage - 2);
-						return Math.min(start + i, totalPages);
-					}).filter((v, i, a) => a.indexOf(v) === i) as page}
-						<button
-							type="button"
-							onclick={() => goToPage(page)}
-							class="rounded-md px-2 py-1 text-xs font-medium {page === currentPage ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-hover'}"
-						>
-							{page}
-						</button>
-					{/each}
-					<button
-						type="button"
-						onclick={() => goToPage(currentPage + 1)}
-						disabled={currentPage >= totalPages}
-						class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-surface-hover disabled:opacity-40"
-					>
-						Next
-					</button>
-				</div>
-			</div>
-		{/if}
-	{/if}
-
-	<!-- Detection log panel -->
-	{#if showDetectionLog && detectionLog.length > 0}
-		<div class="shrink-0 rounded-lg border border-border bg-surface">
-			<div class="flex items-center justify-between border-b border-border px-4 py-2.5">
-				<div class="flex items-center gap-2">
-					<Sparkles size={16} class="text-accent" />
-					<span class="text-sm font-medium text-text-primary">System Detection</span>
-					{#if isDetecting}
-						<span class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
-							<Loader2 size={10} class="animate-spin" />
-							Running
-						</span>
-					{:else if detectJobStatus === 'completed'}
-						<span class="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
-							Complete
-						</span>
-					{:else if detectJobStatus === 'failed'}
-						<span class="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
-							Failed
-						</span>
-					{/if}
-				</div>
-				<button
-					type="button"
-					onclick={() => { showDetectionLog = false; }}
-					class="rounded p-1 text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-				>
-					<X size={14} />
-				</button>
-			</div>
-			<div
-				bind:this={detectionLogEl}
-				class="max-h-64 overflow-y-auto px-4 py-3"
-			>
-				<div class="space-y-1">
-					{#each detectionLog as entry, i}
-						<div class="flex items-start gap-3 rounded px-2 py-1.5 text-sm hover:bg-surface-hover/50">
-							<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-secondary text-text-secondary">
-								{#if entry.type === 'done'}
-									<CheckCircle2 size={12} class="text-success" />
-								{:else if entry.type === 'error'}
-									<AlertCircle size={12} class="text-danger" />
-								{:else}
-									<Sparkles size={12} class="text-accent" />
-								{/if}
-							</div>
-							<div class="min-w-0 flex-1">
-								<p class="text-text-primary">{entry.message}</p>
-								<p class="text-[10px] text-text-secondary/60">{entry.timestamp.toLocaleTimeString()} · {entry.pct}%</p>
-							</div>
-						</div>
-					{/each}
-					{#if isDetecting}
-						<div class="flex items-center gap-3 px-2 py-1.5">
-							<Loader2 size={12} class="animate-spin text-accent" />
-							<span class="text-xs text-text-secondary">Processing...</span>
-						</div>
-					{/if}
-				</div>
-			</div>
-			{#if isDetecting || detectJobStatus === 'completed'}
-				<div class="border-t border-border px-4 py-2">
-					<div class="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary">
-						<div
-							class="h-full rounded-full transition-all duration-500 {detectJobStatus === 'completed' ? 'bg-success' : detectJobStatus === 'failed' ? 'bg-danger' : 'bg-accent'}"
-							style="width: {detectProgress}%"
-						></div>
-					</div>
-					<div class="mt-1 flex justify-between text-[10px] text-text-secondary/60">
-						<span>{detectJobStatus === 'completed' ? 'Detection complete' : 'Detecting...'}</span>
-						<span>{detectProgress}%</span>
-					</div>
-				</div>
-			{/if}
-		</div>
 	{/if}
 </div>
