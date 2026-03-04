@@ -1,8 +1,8 @@
 <!--
   AdminDashboard.svelte - Admin dashboard with stats, health, and recent events.
 
-  Displays 4-column stat cards, operations/dev-tools actions, system health
-  indicators, and a mini-table of recent audit events.
+  Displays 4-column stat cards, token usage, system health indicators,
+  activity heatmap, and a mini-table of recent audit events.
 
   Warm industrial design — ember accents, surface-elevated cards, micro-interactions.
 
@@ -17,15 +17,12 @@
 		FileText,
 		Loader2,
 		RefreshCw,
-		Zap,
 		AlertTriangle,
 		CheckCircle,
 		XCircle,
 		Activity,
 		Trash2,
 		RotateCcw,
-		BookOpen,
-		Wrench,
 		FlaskConical,
 		Clock,
 		Coins,
@@ -102,10 +99,8 @@
 
 	// Action loading states
 	let seedingData = $state(false);
-	let testingLLM = $state(false);
 	let clearingData = $state(false);
 	let resettingSetup = $state(false);
-	let refreshingIndex = $state(false);
 
 	// Confirmation dialogs
 	let showSeedConfirm = $state(false);
@@ -292,36 +287,6 @@
 	$effect(() => {
 		loadDashboard();
 	});
-
-	// -----------------------------------------------------------------------
-	// Operations actions
-	// -----------------------------------------------------------------------
-
-	async function testLLMConnection() {
-		testingLLM = true;
-		error = '';
-		try {
-			const healthData = await apiJson<DetailedHealth>('/admin/dashboard/health');
-			health = healthData;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Health check failed';
-		} finally {
-			testingLLM = false;
-		}
-	}
-
-	async function refreshKnowledgeIndex() {
-		refreshingIndex = true;
-		error = '';
-		try {
-			await apiFetch('/knowledge/reindex', { method: 'POST', body: JSON.stringify({}) });
-			await loadDashboard();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Knowledge reindex failed';
-		} finally {
-			refreshingIndex = false;
-		}
-	}
 
 	// -----------------------------------------------------------------------
 	// Development tools actions
@@ -628,7 +593,7 @@
 			{/if}
 
 			<!-- ============================================================= -->
-			<!-- Health + Operations row                                        -->
+			<!-- Health + Token Usage row                                       -->
 			<!-- ============================================================= -->
 			<div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
 				<!-- System health — wider -->
@@ -674,48 +639,51 @@
 					</div>
 				{/if}
 
-				<!-- Operations — narrower -->
-				<div class="rounded-lg border border-border bg-surface-elevated p-4 lg:col-span-2">
-					<div class="mb-3 flex items-center gap-2">
-						<Wrench size={14} class="text-text-secondary/60" />
-						<h2 class="text-[13px] font-semibold text-text-primary">Operations</h2>
+				<!-- Token Usage — narrower -->
+				{#if tokenUsage && (tokenUsage.total_input_tokens > 0 || tokenUsage.total_output_tokens > 0)}
+					{@const total = tokenUsage.total_input_tokens + tokenUsage.total_output_tokens}
+					{@const inputPct = total > 0 ? (tokenUsage.total_input_tokens / total) * 100 : 50}
+					<div class="overflow-hidden rounded-lg border border-border bg-surface-elevated lg:col-span-2">
+						<div class="border-b border-border px-4 py-2.5">
+							<h3 class="text-[13px] font-semibold text-text-primary">Token Usage</h3>
+						</div>
+						<div class="space-y-3 p-4">
+							<!-- Stacked bar -->
+							<div class="flex h-2.5 overflow-hidden rounded-full bg-surface-secondary">
+								<div class="h-full bg-accent transition-all" style="width: {inputPct}%"></div>
+								<div class="h-full bg-ember transition-all" style="width: {100 - inputPct}%"></div>
+							</div>
+
+							<!-- Legend -->
+							<div class="grid grid-cols-2 gap-3">
+								<div class="flex items-center gap-2">
+									<span class="inline-block h-2 w-2 rounded-full bg-accent"></span>
+									<div>
+										<p class="text-[11px] text-text-secondary">Input</p>
+										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_input_tokens)}</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-2">
+									<span class="inline-block h-2 w-2 rounded-full bg-ember"></span>
+									<div>
+										<p class="text-[11px] text-text-secondary">Output</p>
+										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_output_tokens)}</p>
+									</div>
+								</div>
+							</div>
+
+							<!-- Cost -->
+							<div class="flex items-center justify-between border-t border-border pt-2.5">
+								<span class="text-[11px] text-text-secondary">
+									Last {tokenUsage.period_days} day{tokenUsage.period_days !== 1 ? 's' : ''}
+								</span>
+								<span class="text-[13px] font-semibold tabular-nums text-text-primary">
+									${tokenUsage.estimated_cost_usd.toFixed(2)}
+								</span>
+							</div>
+						</div>
 					</div>
-					<div class="flex flex-col gap-2">
-						<button
-							type="button"
-							onclick={testLLMConnection}
-							disabled={testingLLM}
-							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
-						>
-							{#if testingLLM}
-								<Loader2 size={13} class="animate-spin" />
-							{:else}
-								<Zap size={13} class="text-text-secondary/60" />
-							{/if}
-							Test LLM Connection
-						</button>
-						<a
-							href="/admin/audit"
-							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover"
-						>
-							<AlertTriangle size={13} class="text-text-secondary/60" />
-							View Audit Log
-						</a>
-						<button
-							type="button"
-							onclick={refreshKnowledgeIndex}
-							disabled={refreshingIndex}
-							class="inline-flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
-						>
-							{#if refreshingIndex}
-								<Loader2 size={13} class="animate-spin" />
-							{:else}
-								<BookOpen size={13} class="text-text-secondary/60" />
-							{/if}
-							Refresh Knowledge Index
-						</button>
-					</div>
-				</div>
+				{/if}
 			</div>
 
 			<!-- ============================================================= -->
@@ -809,68 +777,17 @@
 			{/if}
 
 			<!-- ============================================================= -->
-			<!-- Token Usage + Recent Activity row                              -->
+			<!-- Tool Usage chart (full width)                                  -->
 			<!-- ============================================================= -->
-			<div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
-				<!-- Token Usage — left -->
-				{#if tokenUsage && (tokenUsage.total_input_tokens > 0 || tokenUsage.total_output_tokens > 0)}
-					{@const total = tokenUsage.total_input_tokens + tokenUsage.total_output_tokens}
-					{@const inputPct = total > 0 ? (tokenUsage.total_input_tokens / total) * 100 : 50}
-					<div class="overflow-hidden rounded-lg border border-border bg-surface-elevated lg:col-span-2">
-						<div class="border-b border-border px-4 py-2.5">
-							<h3 class="text-[13px] font-semibold text-text-primary">Token Usage</h3>
-						</div>
-						<div class="space-y-3 p-4">
-							<!-- Stacked bar -->
-							<div class="flex h-2.5 overflow-hidden rounded-full bg-surface-secondary">
-								<div class="h-full bg-accent transition-all" style="width: {inputPct}%"></div>
-								<div class="h-full bg-ember transition-all" style="width: {100 - inputPct}%"></div>
-							</div>
-
-							<!-- Legend -->
-							<div class="grid grid-cols-2 gap-3">
-								<div class="flex items-center gap-2">
-									<span class="inline-block h-2 w-2 rounded-full bg-accent"></span>
-									<div>
-										<p class="text-[11px] text-text-secondary">Input</p>
-										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_input_tokens)}</p>
-									</div>
-								</div>
-								<div class="flex items-center gap-2">
-									<span class="inline-block h-2 w-2 rounded-full bg-ember"></span>
-									<div>
-										<p class="text-[11px] text-text-secondary">Output</p>
-										<p class="text-[13px] font-semibold tabular-nums text-text-primary">{formatTokenCount(tokenUsage.total_output_tokens)}</p>
-									</div>
-								</div>
-							</div>
-
-							<!-- Cost -->
-							<div class="flex items-center justify-between border-t border-border pt-2.5">
-								<span class="text-[11px] text-text-secondary">
-									Last {tokenUsage.period_days} day{tokenUsage.period_days !== 1 ? 's' : ''}
-								</span>
-								<span class="text-[13px] font-semibold tabular-nums text-text-primary">
-									${tokenUsage.estimated_cost_usd.toFixed(2)}
-								</span>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Tool Usage chart -->
-				{#if analytics?.tool_usage?.length}
-					<div class="lg:col-span-3">
-						<ChartWidget
-							chartType="bar"
-							title="Tool Usage"
-							labels={analytics.tool_usage.map(t => t.tool_name)}
-							datasets={[{ label: 'Calls', data: analytics.tool_usage.map(t => t.count) }]}
-							options={{ indexAxis: 'y', plugins: { legend: { display: false } } }}
-						/>
-					</div>
-				{/if}
-			</div>
+			{#if analytics?.tool_usage?.length}
+				<ChartWidget
+					chartType="bar"
+					title="Tool Usage"
+					labels={analytics.tool_usage.map(t => t.tool_name)}
+					datasets={[{ label: 'Calls', data: analytics.tool_usage.map(t => t.count) }]}
+					options={{ indexAxis: 'y', plugins: { legend: { display: false } } }}
+				/>
+			{/if}
 
 			<!-- ============================================================= -->
 			<!-- Recent Activity table                                          -->
