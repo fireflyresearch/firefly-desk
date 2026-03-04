@@ -605,7 +605,7 @@ async def _init_agent(  # noqa: PLR0913
         search_provider_name = search_settings.get("search_provider", "")
         search_api_key = search_settings.get("search_api_key", "")
         if search_provider_name and search_api_key:
-            import flydesk.search.adapters.tavily  # noqa: F401
+            import flydesk.search.adapters  # noqa: F401
             from flydesk.search.provider import SearchProviderFactory
 
             search_max = int(search_settings.get("search_max_results", "5"))
@@ -614,7 +614,7 @@ async def _init_agent(  # noqa: PLR0913
                 {
                     "api_key": search_api_key,
                     "max_results": search_max,
-                    "api_url": config.tavily_api_url,
+                    "api_url": config.search_api_url(search_provider_name),
                 },
             )
             logger.info("Search provider initialized: %s", search_provider_name)

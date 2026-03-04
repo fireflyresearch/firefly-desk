@@ -33,6 +33,16 @@ def test_factory_register_and_create():
     SearchProviderFactory._registry.pop("fake_test", None)
 
 
+def test_nimbleway_registered_in_factory():
+    import flydesk.search.adapters  # noqa: F401
+    assert "nimbleway" in SearchProviderFactory.available_providers()
+
+
+def test_exa_registered_in_factory():
+    import flydesk.search.adapters  # noqa: F401
+    assert "exa" in SearchProviderFactory.available_providers()
+
+
 def test_search_result_dataclass():
     result = SearchResult(
         title="Test", url="https://example.com", snippet="A snippet"

@@ -752,7 +752,7 @@ async def test_search(
         )
 
     try:
-        import flydesk.search.adapters.tavily  # noqa: F401
+        import flydesk.search.adapters  # noqa: F401
         from flydesk.search.provider import SearchProviderFactory
 
         from flydesk.config import get_config
@@ -760,7 +760,7 @@ async def test_search(
         cfg = get_config()
         provider = SearchProviderFactory.create(
             provider_name,
-            {"api_key": api_key, "api_url": cfg.tavily_api_url},
+            {"api_key": api_key, "api_url": cfg.search_api_url(provider_name)},
         )
         results = await provider.search("Firefly test query", max_results=2)
         await provider.aclose()
@@ -795,7 +795,7 @@ async def _reinitialize_search_provider(app: object, repo: SettingsRepository) -
                 desk_agent._builtin_executor._search_provider = None
             return
 
-        import flydesk.search.adapters.tavily  # noqa: F401
+        import flydesk.search.adapters  # noqa: F401
         from flydesk.config import get_config
         from flydesk.search.provider import SearchProviderFactory
 
@@ -806,7 +806,7 @@ async def _reinitialize_search_provider(app: object, repo: SettingsRepository) -
             {
                 "api_key": api_key,
                 "max_results": max_results,
-                "api_url": cfg.tavily_api_url,
+                "api_url": cfg.search_api_url(provider_name),
             },
         )
 

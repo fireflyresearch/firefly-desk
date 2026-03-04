@@ -156,6 +156,17 @@ class DeskConfig(BaseSettings):
     # -- External API Base URLs --
     sendgrid_api_base: str = "https://api.sendgrid.com"
     tavily_api_url: str = "https://api.tavily.com"
+    nimbleway_api_url: str = "https://nimble-retriever.webit.live"
+    exa_api_url: str = "https://api.exa.ai"
+
+    def search_api_url(self, provider: str) -> str:
+        """Return the configured API base URL for the given search provider."""
+        urls = {
+            "tavily": self.tavily_api_url,
+            "nimbleway": self.nimbleway_api_url,
+            "exa": self.exa_api_url,
+        }
+        return urls.get(provider, "")
 
     @property
     def effective_jwt_secret(self) -> str:
