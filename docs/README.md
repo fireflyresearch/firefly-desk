@@ -34,6 +34,7 @@ This directory contains the complete documentation for Firefly Desk, an AI-power
 | [Agent Customization](agent-customization.md) | Customizing the agent's identity, personality, tone, behavior rules, and instructions. |
 | [Widgets](widgets.md) | Complete reference for all 19 chat widget types with props, examples, and usage guidelines. |
 | [Process Discovery](processes.md) | LLM-based process discovery, auto-triggers, user corrections, and API reference. |
+| [Smart Model Routing](model-routing.md) | Complexity-based routing to cost-appropriate LLM models with per-tier mappings. |
 
 ## Reference
 
@@ -50,6 +51,13 @@ This directory contains the complete documentation for Firefly Desk, an AI-power
 | [API Reference](api-reference.md) | Complete REST API reference with all endpoints, request/response schemas, and required permissions. |
 | [Deployment](deployment.md) | Production deployment guide covering PostgreSQL, Redis, reverse proxy, and container configurations. |
 | [Troubleshooting](troubleshooting.md) | Common issues and solutions for SSO, exports, knowledge base, RBAC, file uploads, and general operations. |
+
+## Contributing
+
+| Document | Description |
+|----------|-------------|
+| [Contributing](../CONTRIBUTING.md) | Development setup, running tests, database migrations, code style, and PR workflow. |
+| [Changelog](../CHANGELOG.md) | Release history and notable changes. |
 
 ## License
 

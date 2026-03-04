@@ -240,6 +240,48 @@ Changes take effect within 60 seconds without requiring a server restart. For co
 
 The Embedding tab configures the embedding provider and model for knowledge base vectorization. Administrators can select the embedding model, configure dimensions, and manage the embedding API key separately from the main LLM provider configuration.
 
+## LLM Runtime Settings
+
+**Route:** `/admin/llm-runtime`
+
+The LLM Runtime Settings page allows administrators to tune the operational parameters that govern how the agent interacts with LLM providers: retry policies, timeout durations, context truncation budgets, and token limits. These settings are stored in the database and take effect immediately without requiring a server restart.
+
+The page operates in two modes: a settings page for direct editing, and a guided wizard for first-time configuration or reconfiguration.
+
+### Settings Page
+
+The default view displays the current configuration organized into collapsible sections, each with an impact indicator and a contextual explanation of why the settings matter:
+
+- **Resilience & Retries** (High Impact) — Controls retry behavior, backoff delays, and fallback model retries. These settings determine how the agent handles transient LLM provider errors such as rate limits and overloads.
+- **Timeouts** (High Impact) — Maximum wait times for streaming responses and follow-up LLM calls. Increase these if you experience timeout errors with complex queries or slow providers.
+- **Context Truncation** (High Impact) — Per-part and total character budgets for tool results and file content included in LLM prompts. These prevent oversized prompts that trigger rate limits or degrade quality.
+- **LLM Output** (Tuning) — Default maximum tokens for LLM responses.
+- **Knowledge Processing** (Tuning) — Character limits for document analysis, the document read tool, and RAG knowledge token budgets.
+- **Context Enrichment** (Tuning) — Entity limits, retrieval top-k, and timeout for the context enrichment pipeline.
+
+A hero header at the top shows the active preset profile name, the count of fields that differ from defaults, and action buttons for opening the wizard and resetting to defaults. A quick-apply preset bar provides one-click loading of the three built-in profiles.
+
+### Preset Profiles
+
+Three preset profiles provide pre-configured value sets:
+
+- **Conservative** — Maximizes reliability with more retries, longer timeouts, and smaller context windows. Best for production environments with rate-limited APIs.
+- **Balanced** — The original default values. Suitable for most deployments.
+- **Performance** — Faster responses with fewer retries, larger context windows, and higher token budgets. Best for high-throughput APIs with generous rate limits.
+
+Selecting a preset fills all fields with its values. When a field is manually edited to a value that does not match any preset, the profile indicator shows "Custom."
+
+### Configuration Wizard
+
+The wizard is a 4-step guided flow accessible via the "Configure Wizard" button:
+
+1. **Choose a Profile** — Three large cards present the Conservative, Balanced, and Performance presets with descriptions and key stat indicators. Selecting a card pre-fills all form values.
+2. **Resilience & Timeouts** — Contextual explanation with a visual flow diagram (Primary Model → Retry Loop → Fallback Models), followed by all 9 retry and timeout fields with recommended ranges.
+3. **Context & Token Budgets** — Explanation of the truncation pipeline with all 8 context and knowledge fields grouped into sub-sections.
+4. **Review & Apply** — Summary table showing all values that differ from defaults with a side-by-side comparison, profile badge, and "Apply Settings" button.
+
+For the complete field reference including defaults and recommended ranges, see [Configuration — LLM Runtime Settings](configuration.md#llm-runtime-settings).
+
 ## Document Sources
 
 **Route:** `/admin/document-sources`

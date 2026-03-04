@@ -32,6 +32,18 @@ Ember's name, personality, tone, greeting, behavioral rules, and custom instruct
 
 A permission-based role-based access control model governs who can do what. Twenty discrete permissions across seven domains (knowledge, catalog, chat, exports, audit, credentials, admin) are enforced at both the API middleware layer and the agent's tool resolution layer. Three built-in roles (Administrator, Operator, Viewer) cover common access patterns, and custom roles can be created for specific organizational needs. See [Security](security.md) for the full permission reference.
 
+### Smart Model Routing
+
+Smart Model Routing automatically classifies incoming messages by complexity and routes them to cost-appropriate LLM models. Simple messages go to cheaper, faster models while complex reasoning tasks use more capable models, reducing LLM costs without sacrificing quality where it matters. See [Smart Model Routing](model-routing.md) for the full guide.
+
+### LLM Runtime Settings
+
+Administrators can tune the agent's operational parameters -- retry policies, timeout durations, context truncation budgets, and token limits -- through a dedicated admin page with a guided wizard and preset profiles. Settings are stored in the database and take effect immediately without a restart. See [Configuration — LLM Runtime Settings](configuration.md#llm-runtime-settings) for the field reference.
+
+### Email Channel
+
+Firefly Desk can send and receive emails through Resend or AWS SES, enabling the agent to participate in email-based workflows. Inbound emails are matched to user accounts, threaded into conversations, and optionally auto-replied by the agent. See the [Email Channel](help/email.md) help page for setup instructions.
+
 ### Audit System
 
 Every significant action is recorded in an append-only audit trail: chat turns with enriched context, tool invocations with parameters and results, confirmation decisions, administrative changes, and authentication events. The audit trail provides the accountability that operational environments require for incident investigation and compliance reporting.
@@ -83,4 +95,7 @@ Firefly Desk is built for teams that operate backend systems and need a smarter 
 | Add knowledge documents | [Knowledge Base](knowledge-base.md) |
 | Set up SSO | [SSO and OIDC](sso-oidc.md) |
 | Optimize LLM costs | [Smart Model Routing](model-routing.md) |
+| Tune LLM behavior | [Configuration — LLM Runtime Settings](configuration.md#llm-runtime-settings) |
+| Set up email | [Email Channel](help/email.md) |
 | Explore the API | [API Reference](api-reference.md) |
+| Contribute to the project | [Contributing](../CONTRIBUTING.md) |

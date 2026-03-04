@@ -196,6 +196,89 @@ FLYDESK_APP_LOGO_URL=https://cdn.acme.com/logo.svg
 FLYDESK_ACCENT_COLOR=#10B981
 ```
 
+## LLM Runtime Settings
+
+LLM Runtime Settings control the operational behavior of the agent's LLM interactions: retry policies, timeout durations, context truncation budgets, and token limits. Unlike the environment variables above, these settings are stored in the database and managed through the Admin Console at `/admin/llm-runtime`. This design allows administrators to tune the agent's resilience and performance characteristics without restarting the application.
+
+When no database overrides are present, the defaults below are used. These defaults match the original hardcoded values, so existing deployments behave identically after upgrading.
+
+### Preset Profiles
+
+Three built-in preset profiles provide sensible starting points:
+
+| Profile | Description | Best For |
+|---------|-------------|----------|
+| **Conservative** | More retries, longer timeouts, smaller context windows | Production with rate-limited APIs |
+| **Balanced** (default) | The original default values | Most deployments |
+| **Performance** | Fewer retries, larger context windows, higher token budgets | High-throughput APIs with generous rate limits |
+
+### Retry and Timeout Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `llm_max_retries` | int | `3` | How many times to retry the primary LLM when it returns a transient error (rate limit, 529, 503). Higher values improve reliability but delay error reporting. Recommended: 2–5. |
+| `llm_retry_base_delay` | float | `3.0` | Initial delay in seconds before the first retry, used as the base for exponential backoff. |
+| `llm_retry_max_delay` | float | `15.0` | Maximum delay in seconds between retries. Backoff is capped at this value to prevent excessively long waits. |
+| `llm_fallback_retries` | int | `2` | Number of retry attempts for fallback (lighter) models when the primary model is exhausted. |
+| `llm_stream_timeout` | int | `300` | Maximum seconds to wait for a complete streaming response. Increase this if you see timeout errors with complex queries or slow providers. Recommended: 120–600s. |
+| `llm_followup_timeout` | int | `240` | Maximum seconds for a follow-up LLM call (e.g., summarizing tool results). |
+| `followup_max_retries` | int | `3` | Retry attempts specifically for follow-up LLM calls. |
+| `followup_retry_base_delay` | float | `15.0` | Initial backoff delay for follow-up retries. Higher than the primary delay because follow-up failures often indicate provider overload. |
+| `followup_retry_max_delay` | float | `60.0` | Maximum backoff delay for follow-up retries. |
+
+### Context Truncation Settings
+
+These settings control how much content the agent includes in LLM prompts. They exist to prevent oversized prompts that trigger rate limits, degrade response quality, or exceed token limits.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `followup_max_content_chars` | int | `8,000` | Per-part character limit for tool-return content in follow-up calls. When a tool returns a large result (e.g., document text), it is truncated to this limit before being sent to the LLM. Recommended: 4K–20K. |
+| `followup_max_total_chars` | int | `60,000` | Total character budget across all tool-return parts in a single follow-up call. Prevents prompt explosion when multiple tools return large results. Recommended: 40K–120K. |
+| `file_context_max_per_file` | int | `12,000` | Maximum characters extracted from a single uploaded file for inclusion in the LLM context. |
+| `file_context_max_total` | int | `40,000` | Total character budget for all uploaded file content in a single turn. |
+| `multimodal_max_context_chars` | int | `12,000` | Character limit for multimodal (image description) context included in prompts. |
+
+### LLM Output Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `default_max_tokens` | int | `4,096` | Maximum number of tokens the LLM can generate in a single response. Higher values allow longer answers but increase cost and latency. The model's own capability limit takes precedence when known. Recommended: 2,048–8,192. |
+
+### Knowledge Processing Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `knowledge_analyzer_max_chars` | int | `8,000` | Maximum content characters sent to the LLM for document analysis and classification. |
+| `document_read_max_chars` | int | `30,000` | Default character limit for the `document_read` built-in tool. |
+| `max_knowledge_tokens` | int | `4,000` | Token budget for RAG knowledge snippets in the system prompt. Controls how much retrieved knowledge is included in every conversation turn. More tokens = better-informed answers but higher cost. Recommended: 2,000–8,000. |
+
+### Context Enrichment Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `context_entity_limit` | int | `5` | Maximum number of knowledge graph entities included in context enrichment per turn. |
+| `context_retrieval_top_k` | int | `5` | How many knowledge base snippets to retrieve and inject into the LLM's context for each user message. More snippets = better-informed answers but more tokens consumed. Recommended: 2–5. |
+| `context_enrichment_timeout` | int | `10` | Seconds to wait for knowledge retrieval (KG + RAG + memory) before proceeding without enrichment. Increase if your database or embedding provider has high latency. |
+
+### API
+
+LLM Runtime Settings are managed through two endpoints:
+
+```
+GET  /api/settings/llm-runtime   # Retrieve current settings
+PUT  /api/settings/llm-runtime   # Update settings (partial updates supported)
+```
+
+Both endpoints require the `admin:settings` permission. The PUT endpoint accepts a partial JSON body — only the fields you include are updated; omitted fields retain their current values.
+
+**Example: increase stream timeout and reduce retries:**
+
+```bash
+curl -X PUT http://localhost:8000/api/settings/llm-runtime \
+  -H "Content-Type: application/json" \
+  -d '{"llm_stream_timeout": 600, "llm_max_retries": 2}'
+```
+
 ## Complete Production Example
 
 The following `.env` file shows a complete production configuration:
