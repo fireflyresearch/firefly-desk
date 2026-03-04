@@ -235,8 +235,9 @@ class TestExtractFromDocument:
         # Verify the agent was called (content should have been truncated)
         mock_agent.run.assert_called_once()
         prompt = mock_agent.run.call_args.args[0]
-        # The content in the prompt should be at most 8000 chars
-        assert len(prompt) < 20000
+        # Content should be truncated to ~8000 chars; allow overhead for
+        # prompt template and document title.
+        assert len(prompt) < 12_000
 
     async def test_relation_with_unknown_entity_skipped(self, extractor, mock_agent_factory):
         """Relations referencing unknown entities are skipped."""

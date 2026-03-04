@@ -334,8 +334,9 @@ class TestAnalyzeLLM:
 
         mock_agent.run.assert_called_once()
         prompt = mock_agent.run.call_args.args[0]
-        # Prompt includes filename header + truncated content
-        assert len(prompt) < 20000
+        # Content should be truncated to ~8000 chars; allow overhead for
+        # prompt template and filename header.
+        assert len(prompt) < 12_000
 
     async def test_agent_factory_exception_falls_back(self, analyzer, mock_agent_factory):
         """If agent factory raises, falls back to heuristic."""
