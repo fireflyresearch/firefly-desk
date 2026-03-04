@@ -94,6 +94,7 @@ OIDCRepo = Annotated[OIDCProviderRepository, Depends(get_oidc_repo)]
 
 _MAX_PENDING_STATES = 10_000
 _STATE_TTL_SECONDS = 600  # 10 minutes
+_SESSION_COOKIE_MAX_AGE_SECONDS = 86_400  # 24 hours (local + SSO fallback)
 
 _pending_states: dict[str, dict[str, str | float]] = {}
 
@@ -364,7 +365,7 @@ async def auth_callback(
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=expires_in or 3600,
+        max_age=expires_in or _SESSION_COOKIE_MAX_AGE_SECONDS,
         path="/",
     )
 
@@ -425,7 +426,7 @@ async def local_login(
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=86400,
+        max_age=_SESSION_COOKIE_MAX_AGE_SECONDS,
         path="/",
     )
 

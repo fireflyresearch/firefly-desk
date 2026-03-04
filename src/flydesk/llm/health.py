@@ -20,6 +20,8 @@ _logger = logging.getLogger(__name__)
 
 from flydesk.llm.models import LLMProvider, ProviderHealthStatus, ProviderType
 
+_HEALTH_CHECK_TIMEOUT_SECONDS = 10.0
+
 # Default base URLs for known providers
 _DEFAULT_URLS: dict[str, str] = {
     ProviderType.OPENAI: "https://api.openai.com/v1",
@@ -70,7 +72,7 @@ class LLMHealthChecker:
 
         start = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=_HEALTH_CHECK_TIMEOUT_SECONDS) as client:
                 response = await client.get(url, headers=headers)
                 latency = (time.monotonic() - start) * 1000
 
@@ -121,7 +123,7 @@ class LLMHealthChecker:
                 headers["Authorization"] = f"Bearer {provider.api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=_HEALTH_CHECK_TIMEOUT_SECONDS) as client:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code >= 400:
                     return []

@@ -56,6 +56,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 # Discovery tuning constants
 _DISCOVERY_ENTITY_LIMIT = 200  # max KG entities loaded for context (matches system discovery)
 _DISCOVERY_MAX_TOKENS = 65_536  # max LLM output tokens (higher than system discovery due to structured output volume)
+_MERGE_DEDUP_LIMIT = 500  # max existing processes loaded for dedup during merge
 
 
 class DiscoveredStep(BaseModel):
@@ -1006,7 +1007,7 @@ class ProcessDiscoveryEngine:
         """
         stats = {"discovered": len(discovered), "created": 0, "updated": 0, "skipped": 0}
 
-        existing = await self._process_repo.list(limit=500)
+        existing = await self._process_repo.list(limit=_MERGE_DEDUP_LIMIT)
         existing_by_name: dict[str, BusinessProcess] = {
             self._normalize_name(p.name): p for p in existing
         }

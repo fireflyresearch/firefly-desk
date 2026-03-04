@@ -251,6 +251,7 @@ async def list_messages(
     conversation_id: str, request: Request, repo: Repo, limit: int = 100
 ) -> list[Message]:
     """Get paginated messages for a conversation."""
+    limit = min(limit, 500)  # cap to prevent unbounded queries
     user_session = getattr(request.state, "user_session", None)
     user_id = user_session.user_id if user_session else "anonymous"
 

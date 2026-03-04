@@ -50,6 +50,7 @@ _PROMPTS_DIR = Path(__file__).parent / "discovery_prompts"
 # Discovery tuning constants
 _DISCOVERY_ENTITY_LIMIT = 200  # max KG entities loaded for context
 _DISCOVERY_MAX_TOKENS = 16_384  # max LLM output tokens for system discovery
+_HIGH_CONFIDENCE_THRESHOLD = 0.8  # bypass endpoint/URL checks if confidence >= this
 
 
 class DiscoveredEndpoint(BaseModel):
@@ -635,7 +636,7 @@ class SystemDiscoveryEngine:
             return False
         has_endpoints = len(system.endpoints) > 0
         has_url = bool(system.base_url)
-        has_high_confidence = system.confidence >= 0.8
+        has_high_confidence = system.confidence >= _HIGH_CONFIDENCE_THRESHOLD
         return has_endpoints or has_url or has_high_confidence
 
     # ------------------------------------------------------------------
