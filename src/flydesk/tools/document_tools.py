@@ -544,7 +544,8 @@ class DocumentToolExecutor:
 
         wb = Workbook()
         # Remove the default sheet so we start clean
-        wb.remove(wb.active)  # type: ignore[arg-type]
+        if wb.active is not None:
+            wb.remove(wb.active)
 
         sheets_data = content.get("sheets", [])
         if not sheets_data:

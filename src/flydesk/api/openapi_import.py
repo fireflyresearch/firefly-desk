@@ -119,8 +119,9 @@ async def parse_spec(body: ParseRequest) -> dict[str, Any]:
             detail="URL fetching is not yet supported. Please provide the spec directly.",
         )
 
+    assert body.spec is not None  # guaranteed by guards above
     try:
-        parsed = parse_openapi_spec(body.spec)  # type: ignore[arg-type]
+        parsed = parse_openapi_spec(body.spec)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

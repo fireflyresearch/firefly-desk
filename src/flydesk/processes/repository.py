@@ -277,7 +277,7 @@ class ProcessRepository:
                     ProcessDependencyRow.target_step_id == target_step_id,
                 )
             )
-            if result.rowcount:  # type: ignore[union-attr]
+            if result.rowcount:
                 # Touch updated_at on the parent process
                 proc = await session.get(BusinessProcessRow, process_id)
                 if proc is not None:

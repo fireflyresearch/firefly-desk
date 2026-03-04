@@ -103,7 +103,7 @@ class CallbackDeliveryRepository:
         async with self._session_factory() as session:
             result = await session.execute(delete(CallbackDeliveryRow))
             await session.commit()
-            return result.rowcount  # type: ignore[return-value]
+            return result.rowcount or 0
 
     async def cleanup(self, older_than_days: int = 30) -> int:
         """Delete delivery log entries older than *older_than_days*.
@@ -118,7 +118,7 @@ class CallbackDeliveryRepository:
                 )
             )
             await session.commit()
-            return result.rowcount  # type: ignore[return-value]
+            return result.rowcount or 0
 
     @staticmethod
     def _row_to_dict(row: CallbackDeliveryRow) -> dict:

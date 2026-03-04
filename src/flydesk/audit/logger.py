@@ -11,9 +11,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -102,7 +105,7 @@ class AuditLogger:
                         dt_from = dt_from.replace(tzinfo=timezone.utc)
                     stmt = stmt.where(AuditEventRow.created_at >= dt_from)
                 except (ValueError, TypeError):
-                    pass  # Ignore malformed date
+                    _logger.warning("Ignoring malformed date_from filter: %r", date_from)
             if date_to:
                 try:
                     dt_to = datetime.fromisoformat(date_to)
@@ -110,7 +113,7 @@ class AuditLogger:
                         dt_to = dt_to.replace(tzinfo=timezone.utc)
                     stmt = stmt.where(AuditEventRow.created_at <= dt_to)
                 except (ValueError, TypeError):
-                    pass  # Ignore malformed date
+                    _logger.warning("Ignoring malformed date_to filter: %r", date_to)
             if offset > 0:
                 stmt = stmt.offset(offset)
             stmt = stmt.limit(limit)

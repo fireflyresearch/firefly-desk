@@ -654,7 +654,8 @@ async def _reinitialize_indexer(app: object, repo: SettingsRepository) -> None:
             vector_store=vector_store,
         )
 
-        app.dependency_overrides[get_knowledge_indexer] = lambda: new_indexer  # type: ignore[union-attr]
+        if hasattr(app, "dependency_overrides"):
+            app.dependency_overrides[get_knowledge_indexer] = lambda: new_indexer
 
         logger.info(
             "Knowledge indexer reinitialized: mode=%s, size=%d, overlap=%d",

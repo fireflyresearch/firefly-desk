@@ -160,7 +160,7 @@ class JobRepository:
                 )
             )
             await session.commit()
-            return result.rowcount  # type: ignore[return-value]
+            return result.rowcount or 0
 
     @staticmethod
     def _row_to_job(row: JobRow) -> Job:
