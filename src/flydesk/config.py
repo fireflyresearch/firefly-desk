@@ -76,7 +76,7 @@ class DeskConfig(BaseSettings):
     queue_backend: Literal["memory", "redis"] = "memory"
 
     # -- Knowledge --
-    max_knowledge_tokens: int = 4000
+    max_knowledge_tokens: int = 4000  # deprecated: use LLMRuntimeSettings.max_knowledge_tokens
     embedding_model: str = "openai:text-embedding-3-small"
     embedding_dimensions: int = 1536
     embedding_api_key: str = ""

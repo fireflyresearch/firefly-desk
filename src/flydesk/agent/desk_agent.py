@@ -124,8 +124,8 @@ def _friendly_error_message(exc: Exception) -> str:
 def _truncate_message_history(
     messages: list,
     *,
-    max_chars: int = 8_000,
-    max_total_chars: int = 60_000,
+    max_chars: int = LLMRuntimeSettings.model_fields["followup_max_content_chars"].default,
+    max_total_chars: int = LLMRuntimeSettings.model_fields["followup_max_total_chars"].default,
 ) -> None:
     """Truncate large text content in message history in-place.
 
