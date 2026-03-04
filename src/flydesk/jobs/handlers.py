@@ -89,6 +89,8 @@ class IndexingJobHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
     ) -> dict:
         """Index a single knowledge document."""
         task = IndexingTask.model_validate(payload)
@@ -126,6 +128,8 @@ class ProcessDiscoveryHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
     ) -> dict:
         """Run process discovery analysis."""
         return await self._engine._analyze(job_id, payload, on_progress)
@@ -147,6 +151,8 @@ class SystemDiscoveryHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
     ) -> dict:
         """Run system discovery analysis."""
         return await self._engine._analyze(job_id, payload, on_progress)
@@ -174,6 +180,8 @@ class KGExtractSingleHandler:
         job_id: str,
         payload: dict,
         on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
     ) -> dict:
         """Extract entities/relations from a single document and upsert into the KG."""
         from flydesk.knowledge.graph import Entity, Relation

@@ -72,7 +72,7 @@ class TestCustomToolAdapter:
         )
         sandbox = MockSandbox(SandboxResult(success=False, error="fail"))
         adapter = CustomToolAdapter(tool, sandbox)
-        from fireflyframework_genai.exceptions import ToolError
+        from pydantic_ai import ModelRetry
 
-        with pytest.raises(ToolError, match="fail"):
+        with pytest.raises(ModelRetry, match="fail"):
             await adapter._execute()

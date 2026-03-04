@@ -23,9 +23,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from flydesk.domain.common import DocumentType
+from flydesk.settings.models import LLMRuntimeSettings
 
 if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
+    from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +93,9 @@ _CONTENT_TYPE_KEYWORDS: list[tuple[re.Pattern[str], DocumentType]] = [
     (re.compile(r"policy|compliance|must not|prohibited", re.IGNORECASE), DocumentType.POLICY),
 ]
 
-# Maximum content length sent to the LLM to stay within token limits.
-_MAX_CONTENT_LENGTH = 8000
+# Maximum content length sent to the LLM for analysis; matches
+# LLMRuntimeSettings.knowledge_analyzer_max_chars default.
+_MAX_CONTENT_LENGTH = LLMRuntimeSettings().knowledge_analyzer_max_chars
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +111,13 @@ class DocumentAnalyzer:
     or the LLM call fails, the analyser falls back to ``_heuristic_analysis``.
     """
 
-    def __init__(self, agent_factory: DeskAgentFactory) -> None:
+    def __init__(
+        self,
+        agent_factory: DeskAgentFactory,
+        settings_repo: SettingsRepository | None = None,
+    ) -> None:
         self._agent_factory = agent_factory
+        self._settings_repo = settings_repo
 
     # ------------------------------------------------------------------
     # Public API
@@ -131,7 +139,14 @@ class DocumentAnalyzer:
             logger.debug("No LLM provider configured; using heuristic analysis.")
             return self._heuristic_analysis(content, filename)
 
-        truncated = content[:_MAX_CONTENT_LENGTH]
+        max_len = _MAX_CONTENT_LENGTH
+        if self._settings_repo is not None:
+            try:
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                max_len = rt.knowledge_analyzer_max_chars
+            except Exception:
+                pass
+        truncated = content[:max_len]
         user_prompt = f"Filename: {filename}\n\n{truncated}"
 
         try:

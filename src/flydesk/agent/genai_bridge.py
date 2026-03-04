@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from flydesk.config import DeskConfig
     from flydesk.llm.models import LLMProvider
     from flydesk.llm.repository import LLMProviderRepository
+    from flydesk.settings.repository import SettingsRepository
 
 _logger = logging.getLogger(__name__)
 
@@ -61,10 +62,14 @@ class DeskAgentFactory:
         llm_repo: LLMProviderRepository,
         memory_manager: MemoryManager | None = None,
         config: DeskConfig | None = None,
+        default_max_tokens: int = 4096,
+        settings_repo: SettingsRepository | None = None,
     ) -> None:
         self._llm_repo = llm_repo
         self._memory_manager = memory_manager
         self._config = config
+        self._default_max_tokens = default_max_tokens
+        self._settings_repo = settings_repo
 
     # ------------------------------------------------------------------
     # Middleware construction
@@ -151,10 +156,17 @@ class DeskAgentFactory:
 
         middleware = self._build_middleware()
 
-        # Determine max_tokens from provider capabilities or use sensible default.
+        # Determine max_tokens from provider capabilities or use configured default.
         # The Anthropic API requires max_tokens; without it tool-use responses
         # may be truncated before the model can emit tool_use blocks.
-        max_tokens = 4096
+        max_tokens = self._default_max_tokens
+        if self._settings_repo is not None:
+            try:
+                from flydesk.settings.models import LLMRuntimeSettings
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                max_tokens = rt.default_max_tokens
+            except Exception:
+                pass  # fall back to constructor default
         if provider.models:
             caps = provider.models[0].capabilities
             if caps.max_output_tokens:

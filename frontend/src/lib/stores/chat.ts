@@ -39,6 +39,7 @@ export interface TokenUsage {
 	total_tokens: number;
 	cost_usd: number;
 	model: string;
+	total_time_ms?: number;
 }
 
 export interface Message {

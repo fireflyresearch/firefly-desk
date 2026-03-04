@@ -38,7 +38,14 @@
 		return idx >= 0 ? model.slice(idx + 1) : model;
 	}
 
+	function formatTime(ms: number): string {
+		if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`;
+		if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
+		return `${ms}ms`;
+	}
+
 	let costDisplay = $derived(formatCost(usage.cost_usd));
+	let timeDisplay = $derived(usage.total_time_ms ? formatTime(usage.total_time_ms) : '');
 </script>
 
 <button
@@ -54,6 +61,10 @@
 	{#if costDisplay}
 		<span class="opacity-60">&middot;</span>
 		<span>{costDisplay}</span>
+	{/if}
+	{#if timeDisplay}
+		<span class="opacity-60">&middot;</span>
+		<span>{timeDisplay}</span>
 	{/if}
 </button>
 
@@ -77,6 +88,12 @@
 			<span>
 				<span class="font-medium text-text-primary">Cost:</span>
 				{costDisplay}
+			</span>
+		{/if}
+		{#if timeDisplay}
+			<span>
+				<span class="font-medium text-text-primary">Time:</span>
+				{timeDisplay}
 			</span>
 		{/if}
 	</div>

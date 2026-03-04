@@ -72,7 +72,12 @@ export function endTool(id: string, result?: Record<string, unknown>): void {
 
 /** Merge agent tool calls from a TOOL_SUMMARY event into completedTools. */
 export function mergeAgentToolCalls(
-	toolCalls: Array<{ tool_name: string; tool_call_id?: string; success?: boolean }>
+	toolCalls: Array<{
+		tool_name: string;
+		tool_call_id?: string;
+		success?: boolean;
+		duration_ms?: number;
+	}>
 ): void {
 	if (!toolCalls || toolCalls.length === 0) return;
 
@@ -83,7 +88,7 @@ export function mergeAgentToolCalls(
 		status: tc.success === false ? 'error' : 'completed',
 		startedAt: now,
 		completedAt: now,
-		duration: 0
+		duration: tc.duration_ms ?? 0
 	}));
 
 	completedTools.update((completed) => [...completed, ...entries]);

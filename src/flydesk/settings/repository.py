@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
-from flydesk.settings.models import AgentSettings, EmailSettings, UserSettings
+from flydesk.settings.models import AgentSettings, EmailSettings, LLMRuntimeSettings, UserSettings
 
 
 def _to_json(value: Any) -> str | None:
@@ -188,6 +188,32 @@ class SettingsRepository:
             else:
                 str_value = str(value)
             await self.set_app_setting(key, str_value, category="email")
+
+    # -- LLM Runtime Settings --
+
+    async def get_llm_runtime_settings(self) -> LLMRuntimeSettings:
+        """Retrieve LLM runtime tuning settings from the ``llm_runtime`` category."""
+        raw = await self.get_all_app_settings(category="llm_runtime")
+        if not raw:
+            return LLMRuntimeSettings()
+
+        data: dict[str, Any] = {}
+        for field_name, field_info in LLMRuntimeSettings.model_fields.items():
+            if field_name in raw:
+                ann = field_info.annotation
+                raw_val = raw[field_name]
+                if ann is int:
+                    data[field_name] = int(raw_val)
+                elif ann is float:
+                    data[field_name] = float(raw_val)
+                else:
+                    data[field_name] = raw_val
+        return LLMRuntimeSettings(**data)
+
+    async def set_llm_runtime_settings(self, settings: LLMRuntimeSettings) -> None:
+        """Persist LLM runtime tuning settings under the ``llm_runtime`` category."""
+        for key, value in settings.model_dump().items():
+            await self.set_app_setting(key, str(value), category="llm_runtime")
 
     # -- Callback Settings --
 

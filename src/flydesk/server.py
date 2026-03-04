@@ -635,7 +635,7 @@ async def _init_agent(  # noqa: PLR0913
 
     from flydesk.tools.document_tools import DocumentToolExecutor
 
-    doc_executor = DocumentToolExecutor(file_storage, file_repo=file_repo)
+    doc_executor = DocumentToolExecutor(file_storage, file_repo=file_repo, settings_repo=settings_repo)
     builtin_executor.set_document_executor(doc_executor)
 
     # Conversation memory store
@@ -663,7 +663,10 @@ async def _init_agent(  # noqa: PLR0913
 
     from flydesk.agent.genai_bridge import DeskAgentFactory
 
-    agent_factory = DeskAgentFactory(llm_repo, memory_manager=memory_manager, config=config)
+    agent_factory = DeskAgentFactory(
+        llm_repo, memory_manager=memory_manager, config=config,
+        settings_repo=settings_repo,
+    )
 
     # Model Router (opt-in via database config)
     from flydesk.agent.router.classifier import ComplexityClassifier
@@ -718,7 +721,7 @@ async def _init_agent(  # noqa: PLR0913
     # Document analyser
     from flydesk.knowledge.analyzer import DocumentAnalyzer
 
-    document_analyzer = DocumentAnalyzer(agent_factory)
+    document_analyzer = DocumentAnalyzer(agent_factory, settings_repo=settings_repo)
     app.dependency_overrides[get_document_analyzer] = lambda: document_analyzer
 
     # Auto-trigger service
@@ -1128,6 +1131,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ctx.closables.append(agent_ctx["auto_trigger"])
     if hasattr(agent_ctx["memory_store"], "close"):
         ctx.closables.append(agent_ctx["memory_store"])
+
+    # Wire indexing producer into the builtin executor for add_knowledge tool.
+    app.state.builtin_executor.set_indexing_producer(jobs["indexing_producer"])
 
     # 9. Workflows
     workflows = await _init_workflows(app, session_factory)

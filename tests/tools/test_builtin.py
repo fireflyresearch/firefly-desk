@@ -423,3 +423,103 @@ class TestSearchProcesses:
         assert steps[0]["name"] == "Validate Order"
         assert steps[0]["endpoint_id"] == "ep-validate"
         assert steps[1]["name"] == "Process Payment"
+
+
+# ---------------------------------------------------------------------------
+# AddKnowledge tests
+# ---------------------------------------------------------------------------
+
+
+class TestAddKnowledge:
+    """Tests for the add_knowledge built-in tool."""
+
+    async def test_add_knowledge_enqueues_task(self, executor):
+        """Successful add_knowledge enqueues an IndexingTask."""
+        mock_producer = AsyncMock()
+        mock_producer.enqueue = AsyncMock()
+        executor.set_indexing_producer(mock_producer)
+
+        result = await executor.execute("add_knowledge", {
+            "title": "Onboarding Guide",
+            "content": "Welcome to the company...",
+            "document_type": "manual",
+            "tags": "hr, onboarding",
+            "source": "agent",
+        })
+
+        assert "error" not in result
+        assert result["status"] == "indexing"
+        assert result["title"] == "Onboarding Guide"
+        assert "document_id" in result
+
+        mock_producer.enqueue.assert_awaited_once()
+        task = mock_producer.enqueue.call_args[0][0]
+        assert task.title == "Onboarding Guide"
+        assert task.content == "Welcome to the company..."
+        assert task.document_type == "manual"
+        assert task.tags == ["hr", "onboarding"]
+
+    async def test_add_knowledge_requires_title(self, executor):
+        """Returns error when title is missing."""
+        mock_producer = AsyncMock()
+        executor.set_indexing_producer(mock_producer)
+
+        result = await executor.execute("add_knowledge", {
+            "content": "Some content",
+        })
+
+        assert "error" in result
+        assert "title" in result["error"]
+        mock_producer.enqueue.assert_not_awaited()
+
+    async def test_add_knowledge_requires_content(self, executor):
+        """Returns error when content is missing."""
+        mock_producer = AsyncMock()
+        executor.set_indexing_producer(mock_producer)
+
+        result = await executor.execute("add_knowledge", {
+            "title": "Doc Title",
+        })
+
+        assert "error" in result
+        assert "content" in result["error"]
+        mock_producer.enqueue.assert_not_awaited()
+
+    async def test_add_knowledge_no_producer_returns_error(self, executor):
+        """Returns error when indexing producer is not configured."""
+        result = await executor.execute("add_knowledge", {
+            "title": "Test",
+            "content": "Content",
+        })
+
+        assert "error" in result
+        assert "not configured" in result["error"]
+
+    async def test_add_knowledge_defaults(self, executor):
+        """Defaults are applied for optional fields."""
+        mock_producer = AsyncMock()
+        mock_producer.enqueue = AsyncMock()
+        executor.set_indexing_producer(mock_producer)
+
+        result = await executor.execute("add_knowledge", {
+            "title": "Quick Note",
+            "content": "Important info",
+        })
+
+        assert "error" not in result
+        task = mock_producer.enqueue.call_args[0][0]
+        assert task.document_type == "other"
+        assert task.tags == []
+        assert task.source == "agent"
+
+    def test_registry_includes_add_knowledge_for_knowledge_write(self):
+        """add_knowledge appears when user has knowledge:write permission."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:write"])
+        names = {t.name for t in tools}
+        assert "add_knowledge" in names
+
+    def test_registry_excludes_add_knowledge_for_knowledge_read(self):
+        """add_knowledge does NOT appear with only knowledge:read."""
+        tools = BuiltinToolRegistry.get_tool_definitions(["knowledge:read"])
+        names = {t.name for t in tools}
+        assert "add_knowledge" not in names

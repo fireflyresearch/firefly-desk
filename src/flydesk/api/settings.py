@@ -20,12 +20,12 @@ from pydantic import BaseModel
 from flydesk.api.deps import get_settings_repo
 from flydesk.config import DeskConfig
 from flydesk.rbac.guards import AdminSettings
+from flydesk.settings.models import AgentSettings, LLMRuntimeSettings, UserSettings
+from flydesk.settings.repository import SettingsRepository
 
 # Canonical defaults from DeskConfig — single source of truth for fallbacks.
 _DEFAULT_EMBEDDING_MODEL: str = DeskConfig.model_fields["embedding_model"].default
 _DEFAULT_EMBEDDING_DIMS: int = DeskConfig.model_fields["embedding_dimensions"].default
-from flydesk.settings.models import AgentSettings, UserSettings
-from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +167,30 @@ async def update_agent_settings(
         customization_svc.invalidate_cache()
 
     return settings
+
+
+# ---------------------------------------------------------------------------
+# LLM Runtime Settings (admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/llm-runtime", dependencies=[AdminSettings])
+async def get_llm_runtime_config(repo: Repo) -> LLMRuntimeSettings:
+    """Return current LLM runtime tuning settings (defaults if none saved)."""
+    return await repo.get_llm_runtime_settings()
+
+
+@router.put("/llm-runtime", dependencies=[AdminSettings])
+async def update_llm_runtime_config(
+    body: LLMRuntimeSettings, request: Request, repo: Repo
+) -> LLMRuntimeSettings:
+    """Update LLM runtime tuning settings."""
+    await repo.set_llm_runtime_settings(body)
+    # Invalidate DeskAgent's cached settings so the next turn picks up changes.
+    desk_agent = getattr(getattr(request.app, "state", None), "desk_agent", None)
+    if desk_agent is not None:
+        desk_agent._cached_llm_runtime = None
+    return await repo.get_llm_runtime_settings()
 
 
 # ---------------------------------------------------------------------------

@@ -41,7 +41,8 @@
 		Activity,
 		Webhook,
 		Radio,
-		ArrowUpRight
+		ArrowUpRight,
+		SlidersHorizontal
 	} from 'lucide-svelte';
 	import { isAdmin } from '$lib/stores/user.js';
 
@@ -71,6 +72,7 @@
 				{ href: '/admin/agent', label: 'Agent', icon: Bot },
 				{ href: '/admin/email', label: 'Email', icon: Mail },
 				{ href: '/admin/llm-providers', label: 'LLM Configuration', icon: Cpu },
+				{ href: '/admin/llm-runtime', label: 'LLM Runtime', icon: SlidersHorizontal },
 				{ href: '/admin/prompts', label: 'Prompts', icon: FileCode },
 				{ href: '/admin/tools', label: 'Tools', icon: Wrench },
 			],

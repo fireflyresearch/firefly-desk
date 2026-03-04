@@ -99,3 +99,50 @@ class EmailSettings(BaseModel):
     dev_authorized_emails: list[str] = Field(default_factory=list)
     ngrok_auth_token: str = ""
     tunnel_backend: str = "ngrok"  # "ngrok" | "cloudflared"
+
+
+# Knowledge snippet truncation limit — used when formatting knowledge context
+# for system prompts and search tool results.  Shared constant so the two
+# code-paths stay in sync.
+KNOWLEDGE_SNIPPET_MAX_CHARS = 2_000
+
+
+class LLMRuntimeSettings(BaseModel):
+    """LLM runtime tuning constants (admin-managed).
+
+    Defaults match the original hardcoded values so existing deployments
+    behave identically when no DB overrides are present.
+    """
+
+    # -- Retry / timeout --
+    llm_max_retries: int = 3
+    llm_retry_base_delay: float = 3.0  # seconds
+    llm_retry_max_delay: float = 15.0  # seconds
+    llm_fallback_retries: int = 2
+    llm_stream_timeout: int = 300  # seconds (5 min)
+    llm_followup_timeout: int = 240  # seconds (4 min)
+    followup_max_retries: int = 3
+    followup_retry_base_delay: float = 15.0  # seconds
+    followup_retry_max_delay: float = 60.0  # seconds
+
+    # -- Context truncation --
+    followup_max_content_chars: int = 8_000  # per tool-return part
+    followup_max_total_chars: int = 60_000  # total budget across all parts
+
+    # -- File context budgets --
+    file_context_max_per_file: int = 12_000
+    file_context_max_total: int = 40_000
+
+    # -- Multimodal context --
+    multimodal_max_context_chars: int = 12_000
+
+    # -- LLM output --
+    default_max_tokens: int = 4096
+
+    # -- Knowledge processing --
+    knowledge_analyzer_max_chars: int = 8_000  # max content sent to LLM for document analysis
+    document_read_max_chars: int = 30_000  # default max_chars for the document_read tool
+
+    # -- Context enricher --
+    context_entity_limit: int = 5
+    context_retrieval_top_k: int = 5

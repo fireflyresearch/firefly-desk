@@ -253,8 +253,8 @@ class TestBuildFileContext:
 
         result, _parts = await agent._build_file_context(["f-1", "f-2"])
 
-        assert "- [doc-f-1.pdf]: Content of f-1" in result
-        assert "- [doc-f-2.pdf]: Content of f-2" in result
+        assert "- [doc-f-1.pdf] (file_id=f-1): Content of f-1" in result
+        assert "- [doc-f-2.pdf] (file_id=f-2): Content of f-2" in result
 
     async def test_build_file_context_skips_missing_files(self):
         """Files that return None are silently skipped."""

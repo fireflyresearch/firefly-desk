@@ -286,7 +286,7 @@ function handleSSEEvent(msg: SSEMessage): void {
 
 		case 'tool_summary': {
 			const toolCalls = msg.data.tool_calls as
-				| Array<{ tool_name: string; tool_call_id?: string; success?: boolean }>
+				| Array<{ tool_name: string; tool_call_id?: string; success?: boolean; duration_ms?: number }>
 				| undefined;
 			if (toolCalls) mergeAgentToolCalls(toolCalls);
 			break;
@@ -345,7 +345,8 @@ function handleSSEEvent(msg: SSEMessage): void {
 				output_tokens: (msg.data.output_tokens as number) ?? 0,
 				total_tokens: (msg.data.total_tokens as number) ?? 0,
 				cost_usd: (msg.data.cost_usd as number) ?? 0,
-				model: (msg.data.model as string) ?? ''
+				model: (msg.data.model as string) ?? '',
+				total_time_ms: (msg.data.total_time_ms as number) ?? undefined
 			};
 			setUsage(usage);
 			break;

@@ -27,6 +27,7 @@ from starlette.responses import StreamingResponse
 
 from flydesk.api.events import SSEEvent, SSEEventType
 from flydesk.config import DeskConfig
+from flydesk.settings.models import LLMRuntimeSettings
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -207,6 +208,8 @@ class ConfigureRequest(BaseModel):
     agent_settings: AgentSettingsConfig | None = None
     knowledge_quality: KnowledgeQualitySetupConfig | None = None
     search_config: SearchSetupConfig | None = None
+    # LLM runtime tuning (optional)
+    llm_runtime: LLMRuntimeSettings | None = None
     # Email channel (optional)
     email_provider_name: str | None = None  # "resend" | "ses" | "sendgrid"
     email_api_key: str | None = None
@@ -1387,6 +1390,19 @@ async def configure_setup(body: ConfigureRequest, request: Request) -> Configure
                 success=False,
                 message=f"Failed to save agent settings: {exc}",
             )
+
+    # 4b. Save LLM runtime settings if provided
+    if body.llm_runtime is not None:
+        try:
+            from flydesk.settings.repository import SettingsRepository as _LLMRTRepo
+
+            llm_rt_repo = _LLMRTRepo(session_factory)
+            await llm_rt_repo.set_llm_runtime_settings(body.llm_runtime)
+            details["llm_runtime"] = "configured"
+            logger.info("LLM runtime settings configured via setup")
+        except Exception as exc:
+            logger.error("Failed to save LLM runtime settings: %s", exc)
+            details["llm_runtime"] = f"error: {exc}"
 
     # 5. Save knowledge quality settings if provided
     if body.knowledge_quality:

@@ -81,7 +81,7 @@ class DeskConfig(BaseSettings):
     embedding_dimensions: int = 1536
     embedding_api_key: str = ""
     embedding_base_url: str = ""
-    rag_top_k: int = 3
+    rag_top_k: int = 5  # init default; overridden per-call by LLMRuntimeSettings.context_retrieval_top_k
     kg_max_entities_in_context: int = 5
 
     # -- Knowledge Quality --

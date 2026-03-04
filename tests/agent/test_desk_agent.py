@@ -529,8 +529,8 @@ class TestDeskAgentFileIds:
         )
 
         call_ctx: PromptContext = prompt_builder.build.call_args[0][0]
-        assert "- [report-f-1.pdf]: Text from f-1" in call_ctx.file_context
-        assert "- [report-f-2.pdf]: Text from f-2" in call_ctx.file_context
+        assert "- [report-f-1.pdf] (file_id=f-1): Text from f-1" in call_ctx.file_context
+        assert "- [report-f-2.pdf] (file_id=f-2): Text from f-2" in call_ctx.file_context
 
     async def test_run_without_file_ids_has_empty_file_context(
         self, desk_agent_with_files, prompt_builder, user_session
@@ -552,8 +552,8 @@ class TestDeskAgentFileIds:
         assert file_repo.get.await_count == 2
         file_repo.get.assert_any_await("f-a")
         file_repo.get.assert_any_await("f-b")
-        assert "- [report-f-a.pdf]: Text from f-a" in text_context
-        assert "- [report-f-b.pdf]: Text from f-b" in text_context
+        assert "- [report-f-a.pdf] (file_id=f-a): Text from f-a" in text_context
+        assert "- [report-f-b.pdf] (file_id=f-b): Text from f-b" in text_context
         # No file_storage configured, so multimodal_parts should be empty
         assert multimodal_parts == []
 

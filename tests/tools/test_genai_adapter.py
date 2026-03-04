@@ -376,7 +376,9 @@ class TestCatalogToolAdapterExecute:
         ]
         adapter = CatalogToolAdapter(simple_tool_def, mock_executor, user_session, "conv-1")
 
-        with pytest.raises(ToolError, match="get_order failed: Not found"):
+        from pydantic_ai import ModelRetry
+
+        with pytest.raises(ModelRetry, match="get_order failed: Not found"):
             await adapter._execute(order_id="ord-999")
 
     async def test_execute_via_public_api(

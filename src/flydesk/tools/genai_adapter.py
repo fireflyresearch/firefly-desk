@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from fireflyframework_genai.exceptions import ToolError
+from pydantic_ai import ModelRetry
+
 from fireflyframework_genai.tools.base import BaseTool, ParameterSpec
 
 if TYPE_CHECKING:
@@ -41,6 +43,27 @@ if TYPE_CHECKING:
     from flydesk.tools.sandbox import SandboxExecutor
 
 _logger = logging.getLogger(__name__)
+
+
+class ToolTimingTracker:
+    """Shared tracker for tool execution durations.
+
+    Passed to all adapted tools so they can record how long each call took.
+    After the agent run, :meth:`get_timings` returns ``{tool_name: duration_ms}``
+    for the TOOL_SUMMARY event.
+    """
+
+    def __init__(self) -> None:
+        self._timings: dict[str, float] = {}
+
+    def record(self, tool_name: str, duration_ms: float) -> None:
+        self._timings[tool_name] = self._timings.get(tool_name, 0.0) + duration_ms
+
+    def get_timings(self) -> dict[str, float]:
+        return dict(self._timings)
+
+    def clear(self) -> None:
+        self._timings.clear()
 
 
 class CatalogToolAdapter(BaseTool):
@@ -56,6 +79,7 @@ class CatalogToolAdapter(BaseTool):
         executor: ToolExecutor,
         session: UserSession,
         conversation_id: str,
+        timing_tracker: ToolTimingTracker | None = None,
     ) -> None:
         parameters = _build_parameter_specs(tool_def)
         # Sanitise the tool name to match the LLM API pattern ^[a-zA-Z0-9_-]{1,128}$
@@ -69,15 +93,10 @@ class CatalogToolAdapter(BaseTool):
         self._executor = executor
         self._session = session
         self._conversation_id = conversation_id
+        self._timing_tracker = timing_tracker
 
     async def _execute(self, **kwargs: Any) -> Any:
-        """Execute via the existing ToolExecutor (preserves auth, retry, rate limiting).
-
-        The LLM provides flat kwargs (e.g. ``order_id="123"``), but the
-        ``ToolExecutor`` expects arguments nested by section
-        (``{"path": {"order_id": "123"}, ...}``).  This method re-nests
-        the flat kwargs using the ``ToolDefinition.parameters`` structure.
-        """
+        """Execute via the existing ToolExecutor (preserves auth, retry, rate limiting)."""
         from flydesk.tools.executor import ToolCall
 
         arguments = _nest_arguments(kwargs, self._tool_def.parameters)
@@ -90,13 +109,17 @@ class CatalogToolAdapter(BaseTool):
             endpoint_id=self._tool_def.endpoint_id,
             arguments=arguments,
         )
+        start = time.monotonic()
         results = await self._executor.execute_parallel(
             [call], self._session, self._conversation_id,
         )
+        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
+        if self._timing_tracker:
+            self._timing_tracker.record(self._tool_def.name, elapsed_ms)
         result = results[0]
         if result.success:
             return result.data
-        raise ToolError(f"Tool {self._tool_def.name} failed: {result.error}")
+        raise ModelRetry(f"Tool {self._tool_def.name} failed: {result.error}")
 
 
 class BuiltinToolAdapter(BaseTool):
@@ -111,6 +134,7 @@ class BuiltinToolAdapter(BaseTool):
         self,
         tool_def: ToolDefinition,
         executor: BuiltinToolExecutor,
+        timing_tracker: ToolTimingTracker | None = None,
     ) -> None:
         parameters = _build_flat_parameter_specs(tool_def)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_def.name)[:128]
@@ -121,12 +145,17 @@ class BuiltinToolAdapter(BaseTool):
         )
         self._tool_def = tool_def
         self._executor = executor
+        self._timing_tracker = timing_tracker
 
     async def _execute(self, **kwargs: Any) -> Any:
         """Execute via the BuiltinToolExecutor (in-process, no HTTP)."""
+        start = time.monotonic()
         result = await self._executor.execute(self._tool_def.name, kwargs)
+        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
+        if self._timing_tracker:
+            self._timing_tracker.record(self._tool_def.name, elapsed_ms)
         if "error" in result:
-            raise ToolError(f"Tool {self._tool_def.name} failed: {result['error']}")
+            raise ModelRetry(f"Tool {self._tool_def.name} failed: {result['error']}")
         return result
 
 
@@ -138,21 +167,31 @@ class CustomToolAdapter(BaseTool):
     the tool's Python code in an isolated subprocess.
     """
 
-    def __init__(self, tool: CustomTool, sandbox: SandboxExecutor) -> None:
+    def __init__(
+        self,
+        tool: CustomTool,
+        sandbox: SandboxExecutor,
+        timing_tracker: ToolTimingTracker | None = None,
+    ) -> None:
         parameters = _build_custom_parameter_specs(tool)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", tool.name)[:128]
         super().__init__(name=safe_name, description=tool.description, parameters=parameters)
         self._tool = tool
         self._sandbox = sandbox
+        self._timing_tracker = timing_tracker
 
     async def _execute(self, **kwargs: Any) -> Any:
         """Execute the custom tool code in a sandboxed subprocess."""
+        start = time.monotonic()
         result = await self._sandbox.execute(
             self._tool.python_code, kwargs, timeout=self._tool.timeout_seconds,
         )
+        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
+        if self._timing_tracker:
+            self._timing_tracker.record(self._tool.name, elapsed_ms)
         if result.success:
             return result.data
-        raise ToolError(f"Tool {self._tool.name} failed: {result.error}")
+        raise ModelRetry(f"Tool {self._tool.name} failed: {result.error}")
 
 
 def _build_custom_parameter_specs(tool: CustomTool) -> list[ParameterSpec]:
@@ -281,6 +320,7 @@ def adapt_tools(
     conversation_id: str,
     builtin_executor: BuiltinToolExecutor | None = None,
     custom_tools: list[tuple[CustomTool, SandboxExecutor]] | None = None,
+    timing_tracker: ToolTimingTracker | None = None,
 ) -> list[BaseTool]:
     """Convert a list of ToolDefinitions into genai-compatible BaseTool instances.
 
@@ -290,17 +330,20 @@ def adapt_tools(
 
     When *custom_tools* is provided, active :class:`CustomTool` instances are
     wrapped in :class:`CustomToolAdapter` for subprocess sandbox execution.
+
+    When *timing_tracker* is provided, each adapter records its execution
+    duration so the caller can include real timings in the TOOL_SUMMARY event.
     """
     adapted: list[BaseTool] = []
     if builtin_executor is not None:
         builtin_executor.set_user_context(session.user_id)
     for td in tool_defs:
         if td.endpoint_id.startswith("__builtin__") and builtin_executor is not None:
-            adapted.append(BuiltinToolAdapter(td, builtin_executor))
+            adapted.append(BuiltinToolAdapter(td, builtin_executor, timing_tracker=timing_tracker))
         else:
-            adapted.append(CatalogToolAdapter(td, executor, session, conversation_id))
+            adapted.append(CatalogToolAdapter(td, executor, session, conversation_id, timing_tracker=timing_tracker))
     if custom_tools:
         for tool, sandbox in custom_tools:
             if tool.active:
-                adapted.append(CustomToolAdapter(tool, sandbox))
+                adapted.append(CustomToolAdapter(tool, sandbox, timing_tracker=timing_tracker))
     return adapted

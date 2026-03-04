@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx
 
 from flydesk.catalog.enums import AuthType, HttpMethod, RiskLevel, SystemStatus
+from flydesk.settings.models import KNOWLEDGE_SNIPPET_MAX_CHARS, LLMRuntimeSettings
 from flydesk.catalog.models import AuthConfig, ExternalSystem, ServiceEndpoint
 from flydesk.tools.auth_resolver import ResolvedAuth
 from flydesk.tools.executor import _parse_response
@@ -68,6 +69,55 @@ def _knowledge_search_tool() -> ToolDefinition:
         parameters={
             "query": {"type": "string", "description": "Search query", "required": True},
             "top_k": {"type": "integer", "description": "Number of results (default 5)", "required": False},
+        },
+    )
+
+
+def _add_knowledge_tool() -> ToolDefinition:
+    return ToolDefinition(
+        endpoint_id="__builtin__add_knowledge",
+        name="add_knowledge",
+        description=(
+            "Add a new document to the organization's knowledge base. "
+            "The document will be chunked, embedded, and made searchable. "
+            "Use when: the user asks you to 'learn', 'remember for everyone', "
+            "'add to the knowledge base', or wants to store organizational "
+            "knowledge (not personal preferences — use save_memory for those). "
+            "Requires knowledge:write permission."
+        ),
+        risk_level=RiskLevel.LOW_WRITE,
+        system_id=BUILTIN_SYSTEM_ID,
+        method=HttpMethod.POST.value,
+        path="/__builtin__/knowledge/add",
+        parameters={
+            "title": {
+                "type": "string",
+                "description": "Title for the knowledge document",
+                "required": True,
+            },
+            "content": {
+                "type": "string",
+                "description": "Full text content of the document to index",
+                "required": True,
+            },
+            "document_type": {
+                "type": "string",
+                "description": (
+                    "Document type: manual, tutorial, api_spec, faq, "
+                    "policy, reference, changelog, readme, or other (default: other)"
+                ),
+                "required": False,
+            },
+            "tags": {
+                "type": "string",
+                "description": "Comma-separated tags for categorization",
+                "required": False,
+            },
+            "source": {
+                "type": "string",
+                "description": "Source attribution (e.g. filename, URL, or 'agent')",
+                "required": False,
+            },
         },
     )
 
@@ -482,6 +532,10 @@ class BuiltinToolRegistry:
         if has_all or "knowledge:read" in user_permissions:
             tools.append(_knowledge_search_tool())
 
+        # Knowledge write tools (require knowledge:write or *)
+        if has_all or "knowledge:write" in user_permissions:
+            tools.append(_add_knowledge_tool())
+
         # Catalog tools (require catalog:read or *)
         if has_all or "catalog:read" in user_permissions:
             tools.append(_list_catalog_systems_tool())
@@ -582,6 +636,7 @@ class BuiltinToolExecutor:
         self._user_id: str | None = None
         self._doc_executor: DocumentToolExecutor | None = None
         self._auto_trigger: AutoTriggerService | None = None
+        self._indexing_producer: Any | None = None
 
         from flydesk.tools.transform_tools import (
             TransformToolExecutor as _TransformExec,
@@ -605,6 +660,10 @@ class BuiltinToolExecutor:
         """Attach an email transport adapter for the ``send_email`` tool."""
         self._email_port = email_port
 
+    def set_indexing_producer(self, producer: Any) -> None:
+        """Attach an :class:`IndexingQueueProducer` for knowledge ingestion."""
+        self._indexing_producer = producer
+
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a built-in tool and return a result dict."""
         # Delegate document_* tools to the dedicated executor
@@ -617,6 +676,7 @@ class BuiltinToolExecutor:
 
         handlers = {
             "search_knowledge": self._search_knowledge,
+            "add_knowledge": self._add_knowledge,
             "list_catalog_systems": self._list_systems,
             "list_system_endpoints": self._list_endpoints,
             "create_catalog_system": self._create_catalog_system,
@@ -652,7 +712,14 @@ class BuiltinToolExecutor:
 
     async def _search_knowledge(self, arguments: dict[str, Any]) -> dict[str, Any]:
         query = arguments.get("query", "")
-        top_k = arguments.get("top_k", 5)
+        default_top_k = LLMRuntimeSettings().context_retrieval_top_k
+        if self._settings_repo is not None:
+            try:
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                default_top_k = rt.context_retrieval_top_k
+            except Exception:
+                pass
+        top_k = arguments.get("top_k", default_top_k)
 
         if not query:
             return {"error": "Query is required"}
@@ -662,7 +729,7 @@ class BuiltinToolExecutor:
 
         try:
             snippets = await self._knowledge_retriever.retrieve(query, top_k=top_k)
-            max_chunk = 2_000  # Cap individual chunk size to control LLM input
+            max_chunk = KNOWLEDGE_SNIPPET_MAX_CHARS
             results = []
             for s in snippets:
                 content = s.chunk.content
@@ -676,6 +743,50 @@ class BuiltinToolExecutor:
             return {"query": query, "results": results, "count": len(results)}
         except Exception as exc:
             return {"error": f"Knowledge search failed: {exc}", "results": []}
+
+    async def _add_knowledge(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        title = (arguments.get("title") or "").strip()
+        content = (arguments.get("content") or "").strip()
+
+        if not title:
+            return {"error": "title is required"}
+        if not content:
+            return {"error": "content is required"}
+
+        if self._indexing_producer is None:
+            return {"error": "Knowledge indexing is not configured"}
+
+        doc_type = (arguments.get("document_type") or "other").strip()
+        tags_raw = arguments.get("tags") or ""
+        tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if isinstance(tags_raw, str) else ([t.strip() for t in tags_raw if isinstance(t, str)] if isinstance(tags_raw, list) else [])
+        source = (arguments.get("source") or "agent").strip()
+
+        document_id = str(uuid.uuid4())
+
+        from flydesk.knowledge.queue import IndexingTask
+
+        task = IndexingTask(
+            document_id=document_id,
+            title=title,
+            content=content,
+            document_type=doc_type,
+            source=source,
+            tags=tags,
+        )
+        await self._indexing_producer.enqueue(task)
+        logger.info(
+            "add_knowledge: enqueued document_id=%s title=%r (%d chars)",
+            document_id, title, len(content),
+        )
+        return {
+            "document_id": document_id,
+            "title": title,
+            "status": "indexing",
+            "message": (
+                f"Document '{title}' has been submitted for indexing. "
+                "It will be chunked, embedded, and searchable shortly."
+            ),
+        }
 
     async def _list_systems(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         systems, _ = await self._catalog_repo.list_systems()
@@ -963,15 +1074,51 @@ class BuiltinToolExecutor:
         from flydesk.memory.models import CreateMemory
 
         category = arguments.get("category", "general")
-        memory = await self._memory_repo.create(
-            self._user_id,
-            CreateMemory(content=content, category=category, source="agent"),
-        )
+        max_chunk = 50_000
+
+        # Auto-chunk if content is very large
+        if len(content) <= max_chunk:
+            memory = await self._memory_repo.create(
+                self._user_id,
+                CreateMemory(content=content, category=category, source="agent"),
+            )
+            return {
+                "memory_id": memory.id,
+                "content": memory.content[:200] + "..." if len(memory.content) > 200 else memory.content,
+                "category": memory.category,
+                "message": "Memory saved successfully.",
+            }
+
+        # Split into chunks at paragraph boundaries
+        chunks: list[str] = []
+        remaining = content
+        while remaining:
+            if len(remaining) <= max_chunk:
+                chunks.append(remaining)
+                break
+            # Find a paragraph break near the limit
+            cut = remaining[:max_chunk].rfind("\n\n")
+            if cut < max_chunk * 0.5:
+                cut = remaining[:max_chunk].rfind("\n")
+            if cut < max_chunk * 0.3:
+                cut = max_chunk
+            chunks.append(remaining[:cut].rstrip())
+            remaining = remaining[cut:].lstrip()
+
+        memory_ids: list[str] = []
+        for i, chunk in enumerate(chunks):
+            label = f" (part {i + 1}/{len(chunks)})" if len(chunks) > 1 else ""
+            memory = await self._memory_repo.create(
+                self._user_id,
+                CreateMemory(content=chunk + label, category=category, source="agent"),
+            )
+            memory_ids.append(memory.id)
+
         return {
-            "memory_id": memory.id,
-            "content": memory.content,
-            "category": memory.category,
-            "message": "Memory saved successfully.",
+            "memory_ids": memory_ids,
+            "chunks_saved": len(chunks),
+            "category": category,
+            "message": f"Memory saved successfully in {len(chunks)} part(s).",
         }
 
     async def _recall_memories(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1035,7 +1182,7 @@ class BuiltinToolExecutor:
                     "title": r.title,
                     "url": r.url,
                     "snippet": r.snippet,
-                    "content": r.content[:2000] if r.content else None,
+                    "content": r.content[:KNOWLEDGE_SNIPPET_MAX_CHARS] if r.content else None,
                     "score": r.score,
                 }
                 for r in results

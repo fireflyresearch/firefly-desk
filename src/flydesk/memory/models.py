@@ -28,7 +28,7 @@ class UserMemory(BaseModel):
 class CreateMemory(BaseModel):
     """Input model for creating a memory."""
 
-    content: str = Field(..., min_length=1, max_length=5000)
+    content: str = Field(..., min_length=1, max_length=50_000)
     category: str = Field(default="general", pattern=r"^(general|preference|fact|workflow)$")
     source: str = Field(default="agent", pattern=r"^(agent|user)$")
     metadata: dict[str, Any] | None = None
@@ -37,5 +37,5 @@ class CreateMemory(BaseModel):
 class UpdateMemory(BaseModel):
     """Input model for updating a memory."""
 
-    content: str | None = Field(default=None, min_length=1, max_length=5000)
+    content: str | None = Field(default=None, min_length=1, max_length=50_000)
     category: str | None = Field(default=None, pattern=r"^(general|preference|fact|workflow)$")

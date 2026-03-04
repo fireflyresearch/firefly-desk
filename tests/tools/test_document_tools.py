@@ -92,6 +92,7 @@ class TestToolDefinitions:
         assert tool.name == "document_read"
         assert tool.risk_level == RiskLevel.READ
         assert tool.system_id == BUILTIN_SYSTEM_ID
+        assert "file_id" in tool.parameters
         assert "file_path" in tool.parameters
 
     def test_document_create_tool_definition(self):
@@ -203,7 +204,7 @@ class TestDocumentRead:
     async def test_read_missing_path_returns_error(self, executor: DocumentToolExecutor):
         result = await executor.execute("document_read", {})
         assert "error" in result
-        assert "file_path" in result["error"]
+        assert "file_id" in result["error"] or "file_path" in result["error"]
 
     async def test_read_unsupported_format_returns_error(
         self, executor: DocumentToolExecutor, storage: AsyncMock
@@ -621,3 +622,73 @@ class TestBuiltinDelegation:
         result = await builtin.execute("document_read", {"file_path": "/x.docx"})
         assert "error" in result
         assert "Unknown" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# file_id resolution tests
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentReadFileId:
+    """Tests for file_id-based resolution in document_read."""
+
+    async def test_read_by_file_id(self, storage: AsyncMock):
+        """Reading by file_id resolves via file repo."""
+        file_repo = AsyncMock()
+        file_repo.get = AsyncMock(return_value=MagicMock(
+            storage_path="/files/abc123.pdf"
+        ))
+        executor = DocumentToolExecutor(storage=storage, file_repo=file_repo)
+        storage.retrieve.return_value = _make_pdf_bytes("Test content")
+
+        result = await executor.execute("document_read", {
+            "file_id": "abc123",
+        })
+
+        assert "error" not in result
+        assert result["format"] == "pdf"
+        file_repo.get.assert_awaited_once_with("abc123")
+        storage.retrieve.assert_awaited_once_with("/files/abc123.pdf")
+
+    async def test_read_by_file_id_not_found_falls_back(self, storage: AsyncMock):
+        """When file_id not in repo but file_path works, succeeds."""
+        file_repo = AsyncMock()
+        file_repo.get = AsyncMock(return_value=None)
+        executor = DocumentToolExecutor(storage=storage, file_repo=file_repo)
+        storage.retrieve.return_value = _make_docx_bytes(["Content"])
+
+        result = await executor.execute("document_read", {
+            "file_id": "bad-id",
+            "file_path": "/files/doc.docx",
+        })
+
+        assert "error" not in result
+        assert result["format"] == "docx"
+
+    async def test_read_no_file_id_no_file_path_returns_error(self, storage: AsyncMock):
+        """Must provide at least one of file_id or file_path."""
+        executor = DocumentToolExecutor(storage=storage)
+        result = await executor.execute("document_read", {})
+        assert "error" in result
+
+    async def test_read_by_filename_fallback(self, storage: AsyncMock):
+        """When file_path is a filename (not UUID path), resolves via repo."""
+        file_repo = AsyncMock()
+        file_repo.get = AsyncMock(return_value=None)  # No file_id provided
+        file_repo.get_by_filename = AsyncMock(return_value=MagicMock(
+            storage_path="/files/uuid-123.pdf"
+        ))
+        executor = DocumentToolExecutor(storage=storage, file_repo=file_repo)
+
+        # First storage.retrieve raises FileNotFoundError for the filename
+        storage.retrieve.side_effect = [
+            FileNotFoundError("not found"),  # filename lookup
+            _make_pdf_bytes("Resolved"),      # resolved path lookup
+        ]
+
+        result = await executor.execute("document_read", {
+            "file_path": "ManualDeAdmision.pdf",
+        })
+
+        assert "error" not in result
+        file_repo.get_by_filename.assert_awaited_once_with("ManualDeAdmision.pdf")

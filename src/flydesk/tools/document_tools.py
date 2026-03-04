@@ -25,9 +25,12 @@ from flydesk.catalog.enums import HttpMethod, RiskLevel
 from flydesk.tools.builtin import BUILTIN_SYSTEM_ID
 from flydesk.tools.factory import ToolDefinition
 
+from flydesk.settings.models import LLMRuntimeSettings
+
 if TYPE_CHECKING:
     from flydesk.files.repository import FileUploadRepository
     from flydesk.files.storage import FileStorageProvider
+    from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +68,30 @@ def document_read_tool() -> ToolDefinition:
             "(PDF, DOCX, XLSX, PPTX). Returns the textual content of the document. "
             "For large documents, use page_start/page_end to read specific page "
             "ranges (PDF) or set max_chars to limit output. If the output is "
-            "truncated, call again with the next page range to continue reading."
+            "truncated, call again with the next page range to continue reading. "
+            "Prefer using file_id (when available) over file_path for "
+            "unambiguous file resolution."
         ),
         risk_level=RiskLevel.READ,
         system_id=BUILTIN_SYSTEM_ID,
         method=HttpMethod.GET.value,
         path="/__builtin__/documents/read",
         parameters={
+            "file_id": {
+                "type": "string",
+                "description": (
+                    "Unique file upload ID. Use this when provided in file "
+                    "context hints. Takes priority over file_path."
+                ),
+                "required": False,
+            },
             "file_path": {
                 "type": "string",
-                "description": "Storage path or filename of the document to read",
-                "required": True,
+                "description": (
+                    "Storage path or filename of the document to read. "
+                    "Used as fallback when file_id is not available."
+                ),
+                "required": False,
             },
             "page_start": {
                 "type": "integer",
@@ -96,9 +112,8 @@ def document_read_tool() -> ToolDefinition:
     )
 
 
-# Maximum characters to return from document_read by default.
-# ~12k chars ≈ ~3k tokens, safe for most LLM context windows.
-_DEFAULT_MAX_CHARS = 12000
+# Fallback max chars for document_read; matches LLMRuntimeSettings.document_read_max_chars default.
+_DEFAULT_MAX_CHARS = LLMRuntimeSettings().document_read_max_chars
 
 
 def document_create_tool() -> ToolDefinition:
@@ -230,9 +245,11 @@ class DocumentToolExecutor:
         self,
         storage: FileStorageProvider,
         file_repo: FileUploadRepository | None = None,
+        settings_repo: SettingsRepository | None = None,
     ) -> None:
         self._storage = storage
         self._file_repo = file_repo
+        self._settings_repo = settings_repo
 
     @classmethod
     def is_document_tool(cls, tool_name: str) -> bool:
@@ -271,6 +288,7 @@ class DocumentToolExecutor:
         find it by looking up the original filename in the file upload repo.
         """
         if self._file_repo is None:
+            logger.warning("document_read: cannot resolve '%s' — file_repo not configured", file_path)
             return None
         import os
         # Extract just the filename from the path
@@ -278,6 +296,7 @@ class DocumentToolExecutor:
         upload = await self._file_repo.get_by_filename(filename)
         if upload is not None:
             return upload.storage_path
+        logger.warning("document_read: filename '%s' not found in file upload repo", filename)
         return None
 
     async def _register_file_upload(
@@ -335,27 +354,58 @@ class DocumentToolExecutor:
     # ---- Read ----
 
     async def _read(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        file_id: str = arguments.get("file_id", "")
         file_path: str = arguments.get("file_path", "")
-        if not file_path:
-            return {"error": "file_path is required"}
+        logger.info("document_read called: file_id=%r, file_path=%r", file_id, file_path)
 
-        max_chars = int(arguments.get("max_chars") or _DEFAULT_MAX_CHARS)
+        if not file_id and not file_path:
+            return {"error": "Either file_id or file_path is required"}
+
+        default_max = _DEFAULT_MAX_CHARS
+        if self._settings_repo is not None:
+            try:
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                default_max = rt.document_read_max_chars
+            except Exception:
+                pass
+        max_chars = int(arguments.get("max_chars") or default_max)
         page_start = arguments.get("page_start")
         page_end = arguments.get("page_end")
 
-        # Try direct retrieval first; if the path doesn't exist on disk,
-        # look up by filename in the file upload repo (files are stored
-        # with UUID names but the agent may pass the original filename).
-        try:
-            data = await self._storage.retrieve(file_path)
-        except FileNotFoundError:
-            resolved = await self._resolve_file_path(file_path)
-            if resolved is None:
-                return {"error": f"File not found: {file_path}"}
-            data = await self._storage.retrieve(resolved)
-            file_path = resolved
+        resolved_path: str | None = None
+        data: bytes | None = None
 
-        ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+        # Priority 1: Resolve via file_id (unambiguous)
+        if file_id and self._file_repo is not None:
+            upload = await self._file_repo.get(file_id)
+            if upload is not None:
+                resolved_path = upload.storage_path
+                logger.info("document_read: resolved file_id=%s → %s", file_id, resolved_path)
+            else:
+                logger.warning("document_read: file_id=%s not found in repo", file_id)
+
+        # Priority 2: Try file_path directly
+        if resolved_path is None and file_path:
+            try:
+                data = await self._storage.retrieve(file_path)
+                resolved_path = file_path
+            except FileNotFoundError:
+                # Priority 3: Resolve filename via repo lookup
+                resolved = await self._resolve_file_path(file_path)
+                if resolved is not None:
+                    resolved_path = resolved
+                    logger.info("document_read: resolved filename '%s' → %s", file_path, resolved_path)
+
+        if resolved_path is None:
+            identifier = file_id or file_path
+            logger.warning("document_read: could not resolve file: %s", identifier)
+            return {"error": f"File not found: {identifier}"}
+
+        # Read from resolved path (skip if already loaded in Priority 2)
+        if data is None:
+            data = await self._storage.retrieve(resolved_path)
+
+        ext = resolved_path.rsplit(".", 1)[-1].lower() if "." in resolved_path else ""
 
         if ext == "pdf":
             result = self._read_pdf(

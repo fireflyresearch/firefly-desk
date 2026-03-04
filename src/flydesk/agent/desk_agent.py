@@ -29,7 +29,8 @@ from flydesk.auth.models import UserSession
 from flydesk.rbac.permissions import is_admin
 from flydesk.tools.builtin import BuiltinToolExecutor, BuiltinToolRegistry
 from flydesk.tools.factory import ToolDefinition, ToolFactory
-from flydesk.tools.genai_adapter import adapt_tools
+from flydesk.settings.models import KNOWLEDGE_SNIPPET_MAX_CHARS, LLMRuntimeSettings
+from flydesk.tools.genai_adapter import ToolTimingTracker, adapt_tools
 from flydesk.widgets.parser import WidgetParser
 
 if TYPE_CHECKING:
@@ -74,23 +75,6 @@ except ImportError:  # pragma: no cover
 _BUDGET_EXCEEDED_ERROR: type[Exception] = _BudgetExceededError  # type: ignore[assignment]
 _CIRCUIT_BREAKER_OPEN_ERROR: type[Exception] = _CircuitBreakerOpenError  # type: ignore[assignment]
 
-# Retry configuration for transient LLM provider errors.
-_LLM_MAX_RETRIES = 3
-_LLM_RETRY_BASE_DELAY = 3.0  # seconds
-_LLM_RETRY_MAX_DELAY = 15.0  # seconds
-# Number of fallback model attempts after exhausting primary retries.
-_LLM_FALLBACK_RETRIES = 2
-# Timeout for a single LLM streaming turn (seconds).  Must be long enough
-# to cover the initial streaming response, tool execution, and the follow-up
-# call that produces the final answer after tool results are available.
-_LLM_STREAM_TIMEOUT = 300
-# Timeout for the follow-up LLM call after tool execution (seconds).
-_LLM_FOLLOWUP_TIMEOUT = 240
-# Retry config for the follow-up call (longer delays for rate-limit recovery).
-_FOLLOWUP_MAX_RETRIES = 3
-_FOLLOWUP_RETRY_BASE_DELAY = 15.0  # seconds (rate limits are per-minute)
-_FOLLOWUP_RETRY_MAX_DELAY = 60.0
-
 # Strings that indicate a transient/retryable LLM error.
 _TRANSIENT_ERROR_INDICATORS = (
     "overloaded",
@@ -129,17 +113,21 @@ def _friendly_error_message(exc: Exception) -> str:
     )
 
 
-_FOLLOWUP_MAX_CONTENT_CHARS = 4_000  # Max chars per tool-return part in follow-up
-
-
-def _truncate_message_history(messages: list, max_chars: int = _FOLLOWUP_MAX_CONTENT_CHARS) -> None:
+def _truncate_message_history(
+    messages: list,
+    *,
+    max_chars: int = 8_000,
+    max_total_chars: int = 60_000,
+) -> None:
     """Truncate large text content in message history in-place.
 
     This prevents the follow-up LLM call from sending enormous tool results
-    that would exceed token limits or trigger rate-limit errors.  Only
-    ``tool-return`` and ``user-prompt`` parts are touched.
+    that would exceed token limits or trigger rate-limit errors.  Applies
+    both per-part limits and a total budget across all parts.
     """
     import json as _json
+
+    total_chars = 0
 
     for msg in messages:
         parts = getattr(msg, "parts", None)
@@ -158,14 +146,24 @@ def _truncate_message_history(messages: list, max_chars: int = _FOLLOWUP_MAX_CON
                         continue
                 else:
                     continue
-                if len(text) > max_chars:
-                    part.content = text[:max_chars] + "\n\n[... tool output truncated for follow-up]"
+                # Per-part limit
+                remaining = max(max_total_chars - total_chars, 500)
+                effective_limit = min(max_chars, remaining)
+                if len(text) > effective_limit:
+                    part.content = text[:effective_limit] + "\n\n[... truncated]"
+                    total_chars += effective_limit
+                else:
+                    total_chars += len(text)
             elif kind == "user-prompt":
                 content = getattr(part, "content", None)
-                # User prompts can be very large when they include file context
-                user_limit = max_chars * 3  # More generous for user prompts
-                if isinstance(content, str) and len(content) > user_limit:
-                    part.content = content[:user_limit] + "\n\n[... content truncated]"
+                user_limit = max_chars * 2
+                remaining = max(max_total_chars - total_chars, 500)
+                effective_limit = min(user_limit, remaining)
+                if isinstance(content, str) and len(content) > effective_limit:
+                    part.content = content[:effective_limit] + "\n\n[... truncated]"
+                    total_chars += effective_limit
+                elif isinstance(content, str):
+                    total_chars += len(content)
 
 
 class DeskAgent:
@@ -225,6 +223,25 @@ class DeskAgent:
         self._custom_tool_repo = custom_tool_repo
         self._sandbox_executor = sandbox_executor
         self._model_router = model_router
+        self._cached_llm_runtime: LLMRuntimeSettings | None = None
+
+    # ------------------------------------------------------------------
+    # LLM Runtime Settings
+    # ------------------------------------------------------------------
+
+    async def _get_llm_runtime(self) -> LLMRuntimeSettings:
+        """Return cached LLM runtime settings, loading from DB on first call."""
+        if self._cached_llm_runtime is not None:
+            return self._cached_llm_runtime
+        if self._settings_repo is not None:
+            try:
+                self._cached_llm_runtime = await self._settings_repo.get_llm_runtime_settings()
+            except Exception:
+                _logger.debug("Failed to load LLM runtime settings; using defaults.", exc_info=True)
+                self._cached_llm_runtime = LLMRuntimeSettings()
+        else:
+            self._cached_llm_runtime = LLMRuntimeSettings()
+        return self._cached_llm_runtime
 
     # ------------------------------------------------------------------
     # Public API
@@ -363,8 +380,9 @@ class DeskAgent:
             },
         )
 
-        # Adapt catalog tools for genai tool-use
-        adapted = await self._adapt_tools(tools, session, conversation_id)
+        # Adapt catalog tools for genai tool-use (with timing tracker)
+        timing_tracker = ToolTimingTracker()
+        adapted = await self._adapt_tools(tools, session, conversation_id, timing_tracker=timing_tracker)
 
         # Route to cost-appropriate model
         model_override, routing_decision = await self._route_model(message, adapted)
@@ -381,15 +399,18 @@ class DeskAgent:
         full_text = ""
         usage_data: dict[str, Any] = {}
         t0 = time.monotonic()
-        async for token in self._stream_llm(
+        async for item in self._stream_llm(
             message, system_prompt, conversation_id, tools=adapted,
             usage_out=usage_data, model_override=model_override,
         ):
-            full_text += token
-            yield SSEEvent(
-                event=SSEEventType.TOKEN,
-                data={"content": token},
-            )
+            if isinstance(item, SSEEvent):
+                yield item
+            else:
+                full_text += item
+                yield SSEEvent(
+                    event=SSEEventType.TOKEN,
+                    data={"content": item},
+                )
         latency_ms = round((time.monotonic() - t0) * 1000)
 
         # Attach routing metadata to usage data
@@ -448,21 +469,29 @@ class DeskAgent:
         )
         await self._audit_logger.log(audit_event)
 
-        # Emit TOOL_SUMMARY with actual tool call data from the LLM run.
+        # Emit TOOL_SUMMARY with actual tool call data and real durations.
         agent_tool_calls = usage_data.pop("tool_calls", [])
+        tool_timings = timing_tracker.get_timings()
+        for tc in agent_tool_calls:
+            tc["duration_ms"] = round(tool_timings.get(tc.get("tool_name", ""), 0), 1)
+        total_dur = sum(tc.get("duration_ms", 0) for tc in agent_tool_calls)
         success_count = sum(1 for tc in agent_tool_calls if tc.get("success"))
         yield SSEEvent(
             event=SSEEventType.TOOL_SUMMARY,
             data={
                 "tool_calls": agent_tool_calls,
-                "total_duration_ms": 0,
+                "total_duration_ms": round(total_dur, 1),
                 "success_count": success_count,
                 "failure_count": len(agent_tool_calls) - success_count,
             },
         )
 
+        # Total wall-clock time for this message turn.
+        total_time_ms = round((time.monotonic() - start) * 1000)
+
         # Emit USAGE event before DONE (if usage data was captured)
         if usage_data:
+            usage_data["total_time_ms"] = total_time_ms
             yield SSEEvent(
                 event=SSEEventType.USAGE,
                 data=usage_data,
@@ -475,6 +504,7 @@ class DeskAgent:
                 "conversation_id": conversation_id,
                 "turn_id": turn_id,
                 "tool_count": len(adapted or []),
+                "total_time_ms": total_time_ms,
             },
         )
 
@@ -514,12 +544,13 @@ class DeskAgent:
         pattern_instance = self._select_reasoning_pattern(pattern, tools)
 
         # Execute reasoning with retry for transient errors
+        rt = await self._get_llm_runtime()
         usage_data: dict[str, Any] = {}
         t0 = time.monotonic()
         try:
             last_reasoning_exc: Exception | None = None
             result = None
-            for attempt in range(_LLM_MAX_RETRIES):
+            for attempt in range(rt.llm_max_retries):
                 try:
                     result = await agent.run_with_reasoning(pattern_instance, message, conversation_id=conversation_id)
                     break  # Success
@@ -527,14 +558,14 @@ class DeskAgent:
                     raise  # Let outer handlers deal with these
                 except Exception as retry_exc:
                     last_reasoning_exc = retry_exc
-                    if _is_transient_error(retry_exc) and attempt < _LLM_MAX_RETRIES - 1:
+                    if _is_transient_error(retry_exc) and attempt < rt.llm_max_retries - 1:
                         delay = min(
-                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
-                            _LLM_RETRY_MAX_DELAY,
+                            rt.llm_retry_base_delay * (2 ** attempt) + random.uniform(0, 1),
+                            rt.llm_retry_max_delay,
                         )
                         _logger.warning(
                             "Transient LLM error in reasoning (attempt %d/%d), retrying in %.1fs: %s",
-                            attempt + 1, _LLM_MAX_RETRIES, delay, retry_exc,
+                            attempt + 1, rt.llm_max_retries, delay, retry_exc,
                         )
                         await asyncio.sleep(delay)
                         continue
@@ -873,10 +904,11 @@ class DeskAgent:
         if not file_ids or self._file_repo is None:
             return "", []
 
+        rt = await self._get_llm_runtime()
         uploads: list[FileUpload] = []
         parts: list[str] = []
-        max_per_file = 4_000
-        max_total = 12_000  # Total budget across all files
+        max_per_file = rt.file_context_max_per_file
+        max_total = rt.file_context_max_total
         total_chars = 0
         for file_id in file_ids:
             upload = await self._file_repo.get(file_id)
@@ -888,19 +920,19 @@ class DeskAgent:
                 remaining = max_total - total_chars
                 if remaining <= 0:
                     parts.append(
-                        f"- [{upload.filename}]: [content omitted — total file "
-                        "context budget reached; use document_read to access]"
+                        f"- [{upload.filename}] (file_id={file_id}): [content omitted — total file "
+                        "context budget reached; use document_read(file_id=\"" + file_id + "\") to access]"
                     )
                     continue
                 limit = min(max_per_file, remaining)
                 if len(text) > limit:
                     text = text[:limit]
                     text += (
-                        "\n\n[... truncated — use the document_read tool with "
-                        "page_start/page_end to read specific sections]"
+                        "\n\n[... truncated — use document_read(file_id=\"" + file_id
+                        + "\", page_start=N, page_end=M) to read specific sections]"
                     )
                 total_chars += len(text)
-                parts.append(f"- [{upload.filename}]: {text}")
+                parts.append(f"- [{upload.filename}] (file_id={file_id}): {text}")
 
         text_context = "\n".join(parts)
 
@@ -909,6 +941,7 @@ class DeskAgent:
         if self._file_storage is not None and uploads:
             multimodal_parts = await _build_multimodal_parts(
                 uploads, self._file_storage,
+                max_context_chars=rt.multimodal_max_context_chars,
             )
 
         return text_context, multimodal_parts
@@ -988,6 +1021,10 @@ class DeskAgent:
             knowledge_tag_filter = scopes.knowledge_tags
 
         # 1. Context enrichment (with user-scoped conversation history)
+        rt = await self._get_llm_runtime()
+        self._context_enricher._entity_limit = rt.context_entity_limit
+        self._context_enricher._retrieval_top_k = rt.context_retrieval_top_k
+
         history = await self._load_conversation_history(
             conversation_id, session.user_id,
         )
@@ -1083,6 +1120,7 @@ class DeskAgent:
         tools: list[ToolDefinition] | None,
         session: UserSession,
         conversation_id: str,
+        timing_tracker: ToolTimingTracker | None = None,
     ) -> list[object] | None:
         """Wrap ToolDefinitions as genai BaseTools if a ToolExecutor is available.
 
@@ -1112,6 +1150,7 @@ class DeskAgent:
             tools, self._tool_executor, session, conversation_id,
             builtin_executor=self._builtin_executor,
             custom_tools=custom_tools,
+            timing_tracker=timing_tracker,
         )
 
     async def _route_model(
@@ -1158,7 +1197,7 @@ class DeskAgent:
         tools: list[object] | None = None,
         usage_out: dict[str, Any] | None = None,
         model_override: str | None = None,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | SSEEvent, None]:
         """Stream tokens from the LLM via FireflyAgent.run_stream().
 
         When no agent factory is configured or the agent cannot be created,
@@ -1214,11 +1253,17 @@ class DeskAgent:
         except Exception:
             _logger.debug("Could not inspect agent tools.", exc_info=True)
 
+        rt = await self._get_llm_runtime()
+
+        # Propagate default_max_tokens to the agent factory.
+        if self._agent_factory is not None:
+            self._agent_factory._default_max_tokens = rt.default_max_tokens
+
         last_exc: Exception | None = None
         stream_ref: object | None = None
-        for attempt in range(_LLM_MAX_RETRIES):
+        for attempt in range(rt.llm_max_retries):
             try:
-                async with asyncio.timeout(_LLM_STREAM_TIMEOUT):
+                async with asyncio.timeout(rt.llm_stream_timeout):
                     async with await agent.run_stream(
                         message,
                         streaming_mode="incremental",
@@ -1260,7 +1305,7 @@ class DeskAgent:
                 )
                 return
             except TimeoutError:
-                _logger.warning("LLM streaming timed out after %ds", _LLM_STREAM_TIMEOUT)
+                _logger.warning("LLM streaming timed out after %ds", rt.llm_stream_timeout)
                 yield (
                     "The language model took too long to respond. "
                     "Please try again or check your LLM provider configuration."
@@ -1269,20 +1314,20 @@ class DeskAgent:
             except Exception as exc:
                 last_exc = exc
                 if _is_transient_error(exc):
-                    if attempt < _LLM_MAX_RETRIES - 1:
+                    if attempt < rt.llm_max_retries - 1:
                         delay = min(
-                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
-                            _LLM_RETRY_MAX_DELAY,
+                            rt.llm_retry_base_delay * (2 ** attempt) + random.uniform(0, 1),
+                            rt.llm_retry_max_delay,
                         )
                         _logger.warning(
                             "Transient LLM error (attempt %d/%d), retrying in %.1fs: %s",
-                            attempt + 1, _LLM_MAX_RETRIES, delay, exc,
+                            attempt + 1, rt.llm_max_retries, delay, exc,
                         )
                         await asyncio.sleep(delay)
                         continue
                     # Final attempt — fall through to fallback models below
                     _logger.warning(
-                        "Primary model exhausted %d retries: %s", _LLM_MAX_RETRIES, exc,
+                        "Primary model exhausted %d retries: %s", rt.llm_max_retries, exc,
                     )
                 else:
                     # Non-transient error — report to user immediately
@@ -1300,9 +1345,10 @@ class DeskAgent:
                 )
                 if fb_agent is None:
                     continue
-                for fb_attempt in range(_LLM_FALLBACK_RETRIES):
+                for fb_attempt in range(rt.llm_fallback_retries):
                     try:
-                        async with asyncio.timeout(_LLM_STREAM_TIMEOUT):
+                        fb_stream_ref: object | None = None
+                        async with asyncio.timeout(rt.llm_stream_timeout):
                             async with await fb_agent.run_stream(
                                 message,
                                 streaming_mode="incremental",
@@ -1313,20 +1359,24 @@ class DeskAgent:
                                 if usage_out is not None:
                                     self._extract_stream_usage(fb_stream, fb_agent, usage_out)
                                     self._extract_tool_calls(fb_stream, usage_out)
+                                fb_stream_ref = fb_stream
 
-                            # Follow-up for tool calls (same as primary model)
+                        # Follow-up for tool calls OUTSIDE the stream
+                        # context — fb_stream_ref was captured while
+                        # the context was still open.
+                        if fb_stream_ref is not None:
                             async for token in self._follow_up_after_tool_calls(
-                                fb_stream, fb_agent, conversation_id, usage_out,
+                                fb_stream_ref, fb_agent, conversation_id, usage_out,
                             ):
                                 yield token
 
                         return  # Fallback succeeded
                     except Exception as fb_exc:
-                        if _is_transient_error(fb_exc) and fb_attempt < _LLM_FALLBACK_RETRIES - 1:
-                            delay = _LLM_RETRY_BASE_DELAY + random.uniform(0, 1)
+                        if _is_transient_error(fb_exc) and fb_attempt < rt.llm_fallback_retries - 1:
+                            delay = rt.llm_retry_base_delay + random.uniform(0, 1)
                             _logger.warning(
                                 "Fallback model %s also busy (attempt %d/%d), retrying in %.1fs",
-                                fb_model, fb_attempt + 1, _LLM_FALLBACK_RETRIES, delay,
+                                fb_model, fb_attempt + 1, rt.llm_fallback_retries, delay,
                             )
                             await asyncio.sleep(delay)
                             continue
@@ -1335,7 +1385,7 @@ class DeskAgent:
 
         # All retries and fallbacks exhausted
         if last_exc is not None:
-            _logger.error("LLM streaming failed after %d retries + fallbacks: %s", _LLM_MAX_RETRIES, last_exc)
+            _logger.error("LLM streaming failed after %d retries + fallbacks: %s", rt.llm_max_retries, last_exc)
             yield _friendly_error_message(last_exc)
 
     async def _follow_up_after_tool_calls(
@@ -1344,102 +1394,223 @@ class DeskAgent:
         agent: object,
         conversation_id: str | None,
         usage_out: dict[str, Any] | None,
-    ) -> AsyncGenerator[str, None]:
-        """If the stream's model turn included tool calls, run a follow-up.
+    ) -> AsyncGenerator[str | SSEEvent, None]:
+        """Run follow-up LLM call(s) after tool execution with retry logic.
 
         pydantic-ai's ``run_stream()`` only handles a single model turn.
         When the model emits text + tool_call, the ``on_complete()`` callback
         executes the tools and appends results to the message history, but
         there is no second LLM call to produce the actual answer.
 
-        This method detects that situation, extracts the accumulated message
-        history, and calls ``agent.run()`` with it so the LLM sees the tool
-        results and can produce a meaningful response.  The follow-up text
-        is yielded in fixed-size chunks to maintain the streaming feel.
+        This method:
+        1. Detects tool calls in the stream
+        2. Extracts message history and truncates large results
+        3. Retries the follow-up with exponential backoff on transient errors
+        4. ALWAYS emits the completion widget (100%) via try/finally
         """
-        # Check if any tool calls happened during the stream.
         tool_calls = (usage_out or {}).get("tool_calls", [])
         if not tool_calls:
             return
 
+        rt = await self._get_llm_runtime()
+
         _logger.info(
-            "Stream had %d tool call(s); running follow-up to get tool-result response",
+            "Stream had %d tool call(s); running follow-up with retry",
             len(tool_calls),
         )
 
-        # Get the complete message history from the stream (includes the
-        # user prompt, model response with tool calls, and tool return values).
-        try:
-            inner_stream = getattr(stream, "_stream", stream)
-            all_messages_fn = getattr(inner_stream, "all_messages", None)
-            if callable(all_messages_fn):
-                message_history = all_messages_fn()
-            elif isinstance(all_messages_fn, (list, tuple)):
-                message_history = list(all_messages_fn)
-            else:
-                _logger.warning("Cannot extract message history from stream; skipping follow-up.")
-                return
-        except Exception:
-            _logger.debug("Failed to extract message history for follow-up.", exc_info=True)
+        message_history = self._extract_message_history(stream)
+        if message_history is None:
             return
 
-        # Truncate large content in tool results to keep the follow-up
-        # call within reasonable token limits.
-        _truncate_message_history(message_history)
+        _truncate_message_history(
+            message_history,
+            max_chars=rt.followup_max_content_chars,
+            max_total_chars=rt.followup_max_total_chars,
+        )
 
-        # Make a follow-up call with the accumulated history so the LLM
-        # sees the tool results and produces the final answer.
-        # Uses run_stream() for real-time token streaming instead of
-        # blocking until the full response is ready.
-        # Includes retry with exponential backoff for transient / rate-limit errors.
         inner_agent = getattr(agent, "agent", agent)  # pydantic_ai.Agent
+        widget_id = f"doc-progress-{conversation_id or 'none'}"
+
+        # Emit initial progress widget.
+        yield SSEEvent(
+            event=SSEEventType.WIDGET,
+            data={
+                "widget_id": widget_id,
+                "type": "progress-bar",
+                "props": {
+                    "label": "Processing...",
+                    "value": 50,
+                    "max": 100,
+                    "variant": "default",
+                },
+                "display": "inline",
+            },
+        )
+
+        prompt = (
+            "Based on the tool results above, provide a complete answer to "
+            "the user's request. If the user asked you to generate content "
+            "and save it to the knowledge base, do both: generate the full "
+            "content AND call add_knowledge to save it."
+        )
+
+        # ------------------------------------------------------------------
+        # Retry loop with exponential backoff.
+        #
+        # NOTE: We must NOT yield inside the ``finally`` block.  In Python
+        # 3.10+ a ``yield`` inside ``finally`` of an async generator raises
+        # ``RuntimeError`` when the generator is closed externally (e.g. by
+        # ``asyncio.timeout``).  Instead we compute the completion widget in
+        # ``finally`` and yield it after the block exits.
+        # ------------------------------------------------------------------
+        output = ""
+        succeeded = False
         last_exc: Exception | None = None
+        completion_widget: SSEEvent | None = None
 
-        for attempt in range(_FOLLOWUP_MAX_RETRIES):
-            try:
-                async with asyncio.timeout(_LLM_FOLLOWUP_TIMEOUT):
-                    async with inner_agent.run_stream(
-                        "Based on the tool results above, provide a complete answer.",
-                        message_history=message_history,
-                    ) as stream_result:
-                        yield "\n\n"
-                        async for delta in stream_result.stream_text(delta=True):
-                            yield delta
-
-                        # Extract usage from the streamed result
-                        if usage_out is not None:
-                            try:
-                                fu_usage = stream_result.usage()
-                                if fu_usage:
-                                    usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (getattr(fu_usage, "input_tokens", 0) or 0)
-                                    usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (getattr(fu_usage, "output_tokens", 0) or 0)
-                                    usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
-                            except Exception:
-                                _logger.debug("Failed to extract follow-up usage.", exc_info=True)
-                return  # success
-            except TimeoutError:
-                _logger.warning("Follow-up LLM call timed out after %ds", _LLM_FOLLOWUP_TIMEOUT)
-                yield "\n\n*The follow-up response timed out. The tool calls completed but the summary could not be generated.*"
-                return
-            except Exception as exc:
-                last_exc = exc
-                if _is_transient_error(exc) and attempt < _FOLLOWUP_MAX_RETRIES - 1:
-                    delay = min(
-                        _FOLLOWUP_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2),
-                        _FOLLOWUP_RETRY_MAX_DELAY,
+        try:
+            for attempt in range(rt.followup_max_retries):
+                try:
+                    result = await asyncio.wait_for(
+                        inner_agent.run(
+                            prompt,
+                            message_history=message_history,
+                        ),
+                        timeout=rt.llm_followup_timeout,
                     )
+
+                    # Accumulate usage.
+                    if usage_out is not None:
+                        try:
+                            ru = result.usage()
+                            if ru:
+                                usage_out["input_tokens"] = usage_out.get("input_tokens", 0) + (
+                                    getattr(ru, "request_tokens", 0) or getattr(ru, "input_tokens", 0) or 0
+                                )
+                                usage_out["output_tokens"] = usage_out.get("output_tokens", 0) + (
+                                    getattr(ru, "response_tokens", 0) or getattr(ru, "output_tokens", 0) or 0
+                                )
+                                usage_out["total_tokens"] = usage_out["input_tokens"] + usage_out["output_tokens"]
+                        except Exception:
+                            _logger.debug("Failed to extract follow-up usage.", exc_info=True)
+
+                    # Extract text output.
+                    if hasattr(result, "output"):
+                        output = str(result.output) if result.output else ""
+                    elif hasattr(result, "data"):
+                        output = str(result.data) if result.data else ""
+
+                    succeeded = True
+                    _logger.info("Follow-up run() completed: %d chars of output", len(output))
+                    break  # Success — exit retry loop
+
+                except (TimeoutError, asyncio.TimeoutError) as exc:
+                    last_exc = exc
                     _logger.warning(
-                        "Follow-up rate limited (attempt %d/%d), retrying in %.1fs: %s",
-                        attempt + 1, _FOLLOWUP_MAX_RETRIES, delay, exc,
+                        "Follow-up timed out (attempt %d/%d) after %ds",
+                        attempt + 1, rt.followup_max_retries, rt.llm_followup_timeout,
                     )
-                    yield f" ⏳"
-                    await asyncio.sleep(delay)
-                    continue
-                break
+                    if attempt < rt.followup_max_retries - 1:
+                        delay = min(
+                            rt.followup_retry_base_delay * (2 ** attempt) + random.uniform(0, 2),
+                            rt.followup_retry_max_delay,
+                        )
+                        _logger.info("Retrying follow-up in %.1fs", delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    break  # last attempt — exit loop explicitly
 
-        if last_exc is not None:
-            _logger.error("Follow-up LLM call after tool execution failed: %s", last_exc, exc_info=True)
-            yield f"\n\n*Tool results could not be summarized: {last_exc}*"
+                except Exception as exc:
+                    last_exc = exc
+                    if _is_transient_error(exc) and attempt < rt.followup_max_retries - 1:
+                        delay = min(
+                            rt.followup_retry_base_delay * (2 ** attempt) + random.uniform(0, 2),
+                            rt.followup_retry_max_delay,
+                        )
+                        _logger.warning(
+                            "Transient follow-up error (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, rt.followup_max_retries, delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+
+                    # Non-transient or final attempt — stop retrying
+                    _logger.error("Follow-up run() failed: %s", exc, exc_info=True)
+                    break
+
+        finally:
+            # Compute the completion widget inside ``finally`` so it is
+            # always prepared — even on external cancellation.  We do NOT
+            # yield here to avoid the RuntimeError described above.
+            if succeeded:
+                completion_widget = SSEEvent(
+                    event=SSEEventType.WIDGET,
+                    data={
+                        "widget_id": widget_id,
+                        "type": "progress-bar",
+                        "props": {
+                            "label": "Complete",
+                            "value": 100,
+                            "max": 100,
+                            "variant": "default",
+                        },
+                        "display": "inline",
+                    },
+                )
+            else:
+                completion_widget = SSEEvent(
+                    event=SSEEventType.WIDGET,
+                    data={
+                        "widget_id": widget_id,
+                        "type": "progress-bar",
+                        "props": {
+                            "label": "Failed",
+                            "value": 100,
+                            "max": 100,
+                            "variant": "error",
+                        },
+                        "display": "inline",
+                    },
+                )
+
+        # Yield the completion widget AFTER the try/finally exits.
+        if completion_widget is not None:
+            yield completion_widget
+
+        # Yield output or error message.
+        if succeeded and output:
+            yield "\n\n"
+            yield output
+        elif not succeeded:
+            if isinstance(last_exc, (TimeoutError, asyncio.TimeoutError)):
+                yield (
+                    "\n\n*Processing timed out after multiple attempts. "
+                    "The document may be too large for a single pass. "
+                    "Try asking about a specific section.*"
+                )
+            else:
+                yield (
+                    "\n\nI encountered an error processing the document "
+                    f"after {rt.followup_max_retries} attempts. "
+                    "Try asking about a specific section or topic."
+                )
+
+    @staticmethod
+    def _extract_message_history(stream: object) -> list | None:
+        """Extract message history from a pydantic-ai stream or result."""
+        try:
+            inner = getattr(stream, "_stream", stream)
+            all_messages = getattr(inner, "all_messages", None)
+            if callable(all_messages):
+                return all_messages()
+            if isinstance(all_messages, (list, tuple)):
+                return list(all_messages)
+            _logger.warning("Cannot extract message history from stream; skipping follow-up.")
+            return None
+        except Exception:
+            _logger.debug("Failed to extract message history for follow-up.", exc_info=True)
+            return None
 
     async def _call_llm(
         self,
@@ -1465,6 +1636,7 @@ class DeskAgent:
         if self._agent_factory is None:
             return self._echo_fallback(message)
 
+        rt = await self._get_llm_runtime()
         agent = await self._agent_factory.create_agent(
             system_prompt, tools=tools, model_override=model_override,
         )
@@ -1472,7 +1644,7 @@ class DeskAgent:
             return self._echo_fallback(message)
 
         last_exc: Exception | None = None
-        for attempt in range(_LLM_MAX_RETRIES):
+        for attempt in range(rt.llm_max_retries):
             try:
                 result = await agent.run(message, conversation_id=conversation_id)
                 if usage_out is not None:
@@ -1493,19 +1665,19 @@ class DeskAgent:
             except Exception as exc:
                 last_exc = exc
                 if _is_transient_error(exc):
-                    if attempt < _LLM_MAX_RETRIES - 1:
+                    if attempt < rt.llm_max_retries - 1:
                         delay = min(
-                            _LLM_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
-                            _LLM_RETRY_MAX_DELAY,
+                            rt.llm_retry_base_delay * (2 ** attempt) + random.uniform(0, 1),
+                            rt.llm_retry_max_delay,
                         )
                         _logger.warning(
                             "Transient LLM error (attempt %d/%d), retrying in %.1fs: %s",
-                            attempt + 1, _LLM_MAX_RETRIES, delay, exc,
+                            attempt + 1, rt.llm_max_retries, delay, exc,
                         )
                         await asyncio.sleep(delay)
                         continue
                     _logger.warning(
-                        "Primary model exhausted %d retries: %s", _LLM_MAX_RETRIES, exc,
+                        "Primary model exhausted %d retries: %s", rt.llm_max_retries, exc,
                     )
                 else:
                     _logger.error("LLM call failed: %s", exc, exc_info=True)
@@ -1521,16 +1693,16 @@ class DeskAgent:
                 )
                 if fb_agent is None:
                     continue
-                for fb_attempt in range(_LLM_FALLBACK_RETRIES):
+                for fb_attempt in range(rt.llm_fallback_retries):
                     try:
                         result = await fb_agent.run(message, conversation_id=conversation_id)
                         return str(result.output)
                     except Exception as fb_exc:
-                        if _is_transient_error(fb_exc) and fb_attempt < _LLM_FALLBACK_RETRIES - 1:
-                            delay = _LLM_RETRY_BASE_DELAY + random.uniform(0, 1)
+                        if _is_transient_error(fb_exc) and fb_attempt < rt.llm_fallback_retries - 1:
+                            delay = rt.llm_retry_base_delay + random.uniform(0, 1)
                             _logger.warning(
                                 "Fallback model %s also busy (attempt %d/%d), retrying in %.1fs",
-                                fb_model, fb_attempt + 1, _LLM_FALLBACK_RETRIES, delay,
+                                fb_model, fb_attempt + 1, rt.llm_fallback_retries, delay,
                             )
                             await asyncio.sleep(delay)
                             continue
@@ -1538,7 +1710,7 @@ class DeskAgent:
                         break  # Try next fallback model
 
         # All retries and fallbacks exhausted
-        _logger.error("LLM call failed after %d retries + fallbacks: %s", _LLM_MAX_RETRIES, last_exc)
+        _logger.error("LLM call failed after %d retries + fallbacks: %s", rt.llm_max_retries, last_exc)
         return _friendly_error_message(last_exc or RuntimeError("Unknown error"))
 
     @staticmethod
@@ -1778,7 +1950,7 @@ class DeskAgent:
             parts.append("Entities:\n" + "\n".join(entity_lines))
 
         if enriched.knowledge_snippets:
-            max_chunk = 2_000
+            max_chunk = KNOWLEDGE_SNIPPET_MAX_CHARS
             snippet_lines = []
             for s in enriched.knowledge_snippets:
                 content = s.chunk.content
@@ -1806,6 +1978,8 @@ _IMAGE_CONTENT_TYPES = frozenset({
 async def _build_multimodal_parts(
     uploads: list[FileUpload],
     storage: FileStorageProvider,
+    *,
+    max_context_chars: int = 12_000,
 ) -> list:
     """Build multimodal content parts from file uploads.
 
@@ -1821,12 +1995,11 @@ async def _build_multimodal_parts(
             parts.append(BinaryContent(data=raw, media_type=upload.content_type))
         elif upload.extracted_text:
             text = upload.extracted_text
-            max_ctx = 4_000
-            if len(text) > max_ctx:
-                text = text[:max_ctx]
+            if len(text) > max_context_chars:
+                text = text[:max_context_chars]
                 text += (
-                    "\n\n[... truncated — use the document_read tool with "
-                    "page_start/page_end to read specific sections]"
+                    "\n\n[... truncated — use document_read(file_id=\"" + upload.id
+                    + "\", page_start=N, page_end=M) to read specific sections]"
                 )
-            parts.append(f"[{upload.filename}]: {text}")
+            parts.append(f"[{upload.filename}] (file_id={upload.id}): {text}")
     return parts
