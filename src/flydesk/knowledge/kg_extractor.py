@@ -28,6 +28,7 @@ from flydesk.knowledge.analyzer import _MAX_CONTENT_LENGTH
 
 if TYPE_CHECKING:
     from flydesk.agent.genai_bridge import DeskAgentFactory
+    from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,10 @@ class KGExtractor:
         agent_factory: DeskAgentFactory,
         *,
         prompts_dir: Path | None = None,
+        settings_repo: SettingsRepository | None = None,
     ) -> None:
         self._agent_factory = agent_factory
+        self._settings_repo = settings_repo
         templates_path = prompts_dir or _PROMPTS_DIR
         self._jinja_env = Environment(
             loader=FileSystemLoader(str(templates_path)),
@@ -107,10 +110,17 @@ class KGExtractor:
             of dicts suitable for ``KnowledgeGraph.upsert_entity()`` and
             ``KnowledgeGraph.add_relation()``.
         """
+        max_len = _MAX_CONTENT_LENGTH
+        if self._settings_repo is not None:
+            try:
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                max_len = rt.knowledge_analyzer_max_chars
+            except Exception:
+                pass
         system_prompt = self._render_document_system()
         user_prompt = self._render_document_user(
             title=title,
-            content=content[:_MAX_CONTENT_LENGTH],
+            content=content[:max_len],
         )
         return await self._extract(system_prompt, user_prompt, source_system=None)
 

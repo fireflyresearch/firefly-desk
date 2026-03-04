@@ -105,7 +105,7 @@ def document_read_tool() -> ToolDefinition:
             },
             "max_chars": {
                 "type": "integer",
-                "description": "Maximum characters to return. Defaults to 12000.",
+                "description": "Maximum characters to return. Defaults to 30000.",
                 "required": False,
             },
         },

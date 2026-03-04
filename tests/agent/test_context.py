@@ -151,7 +151,7 @@ class TestContextEnricher:
     ):
         await enricher.enrich("refund policy details")
         retriever.retrieve.assert_awaited_once_with(
-            "refund policy details", top_k=3, tag_filter=None,
+            "refund policy details", top_k=5, tag_filter=None,
         )
 
     async def test_enrich_with_custom_entity_limit(

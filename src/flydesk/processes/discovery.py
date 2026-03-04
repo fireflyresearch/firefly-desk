@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
+# Discovery tuning constants
+_DISCOVERY_ENTITY_LIMIT = 200  # max KG entities loaded for context (matches system discovery)
+_DISCOVERY_MAX_TOKENS = 65_536  # max LLM output tokens (higher than system discovery due to structured output volume)
+
 
 class DiscoveredStep(BaseModel):
     """A single step from the LLM discovery response."""
@@ -447,7 +451,7 @@ class ProcessDiscoveryEngine:
         # Knowledge graph entities + relations
         try:
             await _progress(11, "Querying knowledge graph for entities and relations...")
-            entities = await self._knowledge_graph.list_entities(limit=100)
+            entities = await self._knowledge_graph.list_entities(limit=_DISCOVERY_ENTITY_LIMIT)
             ctx.entities = [
                 {
                     "name": e.name,
@@ -581,7 +585,7 @@ class ProcessDiscoveryEngine:
         """
         agent = await self._agent_factory.create_agent(
             system_prompt,
-            model_settings_override={"max_tokens": 65536},
+            model_settings_override={"max_tokens": _DISCOVERY_MAX_TOKENS},
         )
         if agent is None:
             logger.warning("No LLM provider configured; process discovery skipped.")

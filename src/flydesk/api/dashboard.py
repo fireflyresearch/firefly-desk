@@ -393,9 +393,27 @@ async def get_analytics(
     )
 
 
-# Default per-token pricing (USD per token)
-_INPUT_PRICE_PER_TOKEN = 3.0 / 1_000_000   # $3 per 1M input tokens
-_OUTPUT_PRICE_PER_TOKEN = 15.0 / 1_000_000  # $15 per 1M output tokens
+# Fallback per-token pricing (USD per token) when model-specific pricing
+# is unavailable.  These are conservative mid-range estimates; the actual
+# cost depends on the configured LLM provider and model.
+_FALLBACK_INPUT_PRICE_PER_TOKEN = 3.0 / 1_000_000   # $3 per 1M input tokens
+_FALLBACK_OUTPUT_PRICE_PER_TOKEN = 15.0 / 1_000_000  # $15 per 1M output tokens
+
+
+def _get_default_token_prices() -> tuple[float, float]:
+    """Return (input_price, output_price) per token from the cost calculator.
+
+    Falls back to module-level defaults when the genai library is not available
+    or the configured provider has no pricing data.
+    """
+    try:
+        from fireflyframework_genai.observability.cost import get_cost_calculator
+        calc = get_cost_calculator()
+        if calc and hasattr(calc, "default_input_price") and calc.default_input_price:
+            return calc.default_input_price, calc.default_output_price
+    except Exception:
+        pass
+    return _FALLBACK_INPUT_PRICE_PER_TOKEN, _FALLBACK_OUTPUT_PRICE_PER_TOKEN
 
 
 @router.get("/token-usage", dependencies=[AdminDashboard])
@@ -437,9 +455,10 @@ async def get_token_usage(
     except Exception:
         logger.debug("Failed to query token usage data.", exc_info=True)
 
+    input_price, output_price = _get_default_token_prices()
     estimated_cost = (
-        total_input_tokens * _INPUT_PRICE_PER_TOKEN
-        + total_output_tokens * _OUTPUT_PRICE_PER_TOKEN
+        total_input_tokens * input_price
+        + total_output_tokens * output_price
     )
 
     return TokenUsageStats(

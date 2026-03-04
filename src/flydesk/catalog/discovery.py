@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent / "discovery_prompts"
 
+# Discovery tuning constants
+_DISCOVERY_ENTITY_LIMIT = 200  # max KG entities loaded for context
+_DISCOVERY_MAX_TOKENS = 16_384  # max LLM output tokens for system discovery
+
 
 class DiscoveredEndpoint(BaseModel):
     """An endpoint discovered from document analysis."""
@@ -402,7 +406,7 @@ class SystemDiscoveryEngine:
 
         # Knowledge graph entities + relations
         try:
-            entities = await self._knowledge_graph.list_entities(limit=200)
+            entities = await self._knowledge_graph.list_entities(limit=_DISCOVERY_ENTITY_LIMIT)
             ctx.entities = [
                 {
                     "name": e.name,
@@ -531,7 +535,7 @@ class SystemDiscoveryEngine:
         # limit than the default chat agent to avoid truncation.
         agent = await self._agent_factory.create_agent(
             system_prompt,
-            model_settings_override={"max_tokens": 16384},
+            model_settings_override={"max_tokens": _DISCOVERY_MAX_TOKENS},
         )
         if agent is None:
             logger.warning("No LLM provider configured; system discovery skipped.")

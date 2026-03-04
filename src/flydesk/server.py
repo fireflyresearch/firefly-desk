@@ -709,7 +709,7 @@ async def _init_agent(  # noqa: PLR0913
     from flydesk.jobs.handlers import KGExtractSingleHandler, KGRecomputeHandler
     from flydesk.knowledge.kg_extractor import KGExtractor
 
-    kg_extractor = KGExtractor(agent_factory)
+    kg_extractor = KGExtractor(agent_factory, settings_repo=settings_repo)
     job_runner.register_handler("kg_recompute", KGRecomputeHandler(catalog_repo, knowledge_graph, kg_extractor))
     job_runner.register_handler("kg_extract_single", KGExtractSingleHandler(catalog_repo, knowledge_graph, kg_extractor))
     app.state.kg_extractor = kg_extractor

@@ -49,7 +49,7 @@ class ContextEnricher:
         process_repo: ProcessRepository | None = None,
         memory_repo: Any | None = None,
         entity_limit: int = 5,
-        retrieval_top_k: int = 3,
+        retrieval_top_k: int = 5,
     ) -> None:
         self._knowledge_graph = knowledge_graph
         self._retriever = retriever

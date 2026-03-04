@@ -62,7 +62,7 @@ class KnowledgeRetriever:
         self,
         query: str,
         *,
-        top_k: int = 3,
+        top_k: int = 5,
         tag_filter: list[str] | None = None,
     ) -> list[RetrievalResult]:
         """Find the most relevant document chunks for a query.
