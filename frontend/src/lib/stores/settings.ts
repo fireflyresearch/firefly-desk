@@ -71,8 +71,8 @@ export async function loadUserSettings(): Promise<void> {
 			agentGreeting: (raw.agent_greeting as string | null) ?? DEFAULTS.agentGreeting,
 			agentLanguage: (raw.agent_language as string | null) ?? DEFAULTS.agentLanguage
 		});
-	} catch {
-		// Use defaults on error
+	} catch (err) {
+		console.error('[settings] Failed to load user settings; using defaults:', err);
 	}
 }
 

@@ -116,7 +116,7 @@ class KGExtractor:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 max_len = rt.knowledge_analyzer_max_chars
             except Exception:
-                pass
+                logger.debug("LLM runtime settings fetch failed; using default.", exc_info=True)
         system_prompt = self._render_document_system()
         user_prompt = self._render_document_user(
             title=title,

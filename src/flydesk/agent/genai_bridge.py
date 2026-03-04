@@ -166,7 +166,7 @@ class DeskAgentFactory:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 max_tokens = rt.default_max_tokens
             except Exception:
-                pass  # fall back to constructor default
+                _logger.debug("LLM runtime settings fetch failed; using constructor default.", exc_info=True)
         if provider.models:
             caps = provider.models[0].capabilities
             if caps.max_output_tokens:

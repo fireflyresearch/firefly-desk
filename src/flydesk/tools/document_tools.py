@@ -367,7 +367,7 @@ class DocumentToolExecutor:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 default_max = rt.document_read_max_chars
             except Exception:
-                pass
+                logger.debug("LLM runtime settings fetch failed; using default.", exc_info=True)
         max_chars = int(arguments.get("max_chars") or default_max)
         page_start = arguments.get("page_start")
         page_end = arguments.get("page_end")

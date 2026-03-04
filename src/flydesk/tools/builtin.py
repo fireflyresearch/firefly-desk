@@ -718,7 +718,7 @@ class BuiltinToolExecutor:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 default_top_k = rt.context_retrieval_top_k
             except Exception:
-                pass
+                logger.debug("LLM runtime settings fetch failed; using default.", exc_info=True)
         top_k = arguments.get("top_k", default_top_k)
 
         if not query:

@@ -74,8 +74,7 @@ export async function initCurrentUser(): Promise<void> {
 			title: profile.title ?? undefined,
 			devMode: profile.dev_mode ?? false
 		});
-	} catch {
-		// If the profile fetch fails (e.g. unauthenticated), leave the
-		// store as-is.  Auth guards elsewhere will redirect to login.
+	} catch (err) {
+		console.error('[user] Failed to load user profile:', err);
 	}
 }

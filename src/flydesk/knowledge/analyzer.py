@@ -145,7 +145,7 @@ class DocumentAnalyzer:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 max_len = rt.knowledge_analyzer_max_chars
             except Exception:
-                pass
+                logger.debug("LLM runtime settings fetch failed; using default.", exc_info=True)
         truncated = content[:max_len]
         user_prompt = f"Filename: {filename}\n\n{truncated}"
 

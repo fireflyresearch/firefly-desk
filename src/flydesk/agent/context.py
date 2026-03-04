@@ -92,7 +92,7 @@ class ContextEnricher:
                 rt = await self._settings_repo.get_llm_runtime_settings()
                 timeout_seconds = rt.context_enrichment_timeout
             except Exception:
-                pass
+                _logger.debug("LLM runtime settings fetch failed; using default.", exc_info=True)
 
         try:
             async with asyncio.timeout(timeout_seconds):

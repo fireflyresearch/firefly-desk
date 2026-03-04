@@ -192,7 +192,7 @@ async def _generate_title(
                 if routing_config and routing_config.enabled:
                     model_override = routing_config.tier_mappings.get("fast")
             except Exception:
-                pass  # Non-fatal
+                logger.debug("Routing config fetch failed; using default model.", exc_info=True)
 
         agent = await agent_factory.create_agent(
             "You are a conversation title generator. Given the user's first message, "

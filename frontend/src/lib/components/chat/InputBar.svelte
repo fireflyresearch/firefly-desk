@@ -45,6 +45,7 @@
 	let text = $state('');
 	let textareaEl: HTMLTextAreaElement | undefined = $state();
 	let uploading = $state(false);
+	let uploadError = $state('');
 	let showSlashMenu = $state(false);
 	let slashFilter = $state('');
 	let selectedSlashIndex = $state(0);
@@ -84,12 +85,15 @@
 		let uploadedFiles: UploadedFile[] = [];
 		if (pendingFiles.length > 0) {
 			uploading = true;
+			uploadError = '';
 			try {
 				const convId = conversationId ?? crypto.randomUUID();
 				uploadedFiles = await Promise.all(
 					pendingFiles.map((f) => uploadFile(f, convId))
 				);
-			} catch {
+			} catch (err) {
+				console.error('[InputBar] File upload failed:', err);
+				uploadError = err instanceof Error ? err.message : 'File upload failed. Please try again.';
 				uploading = false;
 				return;
 			}
@@ -269,6 +273,13 @@
 	<div class="relative mx-auto max-w-3xl">
 		{#if pendingFiles.length > 0}
 			<FileUploadArea files={pendingFiles} onRemove={removeFile} />
+		{/if}
+
+		{#if uploadError}
+			<div class="mb-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+				{uploadError}
+				<button class="ml-2 underline" onclick={() => (uploadError = '')}>Dismiss</button>
+			</div>
 		{/if}
 
 		<!-- Slash command popover -->

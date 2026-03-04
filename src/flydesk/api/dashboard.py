@@ -412,7 +412,7 @@ def _get_default_token_prices() -> tuple[float, float]:
         if calc and hasattr(calc, "default_input_price") and calc.default_input_price:
             return calc.default_input_price, calc.default_output_price
     except Exception:
-        pass
+        logger.debug("Cost calculator unavailable; using fallback token prices.", exc_info=True)
     return _FALLBACK_INPUT_PRICE_PER_TOKEN, _FALLBACK_OUTPUT_PRICE_PER_TOKEN
 
 
