@@ -143,6 +143,10 @@ class LLMRuntimeSettings(BaseModel):
     knowledge_analyzer_max_chars: int = 8_000  # max content sent to LLM for document analysis
     document_read_max_chars: int = 30_000  # default max_chars for the document_read tool
 
+    # -- Knowledge context budget --
+    max_knowledge_tokens: int = 4_000  # token budget for RAG knowledge in the system prompt
+
     # -- Context enricher --
     context_entity_limit: int = 5
     context_retrieval_top_k: int = 5
+    context_enrichment_timeout: int = 10  # seconds to wait for knowledge retrieval

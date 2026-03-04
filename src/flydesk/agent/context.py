@@ -50,6 +50,7 @@ class ContextEnricher:
         memory_repo: Any | None = None,
         entity_limit: int = 5,
         retrieval_top_k: int = 5,
+        settings_repo: Any | None = None,
     ) -> None:
         self._knowledge_graph = knowledge_graph
         self._retriever = retriever
@@ -57,6 +58,7 @@ class ContextEnricher:
         self._memory_repo = memory_repo
         self._entity_limit = entity_limit
         self._retrieval_top_k = retrieval_top_k
+        self._settings_repo = settings_repo
 
     async def enrich(
         self,
@@ -83,8 +85,17 @@ class ContextEnricher:
         Returns:
             A fully populated ``EnrichedContext``.
         """
+        timeout_seconds = 10
+        if self._settings_repo is not None:
+            try:
+                from flydesk.settings.models import LLMRuntimeSettings
+                rt = await self._settings_repo.get_llm_runtime_settings()
+                timeout_seconds = rt.context_enrichment_timeout
+            except Exception:
+                pass
+
         try:
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(timeout_seconds):
                 entities, snippets, processes, memories = await asyncio.gather(
                     self._knowledge_graph.find_relevant_entities(
                         message, limit=self._entity_limit

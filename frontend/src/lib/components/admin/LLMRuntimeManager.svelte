@@ -53,8 +53,10 @@
 		default_max_tokens: number;
 		knowledge_analyzer_max_chars: number;
 		document_read_max_chars: number;
+		max_knowledge_tokens: number;
 		context_entity_limit: number;
 		context_retrieval_top_k: number;
+		context_enrichment_timeout: number;
 	}
 
 	interface FieldDef {
@@ -117,8 +119,10 @@
 		default_max_tokens: 4096,
 		knowledge_analyzer_max_chars: 8000,
 		document_read_max_chars: 30000,
+		max_knowledge_tokens: 4000,
 		context_entity_limit: 5,
-		context_retrieval_top_k: 5
+		context_retrieval_top_k: 5,
+		context_enrichment_timeout: 10
 	};
 
 	const PRESETS: PresetProfile[] = [
@@ -154,8 +158,10 @@
 				default_max_tokens: 2048,
 				knowledge_analyzer_max_chars: 6000,
 				document_read_max_chars: 20000,
+				max_knowledge_tokens: 3000,
 				context_entity_limit: 3,
-				context_retrieval_top_k: 3
+				context_retrieval_top_k: 3,
+				context_enrichment_timeout: 15
 			}
 		},
 		{
@@ -206,8 +212,10 @@
 				default_max_tokens: 8192,
 				knowledge_analyzer_max_chars: 12000,
 				document_read_max_chars: 60000,
+				max_knowledge_tokens: 6000,
 				context_entity_limit: 8,
-				context_retrieval_top_k: 8
+				context_retrieval_top_k: 8,
+				context_enrichment_timeout: 8
 			}
 		}
 	];
@@ -388,6 +396,15 @@
 					min: 5000,
 					max: 200000,
 					step: 5000
+				},
+				{
+					key: 'max_knowledge_tokens',
+					label: 'Knowledge Token Budget',
+					help: 'Token budget for RAG-retrieved knowledge injected into the system prompt. This is the single most important context budget for knowledge-heavy deployments. Too low \u2192 the LLM misses relevant info. Too high \u2192 oversized prompts that trigger rate limits. Recommended: 2000\u20138000.',
+					unit: 'tokens',
+					min: 500,
+					max: 32000,
+					step: 500
 				}
 			]
 		},
@@ -434,6 +451,15 @@
 					help: "How many knowledge base snippets to retrieve and inject into the LLM's context for each user message. More snippets = better-informed answers but more tokens consumed. Recommended: 2\u20135.",
 					min: 1,
 					max: 20,
+					step: 1
+				},
+				{
+					key: 'context_enrichment_timeout',
+					label: 'Enrichment Timeout',
+					help: 'Maximum seconds to wait for knowledge retrieval (entity search, RAG, memory lookup) before the agent proceeds without context. Increase if you have a slow embedding store or large knowledge graph. Recommended: 5\u201320s.',
+					unit: 'seconds',
+					min: 2,
+					max: 60,
 					step: 1
 				}
 			]

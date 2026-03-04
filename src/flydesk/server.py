@@ -564,6 +564,7 @@ async def _init_agent(  # noqa: PLR0913
         memory_repo=memory_repo,
         entity_limit=config.kg_max_entities_in_context,
         retrieval_top_k=config.rag_top_k,
+        settings_repo=settings_repo,
     )
     prompt_registry = register_desk_prompts()
     prompt_builder = SystemPromptBuilder(prompt_registry)

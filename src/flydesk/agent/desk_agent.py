@@ -53,6 +53,14 @@ _logger = logging.getLogger(__name__)
 # Token chunk size for simulated streaming (number of characters per token event).
 _STREAM_CHUNK_SIZE = 20
 
+# Reasoning-pattern step limits.
+_REACT_MAX_STEPS = 5
+_PLAN_AND_EXECUTE_MAX_STEPS = 8
+
+# Conversation-history formatting limits.
+_HISTORY_WINDOW_SIZE = 10  # number of recent messages to include
+_HISTORY_MSG_CHAR_CAP = 200  # per-message content truncation
+
 # Resilience / budget exception types from fireflyframework-genai.
 # We import at module level so they can be used in ``except`` clauses.
 # If the genai package is not installed (unlikely at runtime) we fall back
@@ -704,22 +712,22 @@ class DeskAgent:
         if pattern_name == "auto":
             # Auto-detect: if tools available and more than 2, use PlanAndExecute; otherwise ReAct
             if tools and len(tools) > 2:
-                return PlanAndExecutePattern(max_steps=8)
-            return ReActPattern(max_steps=5)
+                return PlanAndExecutePattern(max_steps=_PLAN_AND_EXECUTE_MAX_STEPS)
+            return ReActPattern(max_steps=_REACT_MAX_STEPS)
 
         match pattern_name:
             case "react":
-                return ReActPattern(max_steps=5)
+                return ReActPattern(max_steps=_REACT_MAX_STEPS)
             case "plan_and_execute":
-                return PlanAndExecutePattern(max_steps=8)
+                return PlanAndExecutePattern(max_steps=_PLAN_AND_EXECUTE_MAX_STEPS)
             case "chain_of_thought":
                 from fireflyframework_genai.reasoning import ChainOfThoughtPattern
-                return ChainOfThoughtPattern(max_steps=5)
+                return ChainOfThoughtPattern(max_steps=_REACT_MAX_STEPS)
             case "reflexion":
                 from fireflyframework_genai.reasoning import ReflexionPattern
-                return ReflexionPattern(max_steps=5)
+                return ReflexionPattern(max_steps=_REACT_MAX_STEPS)
             case _:
-                return ReActPattern(max_steps=5)
+                return ReActPattern(max_steps=_REACT_MAX_STEPS)
 
     # ------------------------------------------------------------------
     # Tool execution infrastructure
@@ -881,9 +889,9 @@ class DeskAgent:
         if not history:
             return ""
         lines: list[str] = []
-        for msg in history[-10:]:  # Last 10 messages for context
+        for msg in history[-_HISTORY_WINDOW_SIZE:]:
             role = msg.get("role", "unknown").capitalize()
-            content = msg.get("content", "")[:200]  # Truncate long messages
+            content = msg.get("content", "")[:_HISTORY_MSG_CHAR_CAP]
             lines.append(f"{role}: {content}")
         return "Recent conversation:\n" + "\n".join(lines)
 
@@ -1039,11 +1047,9 @@ class DeskAgent:
         knowledge_context = self._format_knowledge_context(enriched)
 
         # Apply token budget to prevent oversized prompts.
-        from flydesk.config import get_config as _get_desk_config
-
-        _desk_cfg = _get_desk_config()
+        rt = await self._get_llm_runtime()
         knowledge_context = truncate_to_token_budget(
-            knowledge_context, max_tokens=_desk_cfg.max_knowledge_tokens,
+            knowledge_context, max_tokens=rt.max_knowledge_tokens,
         )
 
         file_context, multimodal_parts = await self._build_file_context(file_ids)

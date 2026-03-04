@@ -42,6 +42,8 @@ class TestLLMRuntimeRepository:
         assert settings.file_context_max_per_file == 12_000
         assert settings.knowledge_analyzer_max_chars == 8_000
         assert settings.document_read_max_chars == 30_000
+        assert settings.max_knowledge_tokens == 4_000
+        assert settings.context_enrichment_timeout == 10
 
     async def test_put_and_get_roundtrip(self, repo):
         """PUT stores values, GET returns them."""
@@ -73,6 +75,19 @@ class TestLLMRuntimeRepository:
         result = await repo.get_llm_runtime_settings()
         assert result.knowledge_analyzer_max_chars == 12_000
         assert result.document_read_max_chars == 50_000
+        # Other fields remain default
+        assert result.llm_max_retries == 3
+
+    async def test_new_fields_roundtrip(self, repo):
+        """PUT and GET the max_knowledge_tokens and context_enrichment_timeout fields."""
+        custom = LLMRuntimeSettings(
+            max_knowledge_tokens=6_000,
+            context_enrichment_timeout=20,
+        )
+        await repo.set_llm_runtime_settings(custom)
+        result = await repo.get_llm_runtime_settings()
+        assert result.max_knowledge_tokens == 6_000
+        assert result.context_enrichment_timeout == 20
         # Other fields remain default
         assert result.llm_max_retries == 3
 
