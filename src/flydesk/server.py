@@ -122,7 +122,6 @@ from flydesk.config import DeskConfig, get_config
 from flydesk.db import create_engine_from_url, create_session_factory
 from flydesk.models import Base
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -172,20 +171,6 @@ async def _init_database(
         if "postgresql" in config.database_url:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-
-        # Backfill columns for existing databases that predate schema additions.
-        _backfills = [
-            "ALTER TABLE conversations ADD COLUMN deleted_at DATETIME",
-            "ALTER TABLE conversation_folders ADD COLUMN icon VARCHAR(50) NOT NULL DEFAULT 'folder'",
-            "ALTER TABLE conversations ADD COLUMN channel VARCHAR(50) NOT NULL DEFAULT 'chat'",
-        ]
-        for sql in _backfills:
-            try:
-                await conn.execute(text(sql))
-            except (OperationalError, ProgrammingError):
-                pass  # Column already exists
-            except Exception:
-                logger.warning("Unexpected error during backfill: %s", sql, exc_info=True)
 
     session_factory = create_session_factory(engine)
     return engine, session_factory
