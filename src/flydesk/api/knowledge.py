@@ -364,6 +364,39 @@ async def bulk_archive_documents(
     return {"archived": archived, "errors": errors}
 
 
+@router.post(
+    "/documents/{document_id}/reindex",
+    dependencies=[KnowledgeWrite],
+)
+async def reindex_document(
+    document_id: str, indexer: Indexer, store: DocStore
+) -> dict[str, Any]:
+    """Delete old chunks for a document and re-index it."""
+    existing = await store.get_document(document_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=404, detail=f"Document {document_id} not found"
+        )
+    chunks = await indexer.reindex_document(document_id)
+    return {"document_id": document_id, "chunks_created": len(chunks)}
+
+
+@router.post("/documents/reindex-all", status_code=202, dependencies=[KnowledgeWrite])
+async def reindex_all(request: Request) -> dict[str, Any]:
+    """Trigger a background job to reindex all knowledge documents.
+
+    Returns a job ID for progress tracking.
+    """
+    job_runner = getattr(request.app.state, "job_runner", None)
+    if job_runner is None:
+        raise HTTPException(status_code=503, detail="Job runner not available")
+    try:
+        job = await job_runner.submit("reindex", {})
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"job_id": job.id, "status": job.status.value}
+
+
 @router.post("/documents/bulk-reindex", status_code=202, dependencies=[KnowledgeWrite])
 async def bulk_reindex_documents(
     body: BulkDocumentRequest, store: DocStore, producer: Producer

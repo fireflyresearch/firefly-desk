@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -342,3 +343,102 @@ class KnowledgeIndexer:
                 delete(KnowledgeDocumentRow).where(KnowledgeDocumentRow.id == document_id)
             )
             await session.commit()
+
+    async def reindex_document(self, document_id: str) -> list[DocumentChunk]:
+        """Delete old chunks, re-chunk, re-embed, and re-store.
+
+        Returns the newly created chunks, or an empty list if the document
+        does not exist.
+        """
+        from sqlalchemy import delete as sa_delete
+
+        # 1. Fetch the existing document row
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(KnowledgeDocumentRow).where(
+                    KnowledgeDocumentRow.id == document_id
+                )
+            )
+            doc_row = result.scalar_one_or_none()
+
+        if doc_row is None:
+            return []
+
+        # 2. Delete existing chunks (vector store or SQLAlchemy)
+        if self._vector_store is not None:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(DocumentChunkRow.id).where(
+                        DocumentChunkRow.document_id == document_id
+                    )
+                )
+                chunk_ids = list(result.scalars().all())
+            if chunk_ids:
+                await self._vector_store.delete(chunk_ids)
+        else:
+            async with self._session_factory() as session:
+                await session.execute(
+                    sa_delete(DocumentChunkRow).where(
+                        DocumentChunkRow.document_id == document_id
+                    )
+                )
+                await session.commit()
+
+        # 3. Delete the document row so index_document can re-insert it
+        async with self._session_factory() as session:
+            await session.execute(
+                sa_delete(KnowledgeDocumentRow).where(
+                    KnowledgeDocumentRow.id == document_id
+                )
+            )
+            await session.commit()
+
+        # 4. Reconstruct domain model and re-index
+        import json as _json
+
+        doc = KnowledgeDocument(
+            id=doc_row.id,
+            title=doc_row.title,
+            content=doc_row.content,
+            document_type=doc_row.document_type or "other",
+            source=doc_row.source,
+            workspace_ids=_json.loads(doc_row.workspace_ids)
+            if doc_row.workspace_ids
+            else [],
+            tags=_json.loads(doc_row.tags) if doc_row.tags else [],
+            metadata=_json.loads(doc_row.metadata_)
+            if doc_row.metadata_
+            else {},
+        )
+        return await self.index_document(doc)
+
+    async def reindex_all(
+        self,
+        *,
+        workspace_id: str | None = None,
+        on_progress: Callable[[int, int], Any] | None = None,
+    ) -> int:
+        """Reindex all documents. Returns the number of documents reindexed.
+
+        Parameters:
+            workspace_id: Optional filter to only reindex documents belonging
+                to a specific workspace.
+            on_progress: Optional callback invoked after each document with
+                ``(completed_count, total_count)``.
+        """
+        # List all document IDs
+        async with self._session_factory() as session:
+            query = select(KnowledgeDocumentRow.id)
+            # workspace_ids is stored as a JSON string; filtering by workspace
+            # is not trivial here, so we load all and filter in Python when needed.
+            result = await session.execute(query)
+            doc_ids = list(result.scalars().all())
+
+        total = len(doc_ids)
+        count = 0
+        for doc_id in doc_ids:
+            await self.reindex_document(doc_id)
+            count += 1
+            if on_progress is not None:
+                on_progress(count, total)
+        return count

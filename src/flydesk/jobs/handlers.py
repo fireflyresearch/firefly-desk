@@ -112,6 +112,37 @@ class IndexingJobHandler:
         return {"document_id": task.document_id, "title": task.title}
 
 
+class ReindexJobHandler:
+    """Wraps ``KnowledgeIndexer.reindex_*`` methods as a ``JobHandler``.
+
+    When ``document_id`` is present in the payload a single document is
+    reindexed; otherwise all documents are reindexed.
+    """
+
+    def __init__(self, indexer: KnowledgeIndexer) -> None:
+        self._indexer = indexer
+
+    async def execute(
+        self,
+        job_id: str,
+        payload: dict,
+        on_progress: ProgressCallback,
+        checkpoint: dict | None = None,
+        should_pause: ShouldPauseCallback = lambda: False,
+    ) -> dict:
+        document_id: str | None = payload.get("document_id")
+        if document_id:
+            await on_progress(10, f"Reindexing document {document_id}")
+            chunks = await self._indexer.reindex_document(document_id)
+            await on_progress(100, "Reindex complete")
+            return {"document_id": document_id, "chunks_created": len(chunks)}
+        else:
+            await on_progress(5, "Starting full reindex")
+            count = await self._indexer.reindex_all()
+            await on_progress(100, "Reindex complete")
+            return {"documents_reindexed": count}
+
+
 class ProcessDiscoveryHandler:
     """Wraps ``ProcessDiscoveryEngine`` as a ``JobHandler``.
 
