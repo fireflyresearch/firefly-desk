@@ -41,7 +41,7 @@ No external systems are currently registered in the catalog.
 {% if relations %}
 ### Relations
 {% for rel in relations %}
-- {{ rel.source_id }} --[{{ rel.relation_type }}]--> {{ rel.target_id }}
+- {{ rel.source_name }} --[{{ rel.relation_type }}]--> {{ rel.target_name }}
   {% if rel.properties %}Properties: {{ rel.properties }}{% endif %}
 
 {% endfor %}

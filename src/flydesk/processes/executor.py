@@ -43,11 +43,28 @@ class ProcessExecutor:
         logger.info("Started workflow %s for process %s", workflow.id, process_id)
         return workflow.id
 
+    @staticmethod
+    def _map_step_type(process_step_type: str) -> str:
+        """Map a process step_type string to a valid workflow StepType value."""
+        mapping = {
+            "action": "agent_run",
+            "decision": "condition",
+            "wait": "wait_human",
+            "notification": "notify",
+            "api_call": "tool_call",
+        }
+        return mapping.get(process_step_type, "agent_run")
+
     def _map_step(self, process_step) -> dict:
         """Map a process step definition to a workflow step spec."""
+        step_type = self._map_step_type(process_step.step_type)
         return {
-            "step_type": getattr(process_step, "step_type", "agent_run") or "agent_run",
-            "description": getattr(process_step, "description", ""),
-            "input": getattr(process_step, "input_config", {}),
-            "timeout_seconds": getattr(process_step, "timeout_seconds", 300),
+            "step_type": step_type,
+            "description": process_step.description or process_step.name,
+            "input": {
+                "system_id": process_step.system_id,
+                "endpoint_id": process_step.endpoint_id,
+                "inputs": process_step.inputs,
+                "outputs": process_step.outputs,
+            },
         }

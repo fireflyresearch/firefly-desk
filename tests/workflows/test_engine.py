@@ -86,7 +86,8 @@ class TestWorkflowEngine:
         result = await engine.get_status("nonexistent")
         assert result is None
 
-    async def test_resume_sets_running(self, engine, repo):
+    async def test_resume_completes_single_wait_step(self, engine, repo):
+        """A single wait_webhook step completes when its trigger arrives."""
         wf = await engine.start(
             workflow_type="resume_test",
             params={},
@@ -97,7 +98,27 @@ class TestWorkflowEngine:
         trigger = Trigger(trigger_type=TriggerType.WEBHOOK, step_index=0, payload={"data": "test"})
         await engine.resume(wf.id, trigger)
         result = await repo.get(wf.id)
-        assert result.status == WorkflowStatus.RUNNING
+        # Single step workflow completes after its trigger arrives
+        assert result.status == WorkflowStatus.COMPLETED
+
+    async def test_resume_pauses_at_next_wait_step(self, engine, repo):
+        """After completing a triggered step, engine pauses at the next wait step."""
+        wf = await engine.start(
+            workflow_type="multi_wait_test",
+            params={},
+            user_id="user-1",
+            steps=[
+                {"step_type": "wait_webhook", "description": "First wait"},
+                {"step_type": "wait_webhook", "description": "Second wait"},
+            ],
+        )
+        await repo.update_status(wf.id, WorkflowStatus.WAITING)
+        trigger = Trigger(trigger_type=TriggerType.WEBHOOK, step_index=0, payload={"ok": True})
+        await engine.resume(wf.id, trigger)
+        result = await repo.get(wf.id)
+        # Should advance past step 0, then pause at step 1
+        assert result.status == WorkflowStatus.WAITING
+        assert result.current_step == 1
 
     async def test_resume_non_resumable_is_noop(self, engine, repo):
         wf = await engine.start(workflow_type="t", params={}, user_id="u1")

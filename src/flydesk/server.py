@@ -593,6 +593,7 @@ async def _init_agent(  # noqa: PLR0913
     from flydesk.processes.repository import ProcessRepository
 
     process_repo = ProcessRepository(session_factory)
+    context_enricher._process_repo = process_repo
 
     from flydesk.tools.builtin import BuiltinToolExecutor
 
@@ -1147,6 +1148,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         workflow_engine=workflows["workflow_engine"],
     )
     app.state.process_executor = process_executor
+
+    # Register step handlers now that agent_factory and tool_executor are available
+    from flydesk.workflows.step_handlers import create_handlers
+
+    callback_dispatcher = getattr(app.state, "callback_dispatcher", None)
+    step_handlers = create_handlers(
+        agent_factory=app.state.agent_factory,
+        tool_executor=getattr(app.state, "tool_executor", None),
+        callback_dispatcher=callback_dispatcher,
+    )
+    workflows["workflow_engine"]._step_handlers = step_handlers
 
     # 10. Email channel (conditionally enabled)
     await _init_email_channel(

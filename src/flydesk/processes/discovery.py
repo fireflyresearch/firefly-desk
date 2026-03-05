@@ -326,11 +326,16 @@ class ProcessDiscoveryEngine:
             await on_progress(60, "LLM analysis complete — no processes identified in the provided context")
 
         # 4. Convert to domain models
-        discovered = self._to_business_processes(discovery_result)
+        # Use first workspace_id for scoping (if multiple, pick the primary one)
+        target_workspace = workspace_ids[0] if workspace_ids else None
+        discovered = self._to_business_processes(discovery_result, workspace_id=target_workspace)
         await on_progress(70, "Merging discovered processes with existing data...")
 
         # 5. Merge with existing
         stats = await self._merge_processes(discovered)
+
+        # 5b. Write discovered processes back to the knowledge graph
+        await self._write_to_knowledge_graph(discovered)
         merge_parts = []
         if stats["created"]:
             merge_parts.append(f"{stats['created']} new")
@@ -453,6 +458,8 @@ class ProcessDiscoveryEngine:
         try:
             await _progress(11, "Querying knowledge graph for entities and relations...")
             entities = await self._knowledge_graph.list_entities(limit=_DISCOVERY_ENTITY_LIMIT)
+            # Build ID→name lookup for resolving relation endpoints
+            entity_name_map: dict[str, str] = {e.id: e.name for e in entities}
             ctx.entities = [
                 {
                     "name": e.name,
@@ -474,6 +481,12 @@ class ProcessDiscoveryEngine:
                             {
                                 "source_id": rel.source_id,
                                 "target_id": rel.target_id,
+                                "source_name": entity_name_map.get(
+                                    rel.source_id, rel.source_id
+                                ),
+                                "target_name": entity_name_map.get(
+                                    rel.target_id, rel.target_id
+                                ),
                                 "relation_type": rel.relation_type,
                                 "properties": rel.properties,
                             }
@@ -920,7 +933,10 @@ class ProcessDiscoveryEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _to_business_processes(result: DiscoveryResult) -> list[BusinessProcess]:
+    def _to_business_processes(
+        result: DiscoveryResult,
+        workspace_id: str | None = None,
+    ) -> list[BusinessProcess]:
         """Convert parsed LLM output to ``BusinessProcess`` domain models.
 
         Step IDs from the LLM are namespaced with a short UUID prefix to
@@ -966,6 +982,7 @@ class ProcessDiscoveryEngine:
                     name=disc_proc.name,
                     description=disc_proc.description,
                     category=disc_proc.category,
+                    workspace_id=workspace_id,
                     steps=steps,
                     dependencies=dependencies,
                     source=ProcessSource.AUTO_DISCOVERED,
@@ -975,6 +992,68 @@ class ProcessDiscoveryEngine:
                 )
             )
         return processes
+
+    # ------------------------------------------------------------------
+    # Knowledge graph write-back
+    # ------------------------------------------------------------------
+
+    async def _write_to_knowledge_graph(
+        self, processes: list[BusinessProcess]
+    ) -> None:
+        """Create KG entities for discovered processes and link them to systems.
+
+        For each process:
+        - Upsert an entity of type ``business_process``
+        - For each step referencing a ``system_id``, create a ``uses_system``
+          relation from the process entity to the system entity (if it exists).
+        """
+        from flydesk.knowledge.graph import Entity, Relation
+
+        for proc in processes:
+            try:
+                process_entity = Entity(
+                    id=proc.id,
+                    entity_type="business_process",
+                    name=proc.name,
+                    properties={
+                        "description": proc.description,
+                        "category": proc.category,
+                        "confidence": proc.confidence,
+                        "step_count": len(proc.steps),
+                        "tags": proc.tags,
+                    },
+                    source_system="process_discovery",
+                    confidence=proc.confidence,
+                )
+                await self._knowledge_graph.upsert_entity(process_entity)
+
+                # Link process to referenced systems
+                seen_systems: set[str] = set()
+                for step in proc.steps:
+                    if step.system_id and step.system_id not in seen_systems:
+                        seen_systems.add(step.system_id)
+                        # Only create relation if the system entity exists in KG
+                        system_entity = await self._knowledge_graph.get_entity(
+                            step.system_id,
+                        )
+                        if system_entity is not None:
+                            relation = Relation(
+                                source_id=proc.id,
+                                target_id=step.system_id,
+                                relation_type="uses_system",
+                                properties={
+                                    "step_name": step.name,
+                                    "step_type": step.step_type,
+                                },
+                                confidence=proc.confidence,
+                            )
+                            await self._knowledge_graph.add_relation(relation)
+            except Exception:
+                logger.warning(
+                    "Failed to write process '%s' to knowledge graph.",
+                    proc.name,
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Merge strategy

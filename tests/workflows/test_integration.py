@@ -51,7 +51,7 @@ def engine(repo):
 
 class TestWorkflowIntegration:
     async def test_full_workflow_lifecycle(self, engine, repo):
-        """Create workflow -> add steps -> start -> webhook resume -> complete."""
+        """Create workflow -> start -> resume through steps -> complete."""
         # 1. Create workflow with steps
         wf = await engine.start(
             workflow_type="vendor_onboard",
@@ -68,20 +68,27 @@ class TestWorkflowIntegration:
         steps = await repo.get_steps(wf.id)
         assert len(steps) == 3
 
-        # 2. Resume with webhook trigger
-        trigger = Trigger(
+        # 2. First resume: tool_call has no handler (skipped), then pauses at wait_webhook
+        trigger1 = Trigger(
+            trigger_type=TriggerType.STEP_COMPLETE,
+            step_index=0,
+            payload={},
+        )
+        await engine.resume(wf.id, trigger1)
+        result = await repo.get(wf.id)
+        assert result.status == WorkflowStatus.WAITING
+        assert result.current_step == 1  # paused at wait_webhook
+
+        # 3. Second resume with webhook trigger: completes wait_webhook,
+        #    then runs notify (no handler → skipped), completing the workflow
+        trigger2 = Trigger(
             trigger_type=TriggerType.WEBHOOK,
             step_index=1,
             payload={"approved": True},
         )
-        await engine.resume(wf.id, trigger)
+        await engine.resume(wf.id, trigger2)
         result = await repo.get(wf.id)
-        assert result.status == WorkflowStatus.RUNNING
-
-        # 3. Cancel
-        await engine.cancel(wf.id)
-        result = await repo.get(wf.id)
-        assert result.status == WorkflowStatus.CANCELLED
+        assert result.status == WorkflowStatus.COMPLETED
 
     async def test_webhook_registration_and_consume(self, repo):
         """Register a webhook -> look it up by token -> consume it."""

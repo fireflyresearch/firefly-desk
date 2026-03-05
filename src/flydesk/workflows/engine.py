@@ -13,14 +13,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from flydesk.workflows.models import (
     StepStatus,
     StepType,
     Trigger,
-    TriggerType,
     Workflow,
     WorkflowStatus,
     WorkflowStep,
@@ -29,12 +29,20 @@ from flydesk.workflows.repository import WorkflowRepository
 
 logger = logging.getLogger(__name__)
 
+# A step handler takes (step, workflow) and returns a result dict.
+StepHandler = Callable[[WorkflowStep, Workflow], Awaitable[dict]]
+
 
 class WorkflowEngine:
     """Orchestrates durable workflow lifecycle: start, resume, cancel, and status queries."""
 
-    def __init__(self, repo: WorkflowRepository) -> None:
+    def __init__(
+        self,
+        repo: WorkflowRepository,
+        step_handlers: dict[str, StepHandler] | None = None,
+    ) -> None:
         self._repo = repo
+        self._step_handlers: dict[str, StepHandler] = step_handlers or {}
 
     async def start(
         self,
@@ -47,7 +55,7 @@ class WorkflowEngine:
     ) -> Workflow:
         """Create a new workflow with optional pre-defined steps."""
         workflow_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         wf = Workflow(
             id=workflow_id,
@@ -136,6 +144,7 @@ class WorkflowEngine:
 
         state = dict(wf.state)
         state[f"trigger_{wf.current_step}"] = trigger.payload
+        wf.state = state  # keep in-memory copy in sync for step execution
         await self._repo.save_checkpoint(workflow_id, state=state)
 
         # Execute the current step with timeout enforcement
@@ -151,7 +160,7 @@ class WorkflowEngine:
                     step.id,
                     StepStatus.COMPLETED,
                     output={"target_step": target_step},
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
                 await self._repo.save_checkpoint(
                     workflow_id, current_step=target_step
@@ -166,18 +175,46 @@ class WorkflowEngine:
             await self._run_step_with_timeout(step, wf)
 
     async def _execute_step(self, step: WorkflowStep, workflow: Workflow) -> dict:
-        """Execute a single workflow step and return its output.
+        """Execute a single workflow step using registered handlers.
 
-        Subclasses or future implementations should override this with
-        real step-type dispatch logic.
+        Dispatches to the handler registered for ``step.step_type``.
+        Steps of type ``wait_webhook`` / ``wait_human`` / ``wait_poll``
+        transition to WAITING without executing — they resume on trigger.
         """
         await self._repo.update_step_status(
             step.id,
             StepStatus.RUNNING,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
-        # Placeholder: real dispatch would happen here based on step.step_type
-        return {}
+
+        # Wait-type steps: when being *resumed* (trigger arrived), the step
+        # is done.  When first encountered during auto-advance, they pause.
+        if step.step_type in (
+            StepType.WAIT_WEBHOOK,
+            StepType.WAIT_HUMAN,
+            StepType.WAIT_POLL,
+        ):
+            # Check if a trigger payload exists for this step (set by resume())
+            trigger_key = f"trigger_{step.step_index}"
+            if trigger_key in (workflow.state or {}):
+                # Trigger already received — the wait is satisfied
+                return {"status": "completed", "trigger": workflow.state[trigger_key]}
+            # No trigger yet — pause
+            await self._repo.update_step_status(step.id, StepStatus.WAITING)
+            await self._repo.update_status(workflow.id, WorkflowStatus.WAITING)
+            logger.info("Step %s (%s) waiting for trigger", step.id, step.step_type)
+            return {"status": "waiting"}
+
+        handler = self._step_handlers.get(step.step_type.value)
+        if handler is None:
+            logger.warning(
+                "No handler registered for step type '%s', skipping step %s",
+                step.step_type,
+                step.id,
+            )
+            return {"status": "skipped", "reason": f"no handler for {step.step_type}"}
+
+        return await handler(step, workflow)
 
     async def _run_step_with_timeout(
         self, step: WorkflowStep, workflow: Workflow
@@ -192,20 +229,29 @@ class WorkflowEngine:
                 self._execute_step(step, workflow),
                 timeout=timeout,
             )
+
+            # If the step transitioned to WAITING, don't mark completed
+            if result.get("status") == "waiting":
+                return
+
             await self._repo.update_step_status(
                 step.id,
                 StepStatus.COMPLETED,
                 output=result,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
-        except asyncio.TimeoutError:
+
+            # Advance to next step
+            await self._advance_workflow(workflow)
+
+        except TimeoutError:
             retry_count += 1
             if retry_count < max_retries:
                 backoff = min(30 * (2 ** retry_count), 3600)
                 # Reschedule the workflow for retry
                 await self._repo.save_checkpoint(
                     workflow.id,
-                    next_check_at=datetime.now(timezone.utc) + timedelta(seconds=backoff),
+                    next_check_at=datetime.now(UTC) + timedelta(seconds=backoff),
                 )
                 await self._repo.update_step_status(
                     step.id,
@@ -227,22 +273,68 @@ class WorkflowEngine:
                     step.id,
                     StepStatus.FAILED,
                     error=error_msg,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
                 await self._repo.update_status(
                     workflow.id,
                     WorkflowStatus.FAILED,
                     error=error_msg,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
                 logger.error("Step %s failed after all retries", step.id)
+
+    async def _advance_workflow(self, workflow: Workflow) -> None:
+        """Move to the next step or complete the workflow."""
+        steps = await self._repo.get_steps(workflow.id)
+        next_step = workflow.current_step + 1
+
+        if next_step >= len(steps):
+            # All steps done
+            await self._repo.update_status(
+                workflow.id,
+                WorkflowStatus.COMPLETED,
+                completed_at=datetime.now(UTC),
+            )
+            logger.info("Workflow %s completed all %d steps", workflow.id, len(steps))
+            return
+
+        await self._repo.save_checkpoint(workflow.id, current_step=next_step)
+
+        # Auto-execute next step if it's not a wait type
+        next_step_obj = steps[next_step]
+        if next_step_obj.step_type == StepType.CONDITION:
+            state = (await self._repo.get(workflow.id)).state or {}
+            target = self._check_condition(state, next_step_obj.input or {})
+            await self._repo.update_step_status(
+                next_step_obj.id,
+                StepStatus.COMPLETED,
+                output={"target_step": target},
+                completed_at=datetime.now(UTC),
+            )
+            await self._repo.save_checkpoint(workflow.id, current_step=target)
+            # Recurse to advance past the condition
+            workflow.current_step = target
+            await self._advance_workflow(workflow)
+        elif next_step_obj.step_type not in (
+            StepType.WAIT_WEBHOOK, StepType.WAIT_HUMAN, StepType.WAIT_POLL,
+        ):
+            # Continue executing automatically
+            workflow.current_step = next_step
+            await self._run_step_with_timeout(next_step_obj, workflow)
+        else:
+            # Wait-type step — set workflow to WAITING
+            await self._repo.update_status(workflow.id, WorkflowStatus.WAITING)
+            logger.info(
+                "Workflow %s waiting at step %d (%s)",
+                workflow.id, next_step, next_step_obj.step_type,
+            )
 
     async def cancel(self, workflow_id: str) -> None:
         """Cancel a workflow, setting its status and completed_at timestamp."""
         await self._repo.update_status(
             workflow_id,
             WorkflowStatus.CANCELLED,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
 
     async def get_status(self, workflow_id: str) -> dict[str, Any] | None:
