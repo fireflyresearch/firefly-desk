@@ -38,8 +38,8 @@ def upgrade() -> None:
         op.create_table(
             "system_tags",
             sa.Column("id", sa.String(length=255), nullable=False),
-            sa.Column("name", sa.String(length=255), nullable=False),
-            sa.Column("color", sa.String(length=50), nullable=True),
+            sa.Column("name", sa.String(length=100), nullable=False),
+            sa.Column("color", sa.String(length=7), nullable=True),
             sa.Column("description", sa.Text(), nullable=True),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("name"),
@@ -64,7 +64,7 @@ def upgrade() -> None:
             "system_documents",
             sa.Column("system_id", sa.String(length=255), nullable=False),
             sa.Column("document_id", sa.String(length=255), nullable=False),
-            sa.Column("role", sa.String(length=50), nullable=True),
+            sa.Column("role", sa.String(length=50), nullable=True, server_default=sa.text("'reference'")),
             sa.PrimaryKeyConstraint("system_id", "document_id"),
         )
 
@@ -144,9 +144,9 @@ def upgrade() -> None:
         op.create_table(
             "dead_letter_entries",
             sa.Column("id", sa.String(length=255), nullable=False),
-            sa.Column("source_type", sa.String(length=100), nullable=False),
+            sa.Column("source_type", sa.String(length=50), nullable=False),
             sa.Column("source_id", sa.String(length=255), nullable=True),
-            sa.Column("payload_json", sa.Text(), nullable=True),
+            sa.Column("payload_json", sa.Text(), nullable=False),
             sa.Column("error", sa.Text(), nullable=True),
             sa.Column("attempts", sa.Integer(), nullable=False, server_default=sa.text("0")),
             sa.Column("max_attempts", sa.Integer(), nullable=False, server_default=sa.text("3")),
@@ -162,10 +162,10 @@ def upgrade() -> None:
         op.create_table(
             "cache_entries",
             sa.Column("id", sa.String(length=255), nullable=False),
-            sa.Column("namespace", sa.String(length=255), nullable=False),
+            sa.Column("namespace", sa.String(length=50), nullable=False),
             sa.Column("cache_key", sa.String(length=255), nullable=False),
-            sa.Column("value_json", sa.Text(), nullable=True),
-            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("value_json", sa.Text(), nullable=False),
+            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("namespace", "cache_key", name="uq_cache_ns_key"),
