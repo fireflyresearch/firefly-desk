@@ -6,19 +6,22 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""Retrieve relevant knowledge via semantic search with keyword fallback.
+"""Retrieve relevant knowledge via hybrid semantic + keyword search.
 
 Uses pgvector's native cosine distance operator (``<=>``) for PostgreSQL,
-or in-memory cosine similarity / keyword matching for SQLite.
+or in-memory cosine similarity for SQLite, combined with TF-weighted keyword
+search via reciprocal-rank fusion (RRF).
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import math
 import re
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -29,6 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.knowledge.indexer import EmbeddingProvider
 from flydesk.knowledge.models import DocumentChunk, RetrievalResult
+from flydesk.knowledge.scoring import (
+    STOP_WORDS,
+    deduplicate_results,
+    normalize_scores,
+    reciprocal_rank_fusion,
+    simple_stem,
+)
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 _logger = logging.getLogger(__name__)
@@ -73,6 +83,12 @@ class KnowledgeRetriever:
     ) -> list[RetrievalResult]:
         """Find the most relevant document chunks for a query.
 
+        Uses hybrid search: semantic and keyword searches run in parallel,
+        then results are merged via reciprocal-rank fusion (RRF).
+
+        When no real embedding provider is configured (zero-vector embeddings),
+        falls back to keyword-only search.
+
         Args:
             query: The search query text.
             top_k: Maximum number of results to return.
@@ -93,10 +109,10 @@ class KnowledgeRetriever:
         query_embedding = embeddings[0]
 
         # Detect zero-vector embeddings (no real provider configured)
-        use_keywords = all(v == 0.0 for v in query_embedding)
+        use_keywords_only = all(v == 0.0 for v in query_embedding)
 
-        # 2. Delegate to vector store if available
-        if self._vector_store is not None and not use_keywords:
+        # 2. Delegate to vector store if available (external vector store path)
+        if self._vector_store is not None and not use_keywords_only:
             # Over-fetch when tag_filter is set so post-filtering can still
             # return up to top_k results.
             fetch_k = top_k * 3 if tag_filter else top_k
@@ -148,17 +164,43 @@ class KnowledgeRetriever:
                 )
             return results
 
-        # 3. Determine backend and route to appropriate search strategy
-        # Over-fetch when tag_filter is set so post-filtering can still
-        # return up to top_k results.
-        fetch_k = top_k * 3 if tag_filter else top_k
+        # 3. Hybrid search: run semantic + keyword in parallel with RRF fusion
+        # Over-fetch to leave room for dedup and tag filtering.
+        fetch_k = top_k * 3 if tag_filter else top_k * 2
 
-        if use_keywords:
-            scored = await self._keyword_search(query, fetch_k)
-        elif self._dialect == "postgresql":
-            scored = await self._pgvector_search(query_embedding, fetch_k)
+        if use_keywords_only:
+            # No real embeddings -- keyword-only fallback
+            scored = await self._keyword_search_enhanced(query, fetch_k)
         else:
-            scored = await self._inmemory_search(query_embedding, fetch_k)
+            # Run semantic and keyword searches in parallel
+            semantic_coro = (
+                self._pgvector_search(query_embedding, fetch_k)
+                if self._dialect == "postgresql"
+                else self._inmemory_search(query_embedding, fetch_k)
+            )
+            semantic_scored, keyword_scored = await asyncio.gather(
+                semantic_coro,
+                self._keyword_search_enhanced(query, fetch_k),
+            )
+
+            # Convert (score, chunk_row) tuples to dicts for scoring utilities
+            semantic_dicts = self._scored_to_dicts(semantic_scored)
+            keyword_dicts = self._scored_to_dicts(keyword_scored)
+
+            if semantic_dicts and keyword_dicts:
+                semantic_norm = normalize_scores(semantic_dicts)
+                keyword_norm = normalize_scores(keyword_dicts)
+                fused = reciprocal_rank_fusion(
+                    semantic_norm, keyword_norm, weights=[0.7, 0.3],
+                )
+                deduped = deduplicate_results(fused, top_k=fetch_k)
+                scored = self._dicts_to_scored(deduped)
+            elif semantic_dicts:
+                scored = semantic_scored
+            elif keyword_dicts:
+                scored = keyword_scored
+            else:
+                scored = []
 
         # 4. Fetch document titles and build results (with tag filtering)
         tag_filter_set = set(tag_filter) if tag_filter else None
@@ -197,7 +239,7 @@ class KnowledgeRetriever:
                 if len(results) >= top_k:
                     break
 
-        if use_keywords and results:
+        if use_keywords_only and results:
             _logger.debug(
                 "Keyword fallback returned %d results for query: %.60s",
                 len(results), query,
@@ -280,6 +322,79 @@ class KnowledgeRetriever:
         scored = [(s, c) for s, c in scored if s > 0]
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored[:top_k]
+
+    async def _keyword_search_enhanced(
+        self, query: str, top_k: int
+    ) -> list[tuple[float, DocumentChunkRow]]:
+        """TF-weighted keyword search with stemming and stop-word removal.
+
+        For each query term (stemmed), counts occurrences in each chunk's
+        content and normalises by the maximum term frequency in that chunk.
+        The final score is the mean of per-term TF weights across all query
+        terms that appear in the chunk.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(select(DocumentChunkRow))
+            chunks = result.scalars().all()
+
+        if not chunks:
+            return []
+
+        # Tokenise, remove stop words, and stem
+        words = re.findall(r"\w+", query.lower())
+        stemmed_terms = [
+            simple_stem(w) for w in words
+            if w not in STOP_WORDS and len(w) >= 2
+        ]
+        if not stemmed_terms:
+            return []
+
+        scored: list[tuple[float, DocumentChunkRow]] = []
+        for chunk in chunks:
+            content_lower = chunk.content.lower()
+            content_words = re.findall(r"\w+", content_lower)
+            if not content_words:
+                continue
+
+            # Build stemmed term-frequency map for this chunk
+            stemmed_content = [simple_stem(w) for w in content_words]
+            tf_counter = Counter(stemmed_content)
+            max_tf = max(tf_counter.values())  # guaranteed > 0
+
+            # Score: mean of normalised TF for matching query terms
+            term_scores: list[float] = []
+            for term in stemmed_terms:
+                freq = tf_counter.get(term, 0)
+                if freq > 0:
+                    term_scores.append(freq / max_tf)
+
+            if term_scores:
+                score = sum(term_scores) / len(stemmed_terms)
+                scored.append((score, chunk))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[:top_k]
+
+    # ------------------------------------------------------------------
+    # Conversion helpers for hybrid scoring
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _scored_to_dicts(
+        scored: list[tuple[float, DocumentChunkRow]],
+    ) -> list[dict[str, Any]]:
+        """Convert ``(score, chunk_row)`` tuples to dicts for scoring utilities."""
+        return [
+            {"chunk_id": chunk_row.id, "score": score, "_chunk_row": chunk_row}
+            for score, chunk_row in scored
+        ]
+
+    @staticmethod
+    def _dicts_to_scored(
+        dicts: list[dict[str, Any]],
+    ) -> list[tuple[float, DocumentChunkRow]]:
+        """Convert scoring-utility dicts back to ``(score, chunk_row)`` tuples."""
+        return [(d["score"], d["_chunk_row"]) for d in dicts if "_chunk_row" in d]
 
     # ------------------------------------------------------------------
     # Scoring helpers
