@@ -52,7 +52,7 @@ class FeedbackRepository:
                     AuditEventRow.event_type == "message_feedback",
                     AuditEventRow.user_id == user_id,
                 )
-                .order_by(AuditEventRow.timestamp.desc())
+                .order_by(AuditEventRow.created_at.desc())
                 .limit(limit)
             )
             rows = result.scalars().all()
