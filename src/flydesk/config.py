@@ -154,6 +154,10 @@ class DeskConfig(BaseSettings):
     app_logo_url: str | None = None
     accent_color: str = "#2563EB"
 
+    # -- Slack Channel --
+    slack_bot_token: str = ""
+    slack_signing_secret: str = ""
+
     # -- Email Channel --
     email_enabled: bool = False
     email_provider: EmailProviderType = EmailProviderType.RESEND

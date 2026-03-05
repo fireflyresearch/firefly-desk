@@ -1160,6 +1160,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         conversation_repo=repos["conversation_repo"],
     )
 
+    # 11. Slack channel (conditionally enabled)
+    if config.slack_bot_token:
+        from flydesk.channels.slack import SlackAdapter
+
+        slack_adapter = SlackAdapter(
+            bot_token=config.slack_bot_token,
+            signing_secret=config.slack_signing_secret,
+        )
+        app.state.channel_router.register("slack", slack_adapter)
+        logger.info("Slack channel adapter registered.")
+
     # Wire email port into the builtin executor so the agent can send emails.
     email_adapter = getattr(app.state, "email_channel_adapter", None)
     if email_adapter is not None:
