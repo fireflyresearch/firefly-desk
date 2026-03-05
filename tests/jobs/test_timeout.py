@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 
 def test_config_has_job_timeout_field():

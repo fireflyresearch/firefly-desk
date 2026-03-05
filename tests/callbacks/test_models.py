@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-
-import pytest
+from datetime import datetime
 
 from flydesk.callbacks.models import CallbackConfig, CallbackEvent, CallbackPayload
 

@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from flydesk.workflows.engine import WorkflowEngine
 from flydesk.workflows.models import StepType
 

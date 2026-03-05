@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 def test_normalize_scores_empty():
     from flydesk.knowledge.scoring import normalize_scores

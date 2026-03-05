@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -83,7 +83,7 @@ class SlackAdapter:
             conversation_id=channel_id,
             content=text,
             metadata={"ts": ts, "team": raw_event.get("team_id", "")},
-            received_at=datetime.now(timezone.utc),
+            received_at=datetime.now(UTC),
         )
 
     # ------------------------------------------------------------------

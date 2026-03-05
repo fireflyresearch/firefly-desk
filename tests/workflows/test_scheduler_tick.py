@@ -1,15 +1,13 @@
 """Tests for WorkflowScheduler tick logic, polling, and error recovery."""
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from flydesk.workflows.models import Trigger, TriggerType, Workflow, WorkflowStatus
 from flydesk.workflows.scheduler import WorkflowScheduler
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +20,7 @@ def _make_workflow(**overrides) -> Workflow:
         workflow_type="test",
         status=WorkflowStatus.WAITING,
         current_step=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     defaults.update(overrides)
     return Workflow(**defaults)

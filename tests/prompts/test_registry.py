@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
 from fireflyframework_genai.exceptions import PromptNotFoundError
-from fireflyframework_genai.prompts import PromptLoader, PromptRegistry, PromptTemplate
-from flydesk.prompts.registry import register_desk_prompts
+from fireflyframework_genai.prompts import PromptLoader, PromptRegistry
 
+from flydesk.prompts.registry import register_desk_prompts
 
 # ---------------------------------------------------------------------------
 # PromptRegistry (from fireflyframework_genai, exercised through flydesk)

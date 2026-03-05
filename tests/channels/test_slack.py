@@ -8,8 +8,9 @@
 
 """Tests for Slack channel adapter."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 def test_channel_type():
@@ -130,8 +131,8 @@ def test_verify_signature_invalid():
 
 @pytest.mark.asyncio
 async def test_send_posts_message():
-    from flydesk.channels.slack import SlackAdapter
     from flydesk.channels.models import AgentResponse
+    from flydesk.channels.slack import SlackAdapter
 
     adapter = SlackAdapter(bot_token="xoxb-test", signing_secret="secret")
     response = AgentResponse(content="Hello from bot!")
@@ -152,8 +153,8 @@ async def test_send_posts_message():
 
 @pytest.mark.asyncio
 async def test_send_notification_opens_dm():
-    from flydesk.channels.slack import SlackAdapter
     from flydesk.channels.models import Notification
+    from flydesk.channels.slack import SlackAdapter
 
     adapter = SlackAdapter(bot_token="xoxb-test", signing_secret="secret")
     notification = Notification(title="Alert", summary="Something happened")

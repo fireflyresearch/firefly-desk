@@ -14,7 +14,7 @@ import json
 import logging
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -117,7 +117,7 @@ class KnowledgeCache:
 
         Returns the number of database rows deleted.
         """
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
 
         # Evict expired entries from memory
         expired_keys = [
@@ -131,7 +131,7 @@ class KnowledgeCache:
         try:
             async with self._session_factory() as session:
                 stmt = delete(CacheEntryRow).where(
-                    CacheEntryRow.expires_at <= datetime.now(timezone.utc)
+                    CacheEntryRow.expires_at <= datetime.now(UTC)
                 )
                 result = await session.execute(stmt)
                 await session.commit()
@@ -166,8 +166,8 @@ class KnowledgeCache:
                 # Check expiry
                 row_expires = row.expires_at
                 if row_expires.tzinfo is None:
-                    row_expires = row_expires.replace(tzinfo=timezone.utc)
-                if row_expires <= datetime.now(timezone.utc):
+                    row_expires = row_expires.replace(tzinfo=UTC)
+                if row_expires <= datetime.now(UTC):
                     return None
 
                 data = json.loads(row.value_json)
@@ -185,7 +185,7 @@ class KnowledgeCache:
 
     async def _set(self, namespace: str, key: str, value: Any, ttl: int) -> None:
         """Store a value in both memory and database (upsert)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = now.timestamp() + ttl
 
         # Store in memory
@@ -194,7 +194,7 @@ class KnowledgeCache:
         # Store in database (upsert)
         try:
             async with self._session_factory() as session:
-                expires_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
+                expires_dt = datetime.fromtimestamp(expires_at, tz=UTC)
                 mem_key = f"{namespace}:{key}"
                 row_id = str(uuid.uuid5(uuid.NAMESPACE_URL, mem_key))
 
@@ -233,7 +233,7 @@ class KnowledgeCache:
             return None
 
         data, expires_at = entry
-        if expires_at <= datetime.now(timezone.utc).timestamp():
+        if expires_at <= datetime.now(UTC).timestamp():
             # Expired -- evict
             del self._memory[mem_key]
             return None

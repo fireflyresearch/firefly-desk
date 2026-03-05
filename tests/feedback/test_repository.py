@@ -5,10 +5,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from flydesk.feedback.repository import FeedbackRepository, _from_json
-
 
 # ---------------------------------------------------------------------------
 # Helpers

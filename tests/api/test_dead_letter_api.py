@@ -1,7 +1,9 @@
 """Tests for DLQ admin API endpoints."""
 
-import pytest
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture
@@ -22,8 +24,9 @@ async def test_list_entries_empty(mock_request):
 
 @pytest.mark.asyncio
 async def test_list_entries_with_data(mock_request):
+    from datetime import datetime
+
     from flydesk.api.dead_letter import list_entries
-    from datetime import datetime, timezone
 
     entry = MagicMock()
     entry.id = "e1"
@@ -32,7 +35,7 @@ async def test_list_entries_with_data(mock_request):
     entry.error = "timeout"
     entry.attempts = 2
     entry.max_attempts = 3
-    entry.created_at = datetime(2026, 3, 5, tzinfo=timezone.utc)
+    entry.created_at = datetime(2026, 3, 5, tzinfo=UTC)
     mock_request.app.state.dead_letter.list_entries.return_value = [entry]
 
     result = await list_entries(mock_request)

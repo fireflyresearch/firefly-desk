@@ -19,7 +19,6 @@ from flydesk.agent.genai_bridge import DeskAgentFactory
 from flydesk.config import DeskConfig
 from flydesk.llm.models import LLMProvider, ProviderType
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -111,7 +110,9 @@ class TestFallbackRouting:
         assert mock_agent_cls.call_count == 3
 
     @patch("flydesk.agent.genai_bridge.FireflyAgent")
-    async def test_no_fallbacks_configured_raises_original(self, mock_agent_cls, llm_repo, monkeypatch):
+    async def test_no_fallbacks_configured_raises_original(
+        self, mock_agent_cls, llm_repo, monkeypatch,
+    ):
         """When no fallbacks configured, factory should raise original error."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         # No config means no fallbacks
@@ -126,7 +127,9 @@ class TestFallbackRouting:
         assert mock_agent_cls.call_count == 1
 
     @patch("flydesk.agent.genai_bridge.FireflyAgent")
-    async def test_fallback_preserves_system_prompt_and_tools(self, mock_agent_cls, llm_repo, monkeypatch):
+    async def test_fallback_preserves_system_prompt_and_tools(
+        self, mock_agent_cls, llm_repo, monkeypatch,
+    ):
         """Fallback agent should receive the same system_prompt and tools."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg = _make_config(fallback_models={"openai": ["gpt-4o-mini"]})
@@ -144,7 +147,9 @@ class TestFallbackRouting:
         assert fallback_kwargs["tools"] == [mock_tool]
 
     @patch("flydesk.agent.genai_bridge.FireflyAgent")
-    async def test_second_fallback_succeeds_after_first_fails(self, mock_agent_cls, llm_repo, monkeypatch):
+    async def test_second_fallback_succeeds_after_first_fails(
+        self, mock_agent_cls, llm_repo, monkeypatch,
+    ):
         """If first fallback also fails, second fallback should be tried."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         cfg = _make_config(fallback_models={"openai": ["gpt-4o-mini", "gpt-3.5-turbo"]})

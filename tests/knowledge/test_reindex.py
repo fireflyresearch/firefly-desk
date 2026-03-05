@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -53,7 +51,9 @@ def indexer(session_factory, embedding_provider) -> KnowledgeIndexer:
     )
 
 
-def _make_doc(doc_id: str = "doc-1", content: str = "Test content for reindexing.") -> KnowledgeDocument:
+def _make_doc(
+    doc_id: str = "doc-1", content: str = "Test content for reindexing.",
+) -> KnowledgeDocument:
     return KnowledgeDocument(
         id=doc_id,
         title="Test Document",

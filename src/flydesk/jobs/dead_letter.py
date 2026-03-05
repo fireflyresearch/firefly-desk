@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -41,7 +41,7 @@ class DeadLetterRepository:
     ) -> str:
         """Create a new dead-letter entry and return its ID."""
         entry_id = str(uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         async with self._session_factory() as session:
             row = DeadLetterEntryRow(
                 id=entry_id,
@@ -88,7 +88,7 @@ class DeadLetterRepository:
             if row is None:
                 return None
             row.attempts += 1
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             await session.commit()
             return row
 
@@ -103,7 +103,7 @@ class DeadLetterRepository:
 
     async def cleanup(self, older_than_days: int = 30) -> int:
         """Delete entries older than *older_than_days*. Returns count deleted."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
         async with self._session_factory() as session:
             result = await session.execute(
                 delete(DeadLetterEntryRow).where(
