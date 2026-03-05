@@ -343,6 +343,35 @@ async def update_step(
     return _step_to_dict(result)
 
 
+@router.post("/{process_id}/execute", dependencies=[ProcessWrite])
+async def execute_process(
+    request: Request,
+    process_id: str,
+    body: dict | None = None,
+) -> dict:
+    """Execute a process by creating and starting a workflow from its definition."""
+    executor = getattr(request.app.state, "process_executor", None)
+    if executor is None:
+        raise HTTPException(
+            status_code=503, detail="Process executor not available"
+        )
+
+    session = getattr(request.state, "user_session", None)
+    if session is None or not hasattr(session, "user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        workflow_id = await executor.execute(
+            process_id=process_id,
+            params=body or {},
+            user_id=session.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return {"workflow_id": workflow_id, "status": "started"}
+
+
 @router.post("/{process_id}/verify", dependencies=[ProcessWrite])
 async def verify_process(process_id: str, repo: ProcessRepo) -> dict:
     """Mark a process as verified by a user."""

@@ -1139,6 +1139,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     workflows = await _init_workflows(app, session_factory)
     ctx.closables.append(workflows["workflow_scheduler"])
 
+    # 9b. Process execution engine (bridges processes to workflows)
+    from flydesk.processes.executor import ProcessExecutor
+
+    process_executor = ProcessExecutor(
+        process_repo=app.state.process_repo,
+        workflow_engine=workflows["workflow_engine"],
+    )
+    app.state.process_executor = process_executor
+
     # 10. Email channel (conditionally enabled)
     await _init_email_channel(
         app,
