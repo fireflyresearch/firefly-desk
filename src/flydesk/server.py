@@ -37,6 +37,7 @@ from flydesk.api.conversations import router as conversations_router
 from flydesk.api.credentials import router as credentials_router
 from flydesk.api.custom_tools import router as custom_tools_router
 from flydesk.api.dashboard import router as dashboard_router
+from flydesk.api.dead_letter import router as dlq_router
 from flydesk.api.document_sources import router as document_sources_router
 from flydesk.api.callbacks import router as callbacks_router
 from flydesk.api.email_inbound import router as email_inbound_router
@@ -1300,6 +1301,7 @@ def create_app() -> FastAPI:
     app.include_router(oidc_providers_router)
     app.include_router(settings_router)
     app.include_router(dashboard_router)
+    app.include_router(dlq_router)
     app.include_router(users_router)
     app.include_router(roles_router)
     app.include_router(prompts_router)
