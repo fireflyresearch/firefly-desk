@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 class ChatMessage(BaseModel):
     """Incoming chat message."""
 
-    message: str
+    message: str = Field(max_length=100_000)
     conversation_id: str | None = None
-    file_ids: list[str] = Field(default_factory=list)
+    file_ids: list[str] = Field(default_factory=list, max_length=20)
     reasoning: bool = False
     pattern: str | None = None
 
