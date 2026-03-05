@@ -59,7 +59,22 @@
 	let selectedMentionIdx = $state(0);
 	let mentionDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-	let canSend = $derived((text.trim().length > 0 || pendingFiles.length > 0) && !disabled && !uploading);
+	// ── Validation constants ──────────────────────────────────────────
+	const MAX_CHARS = 100_000;
+	const CHAR_WARN_THRESHOLD = 90_000;
+	const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+	const MAX_FILES = 20;
+	const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.xlsx', '.pptx', '.txt', '.md', '.csv', '.json']);
+
+	let fileError = $state('');
+
+	// ── Derived validation state ──────────────────────────────────────
+	let isOverCharLimit = $derived(text.length > MAX_CHARS);
+	let showCharCounter = $derived(text.length > CHAR_WARN_THRESHOLD);
+
+	let canSend = $derived(
+		(text.trim().length > 0 || pendingFiles.length > 0) && !disabled && !uploading && !isOverCharLimit
+	);
 
 	let filteredCommands = $derived(
 		SLASH_COMMANDS.filter((cmd) =>
@@ -76,7 +91,7 @@
 
 	async function handleSend() {
 		const trimmed = text.trim();
-		if ((!trimmed && pendingFiles.length === 0) || disabled || uploading) return;
+		if ((!trimmed && pendingFiles.length === 0) || disabled || uploading || isOverCharLimit) return;
 
 		showSlashMenu = false;
 		showMentionMenu = false;
@@ -246,15 +261,55 @@
 		}
 	}
 
+	function getFileExtension(name: string): string {
+		const dot = name.lastIndexOf('.');
+		return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+	}
+
+	function validateAndAddFiles(files: File[]) {
+		fileError = '';
+		const errors: string[] = [];
+
+		// Check total file count
+		const totalAfterAdd = pendingFiles.length + files.length;
+		if (totalAfterAdd > MAX_FILES) {
+			const allowed = MAX_FILES - pendingFiles.length;
+			errors.push(`Maximum ${MAX_FILES} files allowed (you can add ${allowed > 0 ? allowed : 0} more).`);
+			files = allowed > 0 ? files.slice(0, allowed) : [];
+		}
+
+		// Filter by extension and size
+		const accepted: File[] = [];
+		for (const file of files) {
+			const ext = getFileExtension(file.name);
+			if (!ALLOWED_EXTENSIONS.has(ext)) {
+				errors.push(`"${file.name}" rejected — unsupported type. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`);
+				continue;
+			}
+			if (file.size > MAX_FILE_SIZE) {
+				errors.push(`"${file.name}" rejected — exceeds 50 MB limit.`);
+				continue;
+			}
+			accepted.push(file);
+		}
+
+		if (errors.length > 0) {
+			fileError = errors.join(' ');
+		}
+		if (accepted.length > 0) {
+			pendingFiles = [...pendingFiles, ...accepted];
+		}
+	}
+
 	function handleFileSelect(files: File[]) {
-		pendingFiles = [...pendingFiles, ...files];
+		validateAndAddFiles(files);
 	}
 
 	function handlePaste(e: ClipboardEvent) {
 		const clipboardFiles = e.clipboardData?.files;
 		if (clipboardFiles && clipboardFiles.length > 0) {
 			e.preventDefault();
-			pendingFiles = [...pendingFiles, ...Array.from(clipboardFiles)];
+			validateAndAddFiles(Array.from(clipboardFiles));
 		}
 	}
 
@@ -279,6 +334,13 @@
 			<div class="mb-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
 				{uploadError}
 				<button class="ml-2 underline" onclick={() => (uploadError = '')}>Dismiss</button>
+			</div>
+		{/if}
+
+		{#if fileError}
+			<div class="mb-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+				{fileError}
+				<button class="ml-2 underline" onclick={() => (fileError = '')}>Dismiss</button>
 			</div>
 		{/if}
 
@@ -366,6 +428,11 @@
 					placeholder={uploading ? 'Uploading files...' : 'Ask Ember anything...'}
 					class="min-h-[24px] w-full resize-none bg-transparent text-sm leading-relaxed text-text-primary placeholder-text-secondary outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				></textarea>
+				{#if showCharCounter}
+					<div class="text-right text-xs {isOverCharLimit ? 'text-error font-medium' : 'text-text-secondary'}">
+						{text.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Controls bar -->
