@@ -33,6 +33,8 @@ from pydantic import BaseModel, Field
 
 from fireflyframework_genai.exposure.queues import QueueMessage
 
+from flydesk.jobs.dead_letter import DeadLetterRepository
+
 logger = logging.getLogger(__name__)
 
 INDEXING_QUEUE_NAME = "knowledge.indexing"
@@ -85,9 +87,12 @@ class InMemoryIndexingConsumer:
         self,
         queue: asyncio.Queue[QueueMessage],
         handler: Callable[[IndexingTask], Coroutine[Any, Any, None]],
+        *,
+        dead_letter: DeadLetterRepository | None = None,
     ) -> None:
         self._queue = queue
         self._handler = handler
+        self._dead_letter = dead_letter
         self._running = False
         self._task: asyncio.Task[None] | None = None
 
@@ -123,6 +128,7 @@ class InMemoryIndexingConsumer:
             except asyncio.CancelledError:
                 break
 
+            task = None
             try:
                 task = IndexingTask.model_validate_json(message.body)
                 await self._handler(task)
@@ -133,6 +139,15 @@ class InMemoryIndexingConsumer:
                 logger.exception(
                     "Failed to process indexing task from queue"
                 )
+                if self._dead_letter:
+                    import traceback
+
+                    await self._dead_letter.add(
+                        source_type="indexing",
+                        source_id=getattr(task, "document_id", None) if task else None,
+                        payload={"body": message.body} if message else {},
+                        error=traceback.format_exc(),
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -179,9 +194,12 @@ class RedisIndexingConsumer:
         self,
         handler: Callable[[IndexingTask], Coroutine[Any, Any, None]],
         url: str = "redis://localhost:6379",
+        *,
+        dead_letter: DeadLetterRepository | None = None,
     ) -> None:
         self._url = url
         self._handler = handler
+        self._dead_letter = dead_letter
         self._running = False
         self._client: Any = None
         self._task: asyncio.Task[None] | None = None
@@ -214,6 +232,8 @@ class RedisIndexingConsumer:
 
     async def _consume_loop(self) -> None:
         while self._running:
+            task = None
+            raw = None
             try:
                 result = await self._client.brpop(INDEXING_QUEUE_NAME, timeout=1)
                 if result is None:
@@ -233,6 +253,15 @@ class RedisIndexingConsumer:
                 logger.exception(
                     "Failed to process indexing task from Redis queue"
                 )
+                if self._dead_letter:
+                    import traceback
+
+                    await self._dead_letter.add(
+                        source_type="indexing",
+                        source_id=getattr(task, "document_id", None) if task else None,
+                        payload={"body": raw} if raw else {},
+                        error=traceback.format_exc(),
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +300,8 @@ def create_indexing_queue(
     backend: str,
     handler: Callable[[IndexingTask], Coroutine[Any, Any, None]],
     redis_url: str | None = None,
+    *,
+    dead_letter: DeadLetterRepository | None = None,
 ) -> tuple[IndexingQueueProducer, InMemoryIndexingConsumer | RedisIndexingConsumer]:
     """Create a matched producer/consumer pair for the given backend.
 
@@ -278,6 +309,7 @@ def create_indexing_queue(
         backend: ``"memory"`` or ``"redis"``.
         handler: Async callable invoked for each ``IndexingTask``.
         redis_url: Redis connection URL (required when *backend* is ``"redis"``).
+        dead_letter: Optional dead-letter repository for routing failed tasks.
 
     Returns:
         A ``(producer, consumer)`` tuple.
@@ -286,11 +318,11 @@ def create_indexing_queue(
         if not redis_url:
             raise ValueError("redis_url is required for the 'redis' queue backend")
         raw_producer = RedisIndexingProducer(url=redis_url)
-        consumer = RedisIndexingConsumer(handler=handler, url=redis_url)
+        consumer = RedisIndexingConsumer(handler=handler, url=redis_url, dead_letter=dead_letter)
     else:
         queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
         raw_producer = InMemoryIndexingProducer(queue)
-        consumer = InMemoryIndexingConsumer(queue, handler=handler)
+        consumer = InMemoryIndexingConsumer(queue, handler=handler, dead_letter=dead_letter)
 
     producer = IndexingQueueProducer(raw_producer)
     return producer, consumer

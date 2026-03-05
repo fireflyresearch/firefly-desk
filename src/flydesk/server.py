@@ -463,12 +463,16 @@ async def _init_jobs(
     doc_source_repo: Any = None,
 ) -> dict[str, Any]:
     """Wire job runner, register indexing handler, and start indexing queue."""
+    from flydesk.jobs.dead_letter import DeadLetterRepository
     from flydesk.jobs.handlers import IndexingJobHandler
     from flydesk.jobs.repository import JobRepository
     from flydesk.jobs.runner import JobRunner
 
+    dead_letter = DeadLetterRepository(session_factory)
+    app.state.dead_letter = dead_letter
+
     job_repo = JobRepository(session_factory)
-    job_runner = JobRunner(job_repo, config=config)
+    job_runner = JobRunner(job_repo, config=config, dead_letter=dead_letter)
     job_runner.register_handler("indexing", IndexingJobHandler(indexer))
 
     if doc_source_repo is not None:
@@ -492,6 +496,7 @@ async def _init_jobs(
         backend=config.queue_backend,
         handler=_handle_indexing_task,
         redis_url=config.redis_url,
+        dead_letter=dead_letter,
     )
     await indexing_consumer.start()
     app.state.indexing_producer = indexing_producer

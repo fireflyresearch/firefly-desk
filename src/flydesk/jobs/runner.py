@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone
 
 from flydesk.config import DeskConfig
+from flydesk.jobs.dead_letter import DeadLetterRepository
 from flydesk.jobs.handlers import ExecutionResult, JobHandler, ProgressCallback
 from flydesk.jobs.models import Job, JobStatus
 from flydesk.jobs.repository import JobRepository
@@ -39,9 +40,11 @@ class JobRunner:
         *,
         config: DeskConfig | None = None,
         on_sse_progress: asyncio.Queue | None = None,
+        dead_letter: DeadLetterRepository | None = None,
     ) -> None:
         self._repo = repo
         self._config = config or DeskConfig()
+        self._dead_letter = dead_letter
         self._handlers: dict[str, JobHandler] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._running = False
@@ -245,6 +248,13 @@ class JobRunner:
                 error=error_msg,
                 completed_at=datetime.now(timezone.utc),
             )
+            if self._dead_letter:
+                await self._dead_letter.add(
+                    source_type="job",
+                    source_id=job_id,
+                    payload={"job_type": str(getattr(job, "job_type", "")), "error_context": "timeout"},
+                    error=error_msg,
+                )
         except Exception as exc:
             logger.exception("Job %s failed", job_id)
             await self._repo.update_status(
@@ -253,3 +263,10 @@ class JobRunner:
                 error=str(exc),
                 completed_at=datetime.now(timezone.utc),
             )
+            if self._dead_letter:
+                await self._dead_letter.add(
+                    source_type="job",
+                    source_id=job_id,
+                    payload={"job_type": str(getattr(job, "job_type", "")), "error_context": "execution_failure"},
+                    error=str(exc),
+                )
