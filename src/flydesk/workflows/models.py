@@ -36,6 +36,8 @@ class StepType(StrEnum):
     WAIT_POLL = "wait_poll"
     WAIT_HUMAN = "wait_human"
     NOTIFY = "notify"
+    CONDITION = "condition"
+    LOOP = "loop"
 
 
 class StepStatus(StrEnum):

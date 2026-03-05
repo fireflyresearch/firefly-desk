@@ -81,6 +81,44 @@ class WorkflowEngine:
         )
         return wf
 
+    @staticmethod
+    def _check_condition(state: dict, condition: dict) -> int:
+        """Check condition expression and return target step index.
+
+        Uses simple field comparison -- no dynamic code interpretation.
+        Supported operators: eq, ne, gt, lt, gte, lte, in, contains.
+        """
+        field_path = condition["field"]
+        # Resolve "state.field_name" to actual value
+        parts = field_path.split(".")
+        value = state
+        for part in parts:
+            if part == "state":
+                continue
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:
+                value = getattr(value, part, None)
+
+        op = condition["operator"]
+        expected = condition["value"]
+        then_step = condition["then_step"]
+        else_step = condition["else_step"]
+
+        comparisons = {
+            "eq": lambda a, b: a == b,
+            "ne": lambda a, b: a != b,
+            "gt": lambda a, b: a > b,
+            "lt": lambda a, b: a < b,
+            "gte": lambda a, b: a >= b,
+            "lte": lambda a, b: a <= b,
+            "in": lambda a, b: a in b,
+            "contains": lambda a, b: b in a if isinstance(a, (list, str)) else False,
+        }
+
+        check = comparisons.get(op, lambda a, b: False)
+        return then_step if check(value, expected) else else_step
+
     async def resume(self, workflow_id: str, trigger: Trigger) -> None:
         """Resume a waiting or pending workflow with the given trigger."""
         wf = await self._repo.get(workflow_id)
@@ -104,6 +142,27 @@ class WorkflowEngine:
         steps = await self._repo.get_steps(workflow_id)
         if wf.current_step < len(steps):
             step = steps[wf.current_step]
+
+            # Handle CONDITION steps by evaluating the branch immediately
+            if step.step_type == StepType.CONDITION:
+                condition = step.input or {}
+                target_step = self._check_condition(state, condition)
+                await self._repo.update_step_status(
+                    step.id,
+                    StepStatus.COMPLETED,
+                    output={"target_step": target_step},
+                    completed_at=datetime.now(timezone.utc),
+                )
+                await self._repo.save_checkpoint(
+                    workflow_id, current_step=target_step
+                )
+                logger.info(
+                    "Condition step %d branched to step %d",
+                    wf.current_step,
+                    target_step,
+                )
+                return
+
             await self._run_step_with_timeout(step, wf)
 
     async def _execute_step(self, step: WorkflowStep, workflow: Workflow) -> dict:
