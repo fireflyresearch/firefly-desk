@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 import flydesk
 from flydesk.api.audit import router as audit_router
 from flydesk.api.auth import router as auth_router
+from flydesk.api.budget import router as budget_router
 from flydesk.api.catalog import router as catalog_router
 from flydesk.api.cloud_import import router as cloud_import_router
 from flydesk.api.chat import router as chat_router
@@ -1300,6 +1301,7 @@ def create_app() -> FastAPI:
     app.include_router(model_routing_router)
     app.include_router(oidc_providers_router)
     app.include_router(settings_router)
+    app.include_router(budget_router)
     app.include_router(dashboard_router)
     app.include_router(dlq_router)
     app.include_router(users_router)

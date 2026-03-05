@@ -134,6 +134,11 @@ class DeskConfig(BaseSettings):
     file_storage_path: str = "./uploads"
     file_max_size_mb: int = 50
 
+    # -- Budget Alerts --
+    daily_budget_limit: float = 0.0  # 0 = unlimited
+    budget_alert_warning: float = 0.8
+    budget_alert_critical: float = 0.95
+
     # -- Middleware --
     cost_guard_enabled: bool = False
     cost_guard_max_per_message: float = 1.0  # USD per call

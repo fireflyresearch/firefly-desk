@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import logging
+import random
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -22,11 +23,20 @@ if TYPE_CHECKING:
     import httpx
 
     from flydesk.callbacks.delivery_repository import CallbackDeliveryRepository
+    from flydesk.jobs.dead_letter import DeadLetterRepository
     from flydesk.settings.repository import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
-_RETRY_DELAYS = [0, 30, 300]  # immediate, 30s, 5min
+_RETRY_DELAYS = [0, 30, 300, 1800, 7200]  # immediate, 30s, 5min, 30min, 2h
+
+
+def _jittered_delay(base: int) -> float:
+    """Add +-20% jitter to a base delay."""
+    if base == 0:
+        return 0
+    jitter = base * 0.2
+    return base + random.uniform(-jitter, jitter)
 
 
 class CallbackDispatcher:
@@ -42,10 +52,12 @@ class CallbackDispatcher:
         settings_repo: SettingsRepository,
         http_client: httpx.AsyncClient,
         delivery_repo: CallbackDeliveryRepository | None = None,
+        dead_letter: DeadLetterRepository | None = None,
     ) -> None:
         self._settings_repo = settings_repo
         self._http_client = http_client
         self._delivery_repo = delivery_repo
+        self._dead_letter = dead_letter
 
     async def dispatch(self, event: str, data: dict[str, Any]) -> None:
         """Send *event* with *data* to all matching callbacks (fire-and-forget)."""
@@ -99,9 +111,11 @@ class CallbackDispatcher:
             "X-Flydesk-Event": event,
         }
 
+        delivery_id = f"{callback_id}:{event}:{datetime.now(timezone.utc).isoformat()}"
+
         for attempt, delay in enumerate(_RETRY_DELAYS, start=1):
             if delay > 0:
-                await asyncio.sleep(delay)
+                await asyncio.sleep(_jittered_delay(delay))
             try:
                 resp = await self._http_client.post(
                     url, content=body, headers=headers, timeout=5.0
@@ -138,3 +152,10 @@ class CallbackDispatcher:
                     )
 
         logger.error("Callback delivery exhausted: %s -> %s", event, url)
+        if self._dead_letter:
+            await self._dead_letter.add(
+                source_type="callback",
+                source_id=delivery_id,
+                payload={"url": url, "body": body},
+                error=f"All {len(_RETRY_DELAYS)} delivery attempts failed",
+            )

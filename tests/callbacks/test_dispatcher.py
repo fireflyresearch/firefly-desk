@@ -75,7 +75,7 @@ class TestDeliverWithRetries:
         assert mock_delivery_repo.record.call_count == 2
 
     async def test_exhausts_all_retries(self, dispatcher, mock_http_client, mock_delivery_repo):
-        """All attempts fail: 3 POSTs, 3 failed delivery logs."""
+        """All attempts fail: 5 POSTs, 5 failed delivery logs."""
         mock_http_client.post.side_effect = Exception("Connection refused")
 
         with patch("flydesk.callbacks.dispatcher.asyncio.sleep", new_callable=AsyncMock):
@@ -83,8 +83,8 @@ class TestDeliverWithRetries:
                 "cb-1", "https://example.com/hook", "secret", "email.received", {}
             )
 
-        assert mock_http_client.post.call_count == 3
-        assert mock_delivery_repo.record.call_count == 3
+        assert mock_http_client.post.call_count == 5
+        assert mock_delivery_repo.record.call_count == 5
         # All records should be "failed"
         for call in mock_delivery_repo.record.call_args_list:
             assert call[1]["status"] == "failed"
