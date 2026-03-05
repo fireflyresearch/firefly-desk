@@ -15,6 +15,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from flydesk.config import DeskConfig
 from flydesk.jobs.handlers import ExecutionResult, JobHandler, ProgressCallback
 from flydesk.jobs.models import Job, JobStatus
 from flydesk.jobs.repository import JobRepository
@@ -36,9 +37,11 @@ class JobRunner:
         self,
         repo: JobRepository,
         *,
+        config: DeskConfig | None = None,
         on_sse_progress: asyncio.Queue | None = None,
     ) -> None:
         self._repo = repo
+        self._config = config or DeskConfig()
         self._handlers: dict[str, JobHandler] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._running = False
@@ -197,10 +200,13 @@ class JobRunner:
         should_pause = lambda: self.is_pause_requested(job_id)
 
         try:
-            raw_result = await handler.execute(
-                job_id, job.payload, _on_progress,
-                checkpoint=job.checkpoint,
-                should_pause=should_pause,
+            raw_result = await asyncio.wait_for(
+                handler.execute(
+                    job_id, job.payload, _on_progress,
+                    checkpoint=job.checkpoint,
+                    should_pause=should_pause,
+                ),
+                timeout=self._config.job_timeout_seconds,
             )
 
             # Handle pause: handler returned an ExecutionResult with checkpoint
@@ -228,6 +234,17 @@ class JobRunner:
             )
             await self._repo.update_progress(job_id, 100, "Complete")
             logger.info("Job %s completed successfully", job_id)
+        except (asyncio.TimeoutError, TimeoutError):
+            error_msg = (
+                f"Job {job_id} timed out after {self._config.job_timeout_seconds}s"
+            )
+            logger.error(error_msg)
+            await self._repo.update_status(
+                job_id,
+                JobStatus.FAILED,
+                error=error_msg,
+                completed_at=datetime.now(timezone.utc),
+            )
         except Exception as exc:
             logger.exception("Job %s failed", job_id)
             await self._repo.update_status(

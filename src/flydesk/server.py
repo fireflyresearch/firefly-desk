@@ -468,7 +468,7 @@ async def _init_jobs(
     from flydesk.jobs.runner import JobRunner
 
     job_repo = JobRepository(session_factory)
-    job_runner = JobRunner(job_repo)
+    job_runner = JobRunner(job_repo, config=config)
     job_runner.register_handler("indexing", IndexingJobHandler(indexer))
 
     if doc_source_repo is not None:

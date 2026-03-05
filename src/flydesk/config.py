@@ -75,6 +75,9 @@ class DeskConfig(BaseSettings):
     # -- Queue --
     queue_backend: Literal["memory", "redis"] = "memory"
 
+    # -- Jobs --
+    job_timeout_seconds: int = 3600
+
     # -- Knowledge --
     max_knowledge_tokens: int = 4000  # deprecated: use LLMRuntimeSettings.max_knowledge_tokens
     embedding_model: str = "openai:text-embedding-3-small"
