@@ -13,6 +13,7 @@
 	import { Loader2, WifiOff } from 'lucide-svelte';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 	import PanelContainer from '$lib/components/panels/PanelContainer.svelte';
+	import SessionTimeoutWarning from '$lib/components/layout/SessionTimeoutWarning.svelte';
 	import { panelVisible } from '$lib/stores/panel.js';
 	import { initCurrentUser } from '$lib/stores/user.js';
 	import { onMount } from 'svelte';
@@ -21,6 +22,55 @@
 	let setupChecked = $state(false);
 	let backendError = $state(false);
 
+	// -- Session timeout --------------------------------------------------
+	const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+	const WARNING_MS = 5 * 60 * 1000; // Show warning at T-5 min
+
+	let showWarning = $state(false);
+	let timeoutId: ReturnType<typeof setTimeout> | null = $state(null);
+	let warningId: ReturnType<typeof setTimeout> | null = $state(null);
+
+	function resetTimer() {
+		if (timeoutId) clearTimeout(timeoutId);
+		if (warningId) clearTimeout(warningId);
+		showWarning = false;
+
+		warningId = setTimeout(() => {
+			showWarning = true;
+		}, TIMEOUT_MS - WARNING_MS);
+		timeoutId = setTimeout(() => {
+			handleLogout();
+		}, TIMEOUT_MS);
+	}
+
+	function handleExtend() {
+		showWarning = false;
+		resetTimer();
+	}
+
+	async function handleLogout() {
+		try {
+			await fetch('/api/auth/logout', { method: 'POST' });
+		} catch {
+			/* best-effort */
+		}
+		sessionStorage.clear();
+		window.location.href = '/login';
+	}
+
+	$effect(() => {
+		resetTimer();
+		const events = ['click', 'keypress', 'mousemove', 'scroll'];
+		const handler = () => resetTimer();
+		events.forEach((e) => document.addEventListener(e, handler, { passive: true }));
+		return () => {
+			events.forEach((e) => document.removeEventListener(e, handler));
+			if (timeoutId) clearTimeout(timeoutId);
+			if (warningId) clearTimeout(warningId);
+		};
+	});
+
+	// -- Setup check ------------------------------------------------------
 	$effect(() => {
 		initCurrentUser();
 	});
@@ -81,4 +131,8 @@
 	<div class="flex min-h-screen items-center justify-center bg-background">
 		<Loader2 size={24} class="animate-spin text-text-secondary" />
 	</div>
+{/if}
+
+{#if showWarning}
+	<SessionTimeoutWarning onExtend={handleExtend} onLogout={handleLogout} />
 {/if}
