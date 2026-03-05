@@ -55,7 +55,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 # Discovery tuning constants
 _DISCOVERY_ENTITY_LIMIT = 200  # max KG entities loaded for context (matches system discovery)
-_DISCOVERY_MAX_TOKENS = 65_536  # max LLM output tokens (higher than system discovery due to structured output volume)
+_DISCOVERY_MAX_TOKENS = 16_384  # max LLM output tokens (sufficient for structured JSON process output)
 _MERGE_DEDUP_LIMIT = 500  # max existing processes loaded for dedup during merge
 
 
@@ -283,11 +283,23 @@ class ProcessDiscoveryEngine:
 
         # Warn if context is empty
         if not context.systems and not context.entities and not context.documents:
-            await on_progress(100, "No context available — add systems, documents, or knowledge graph entities before running discovery")
+            hints = []
+            if not context.systems:
+                hints.append("register systems in the Service Catalog")
+            if not context.documents:
+                hints.append("upload documents to the Knowledge Base")
+            if not context.entities:
+                hints.append("enable auto-analyze to populate the knowledge graph")
+            guidance = "; ".join(hints) if hints else "add content"
+            await on_progress(
+                100,
+                f"No context available for discovery. To discover processes, {guidance}.",
+            )
             return {
                 "status": "skipped",
                 "reason": "no_context",
                 "processes_discovered": 0,
+                "guidance": guidance,
             }
 
         # 2. Build prompt
@@ -520,11 +532,20 @@ class ProcessDiscoveryEngine:
                         documents.append(doc)
             else:
                 documents = await self._catalog_repo.list_knowledge_documents()
-                # Exclude documents that belong *only* to the system workspace
-                documents = [
+                # Prefer user-uploaded documents over system-only platform docs.
+                # If ALL documents belong exclusively to the system workspace,
+                # include them anyway so discovery has something to work with.
+                user_docs = [
                     doc for doc in documents
                     if not _is_system_only(doc, _SYSTEM_WS)
                 ]
+                if user_docs:
+                    documents = user_docs
+                elif documents:
+                    await _progress(
+                        16,
+                        f"No user documents found — using {len(documents)} internal platform docs as context",
+                    )
 
             if document_types:
                 type_set = set(document_types)

@@ -188,6 +188,7 @@
 	}
 	let discoveryLog = $state<DiscoveryLogEntry[]>([]);
 	let discoveryLogEl: HTMLDivElement | null = $state(null);
+	let lastDiscoveryResult = $state<Record<string, unknown> | null>(null);
 
 	// Auto-analyze toggle
 	let autoAnalyze = $state(false);
@@ -836,6 +837,7 @@
 		error = '';
 		discoveryProgressMessage = '';
 		discoveryLog = [];
+		lastDiscoveryResult = null;
 		try {
 			const resp = await apiJson<DiscoverResponse>('/processes/discover', { method: 'POST' });
 			discoveryJobId = resp.job_id;
@@ -886,6 +888,41 @@
 									type: 'error'
 								}
 							];
+						}
+						// Extract result summary from the done event
+						const result = msg.data.result as Record<string, unknown> | undefined;
+						if (result) {
+							lastDiscoveryResult = result;
+							// If the job was skipped (no context, no LLM), add an
+							// informative log entry so the user understands why.
+							if (result.status === 'skipped') {
+								const reason = result.reason as string;
+								let summaryMsg = '';
+								if (reason === 'no_context') {
+									summaryMsg = result.guidance
+										? `No context available for discovery. To discover processes, ${result.guidance as string}.`
+										: 'No context available — add systems, documents, or knowledge graph entities.';
+								} else if (reason === 'no_llm_configured') {
+									summaryMsg = 'No LLM provider configured. Configure one in AI Configuration → LLM Configuration.';
+								} else {
+									summaryMsg = `Discovery skipped: ${reason}`;
+								}
+								discoveryLog = [
+									...discoveryLog,
+									{ message: summaryMsg, pct: 100, timestamp: new Date(), type: 'error' }
+								];
+							} else if (result.status === 'completed' && result.processes_discovered === 0) {
+								const ctx = result.context_summary as string | undefined;
+								discoveryLog = [
+									...discoveryLog,
+									{
+										message: `Analysis complete but no processes identified${ctx ? ` (scanned ${ctx})` : ''}. Try adding more business documents or registering systems.`,
+										pct: 100,
+										timestamp: new Date(),
+										type: 'info'
+									}
+								];
+							}
 						}
 					}
 				},
@@ -1283,10 +1320,48 @@
 						<Loader2 size={20} class="animate-spin text-text-secondary" />
 					</div>
 				{:else if filteredProcesses.length === 0}
-					<div class="px-4 py-8 text-center text-xs text-text-secondary">
-						{searchQuery || statusFilter !== 'all'
-							? 'No processes match your filters.'
-							: 'No processes discovered yet.'}
+					<div class="px-4 py-6 text-center text-xs text-text-secondary">
+						{#if searchQuery || statusFilter !== 'all'}
+							No processes match your filters.
+						{:else if lastDiscoveryResult?.status === 'skipped' && lastDiscoveryResult?.reason === 'no_context'}
+							<div class="flex flex-col items-center gap-2">
+								<AlertCircle size={20} class="text-warning opacity-60" />
+								<p class="font-medium text-text-primary">No context for discovery</p>
+								<p class="max-w-[200px] leading-relaxed">
+									Process discovery needs content to analyze. Add documents to the
+									<a href="/admin/knowledge" class="text-accent underline">Knowledge Base</a>
+									or register systems in the
+									<a href="/admin/catalog" class="text-accent underline">Service Catalog</a>.
+								</p>
+							</div>
+						{:else if lastDiscoveryResult?.status === 'skipped' && lastDiscoveryResult?.reason === 'no_llm_configured'}
+							<div class="flex flex-col items-center gap-2">
+								<AlertCircle size={20} class="text-warning opacity-60" />
+								<p class="font-medium text-text-primary">No LLM configured</p>
+								<p class="max-w-[200px] leading-relaxed">
+									Configure an LLM provider in
+									<a href="/admin/llm" class="text-accent underline">LLM Configuration</a>
+									to enable process discovery.
+								</p>
+							</div>
+						{:else if lastDiscoveryResult?.status === 'completed' && lastDiscoveryResult?.processes_discovered === 0}
+							<div class="flex flex-col items-center gap-2">
+								<Brain size={20} class="text-text-secondary opacity-60" />
+								<p class="font-medium text-text-primary">No processes identified</p>
+								<p class="max-w-[200px] leading-relaxed">
+									The LLM analyzed available context but found no business processes.
+									Try adding documents that describe workflows or procedures.
+								</p>
+							</div>
+						{:else}
+							<div class="flex flex-col items-center gap-2">
+								<GitBranch size={20} class="text-text-secondary opacity-40" />
+								<p>No processes discovered yet.</p>
+								<p class="max-w-[200px] leading-relaxed">
+									Click <strong>Re-discover</strong> to scan your knowledge base and catalog.
+								</p>
+							</div>
+						{/if}
 					</div>
 				{:else}
 					<ul class="flex flex-col gap-0.5 p-2">

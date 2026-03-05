@@ -235,7 +235,11 @@ class JobRunner:
                 result=result,
                 completed_at=datetime.now(timezone.utc),
             )
-            await self._repo.update_progress(job_id, 100, "Complete")
+            # Only set generic "Complete" if the handler didn't already send
+            # its own 100% message (which is more descriptive).
+            current_job = await self._repo.get(job_id)
+            if current_job is None or current_job.progress_pct < 100:
+                await self._repo.update_progress(job_id, 100, "Complete")
             logger.info("Job %s completed successfully", job_id)
         except (asyncio.TimeoutError, TimeoutError):
             error_msg = (
