@@ -27,8 +27,8 @@
 	const WARNING_MS = 5 * 60 * 1000; // Show warning at T-5 min
 
 	let showWarning = $state(false);
-	let timeoutId: ReturnType<typeof setTimeout> | null = $state(null);
-	let warningId: ReturnType<typeof setTimeout> | null = $state(null);
+	let timeoutId: ReturnType<typeof setTimeout> | null = null;
+	let warningId: ReturnType<typeof setTimeout> | null = null;
 
 	function resetTimer() {
 		if (timeoutId) clearTimeout(timeoutId);
