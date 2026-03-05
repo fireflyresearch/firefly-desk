@@ -41,12 +41,19 @@ async def receive_webhook(
     if request.headers.get("content-type", "").startswith("application/json"):
         body = await request.json()
 
-    await repo.consume_webhook(registration.id)
+    # Check expiry before accepting
+    from datetime import datetime, timezone
+
+    if registration.expires_at and registration.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Webhook not found or expired")
 
     trigger = Trigger(
         trigger_type=TriggerType.WEBHOOK,
         step_index=registration.step_index,
         payload=body,
     )
+    # Resume the workflow BEFORE consuming the token so a transient failure
+    # in engine.resume() doesn't permanently lose the trigger.
     await engine.resume(registration.workflow_id, trigger)
+    await repo.consume_webhook(registration.id)
     return {"status": "accepted"}

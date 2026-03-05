@@ -130,8 +130,11 @@ class MemoryRepository:
         words = words[:5]
 
         async with self._session_factory() as session:
+            def _esc(v: str) -> str:
+                return v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
             conditions = [
-                UserMemoryRow.content.ilike(f"%{word}%") for word in words
+                UserMemoryRow.content.ilike(f"%{_esc(word)}%") for word in words
             ]
             stmt = (
                 select(UserMemoryRow)

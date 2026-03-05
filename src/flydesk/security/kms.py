@@ -176,4 +176,11 @@ def create_kms_provider(config: Any) -> KMSProvider:
     # Default: Fernet
     if provider_type != "fernet":
         logger.warning("Unknown kms_provider=%r; falling back to Fernet.", provider_type)
-    return FernetKMSProvider(config.credential_encryption_key)
+    provider = FernetKMSProvider(config.credential_encryption_key)
+    if provider.is_dev_key:
+        logger.error(
+            "SECURITY: Using development encryption key. "
+            "Set FLYDESK_CREDENTIAL_ENCRYPTION_KEY to a valid Fernet key for production. "
+            "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    return provider

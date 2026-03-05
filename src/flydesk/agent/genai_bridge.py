@@ -10,9 +10,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import TYPE_CHECKING, Any
+
+# Serializes environment variable manipulation so concurrent agent creations
+# don't overwrite each other's API keys in os.environ.
+_ENV_LOCK = asyncio.Lock()
 
 from fireflyframework_genai.agents import FireflyAgent
 
@@ -150,10 +155,6 @@ class DeskAgentFactory:
 
         model_str = model_override or provider_to_model_string(provider)
 
-        # Set the API key in the environment for the provider
-        # pydantic-ai reads API keys from standard env vars
-        _set_provider_env(provider)
-
         middleware = self._build_middleware()
 
         # Determine max_tokens from provider capabilities or use configured default.
@@ -180,7 +181,12 @@ class DeskAgentFactory:
             _logger.warning("Creating agent with NO tools — agent won't be able to call APIs")
 
         def _build_agent(model: str) -> FireflyAgent:
-            """Build a FireflyAgent for the given model string."""
+            """Build a FireflyAgent for the given model string.
+
+            MUST be called under ``_ENV_LOCK`` so concurrent requests don't
+            overwrite each other's provider API keys in ``os.environ``.
+            """
+            _set_provider_env(provider)
             fa = FireflyAgent(
                 name="ember",
                 model=model,
@@ -201,36 +207,39 @@ class DeskAgentFactory:
             return fa
 
         # ------------------------------------------------------------------
-        # Try the primary model, then fall back to alternatives on failure
+        # Try the primary model, then fall back to alternatives on failure.
+        # Hold _ENV_LOCK while setting env vars + constructing the agent so
+        # concurrent requests don't overwrite each other's API keys.
         # ------------------------------------------------------------------
-        try:
-            return _build_agent(model_str)
-        except Exception as primary_exc:
-            _logger.warning(
-                "Primary model '%s' failed: %s. Attempting fallback models.",
-                model_str,
-                primary_exc,
-            )
+        async with _ENV_LOCK:
+            try:
+                return _build_agent(model_str)
+            except Exception as primary_exc:
+                _logger.warning(
+                    "Primary model '%s' failed: %s. Attempting fallback models.",
+                    model_str,
+                    primary_exc,
+                )
 
-            fallback_models = await self.get_fallback_model_strings()
-            if not fallback_models:
-                raise
+                fallback_models = await self.get_fallback_model_strings()
+                if not fallback_models:
+                    raise
 
-            last_exc: Exception = primary_exc
-            for fb_model in fallback_models:
-                try:
-                    agent = _build_agent(fb_model)
-                    _logger.info("Fallback model '%s' succeeded.", fb_model)
-                    return agent
-                except Exception as fb_exc:
-                    _logger.warning(
-                        "Fallback model '%s' also failed: %s",
-                        fb_model,
-                        fb_exc,
-                    )
-                    last_exc = fb_exc
+                last_exc: Exception = primary_exc
+                for fb_model in fallback_models:
+                    try:
+                        agent = _build_agent(fb_model)
+                        _logger.info("Fallback model '%s' succeeded.", fb_model)
+                        return agent
+                    except Exception as fb_exc:
+                        _logger.warning(
+                            "Fallback model '%s' also failed: %s",
+                            fb_model,
+                            fb_exc,
+                        )
+                        last_exc = fb_exc
 
-            raise last_exc
+                raise last_exc
 
 
     async def get_fallback_model_strings(self) -> list[str]:

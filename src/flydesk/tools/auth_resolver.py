@@ -168,7 +168,10 @@ class AuthResolver:
                 header_name = next(iter(auth_config.auth_headers))
             resolved.headers[header_name] = token
         elif auth_type == AuthType.BASIC:
-            resolved.headers["Authorization"] = f"Basic {token}"
+            import base64
+
+            encoded = base64.b64encode(token.encode()).decode()
+            resolved.headers["Authorization"] = f"Basic {encoded}"
         elif auth_type == AuthType.OAUTH2:
             oauth_headers = await self._resolve_oauth2(system, credential)
             resolved.headers.update(oauth_headers)

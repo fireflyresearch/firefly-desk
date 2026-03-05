@@ -7,9 +7,15 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from flydesk.rbac.guards import AdminSettings
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin/dead-letter", tags=["admin"])
+router = APIRouter(
+    prefix="/api/admin/dead-letter",
+    tags=["admin"],
+    dependencies=[AdminSettings],
+)
 
 
 @router.get("")

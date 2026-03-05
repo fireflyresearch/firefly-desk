@@ -117,7 +117,7 @@ async def receive_inbound_email(
             subject = subject or payload_data["data"].get("subject", "") or ""
 
     # 2b. Verify webhook signature.
-    is_valid = await adapter._email_port.verify_webhook_signature(
+    is_valid = await adapter.verify_webhook_signature(
         headers=dict(request.headers),
         body=body,
     )
@@ -164,7 +164,7 @@ async def receive_inbound_email(
             processing_time_ms=elapsed_ms,
             error="No conversation_id",
         ))
-        return {"status": "error", "reason": "no_conversation_id"}
+        raise HTTPException(status_code=422, detail="No conversation_id in parsed message")
     from_addr = from_addr or getattr(message, "user_id", "")
 
     # 4. Check auto_reply setting.
@@ -202,7 +202,7 @@ async def receive_inbound_email(
             processing_time_ms=elapsed_ms,
             error="Agent not configured",
         ))
-        return {"status": "error", "reason": "agent_not_configured"}
+        raise HTTPException(status_code=503, detail="Agent not configured")
 
     # Build a UserSession for the email sender
     user_session = UserSession(
@@ -278,7 +278,7 @@ async def receive_inbound_email(
             processing_time_ms=elapsed_ms,
             error=f"Agent error: {agent_exc}",
         ))
-        return {"status": "error", "reason": "agent_error"}
+        raise HTTPException(status_code=502, detail="Agent processing failed")
 
     # Persist agent reply as assistant message
     await conversation_repo.add_message(

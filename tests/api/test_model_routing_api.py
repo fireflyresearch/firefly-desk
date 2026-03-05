@@ -212,10 +212,8 @@ class TestClassifierTest:
             "/api/admin/model-routing/test",
             json={"message": "Hello!"},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "error" in data
-        assert "not enabled" in data["error"].lower()
+        assert resp.status_code == 400
+        assert "not enabled" in resp.json()["detail"].lower()
 
     async def test_test_endpoint_when_config_disabled(self, admin_client, mock_routing_repo):
         mock_routing_repo.get_config = AsyncMock(
@@ -225,9 +223,8 @@ class TestClassifierTest:
             "/api/admin/model-routing/test",
             json={"message": "Complex analysis request"},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "error" in data
+        assert resp.status_code == 400
+        assert "not enabled" in resp.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------

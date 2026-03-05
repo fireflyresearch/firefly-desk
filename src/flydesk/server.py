@@ -584,6 +584,7 @@ async def _init_agent(  # noqa: PLR0913
         max_parallel=config.max_tools_per_turn,
         kms=kms,
     )
+    app.state.tool_executor = tool_executor
 
     from flydesk.agent.confirmation import ConfirmationService
 
@@ -1149,16 +1150,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.process_executor = process_executor
 
-    # Register step handlers now that agent_factory and tool_executor are available
-    from flydesk.workflows.step_handlers import create_handlers
-
-    callback_dispatcher = getattr(app.state, "callback_dispatcher", None)
-    step_handlers = create_handlers(
-        agent_factory=app.state.agent_factory,
-        tool_executor=getattr(app.state, "tool_executor", None),
-        callback_dispatcher=callback_dispatcher,
-    )
-    workflows["workflow_engine"]._step_handlers = step_handlers
+    # NOTE: step_handlers wiring is deferred to after callback_dispatcher
+    # is created (see below) to ensure all dependencies are available.
 
     # 10. Email channel (conditionally enabled)
     await _init_email_channel(
@@ -1209,9 +1202,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         delivery_repo=delivery_repo,
     )
 
-    # Wire callback dispatcher into builtin executor
-    if hasattr(app.state, "builtin_executor") and hasattr(app.state.builtin_executor, "set_callback_dispatcher"):
-        app.state.builtin_executor.set_callback_dispatcher(app.state.callback_dispatcher)
+    # Wire callback dispatcher into email channel adapter (created before
+    # the dispatcher existed) so email delivery callbacks fire.
+    email_adapter = getattr(app.state, "email_channel_adapter", None)
+    if email_adapter is not None:
+        email_adapter._callback_dispatcher = app.state.callback_dispatcher
+
+    # Register workflow step handlers now that all dependencies exist.
+    from flydesk.workflows.step_handlers import create_handlers
+
+    step_handlers = create_handlers(
+        agent_factory=app.state.agent_factory,
+        tool_executor=app.state.tool_executor,
+        callback_dispatcher=app.state.callback_dispatcher,
+    )
+    workflows["workflow_engine"]._step_handlers = step_handlers
 
     # 11. Auth / OIDC
     _init_auth(app, config, session_factory)

@@ -38,6 +38,8 @@ PUBLIC_PATH_PREFIXES = (
     "/api/auth/logout",
     "/api/auth/login",
     "/api/setup/",
+    "/api/webhooks/",
+    "/api/email/inbound/",
 )
 
 

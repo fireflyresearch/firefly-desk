@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Annotated, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -227,7 +230,10 @@ async def delete_export(
         try:
             await storage.delete(record.file_path)
         except Exception:
-            pass  # Best-effort cleanup
+            logger.warning(
+                "Failed to delete stored file %s for export %s",
+                record.file_path, export_id, exc_info=True,
+            )
 
     await repo.delete_export(export_id)
     return Response(status_code=204)

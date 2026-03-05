@@ -7,18 +7,26 @@ from datetime import date
 
 from fastapi import APIRouter, Request
 
+from flydesk.rbac.guards import AdminDashboard
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin/budget", tags=["admin"])
+router = APIRouter(
+    prefix="/api/admin/budget",
+    tags=["admin"],
+    dependencies=[AdminDashboard],
+)
 
 
 @router.get("/status")
 async def budget_status(request: Request) -> dict:
-    config = request.app.state.config
-    settings_repo = request.app.state.settings_repo
+    config = getattr(request.app.state, "config", None)
+    settings_repo = getattr(request.app.state, "settings_repo", None)
+    if config is None or settings_repo is None:
+        return {"daily_limit": 0.0, "spent_today": 0.0, "percentage": 0.0, "status": "unavailable"}
 
     today = date.today().isoformat()
-    spent_today = float(await settings_repo.get(f"daily_spend_{today}") or "0")
+    spent_today = float(await settings_repo.get_app_setting(f"daily_spend_{today}") or "0")
     daily_limit = config.daily_budget_limit
 
     if daily_limit > 0:

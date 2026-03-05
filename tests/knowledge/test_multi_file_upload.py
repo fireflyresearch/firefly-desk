@@ -241,7 +241,7 @@ class TestImportMixedSuccessFailure:
 
         files = [
             ("files", ("good1.pdf", io.BytesIO(b"pdf bytes"), "application/pdf")),
-            ("files", ("bad.xyz", io.BytesIO(b"bad bytes"), "application/octet-stream")),
+            ("files", ("bad.xyz", io.BytesIO(b"bad bytes"), "text/plain")),
             ("files", ("good2.md", io.BytesIO(b"# doc"), "text/markdown")),
         ]
         response = await admin_client.post(ENDPOINT, files=files)
@@ -260,14 +260,27 @@ class TestImportMixedSuccessFailure:
         mock_importer.import_file.side_effect = ValueError("parse error")
 
         files = [
-            ("files", ("a.bin", io.BytesIO(b"\x00\x01"), "application/octet-stream")),
-            ("files", ("b.bin", io.BytesIO(b"\x00\x02"), "application/octet-stream")),
+            ("files", ("a.txt", io.BytesIO(b"bad data"), "text/plain")),
+            ("files", ("b.txt", io.BytesIO(b"bad data"), "text/plain")),
         ]
         response = await admin_client.post(ENDPOINT, files=files)
         assert response.status_code == 201
         data = response.json()
         assert len(data["documents"]) == 0
         assert len(data["errors"]) == 2
+
+    async def test_unsupported_content_type_rejected(self, admin_client, mock_importer):
+        """Files with unsupported content types are rejected without calling importer."""
+        files = [
+            ("files", ("a.bin", io.BytesIO(b"\x00\x01"), "application/octet-stream")),
+        ]
+        response = await admin_client.post(ENDPOINT, files=files)
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["documents"]) == 0
+        assert len(data["errors"]) == 1
+        assert "Unsupported content type" in data["errors"][0]["error"]
+        mock_importer.import_file.assert_not_awaited()
 
 
 class TestImportFilesCallsImporter:

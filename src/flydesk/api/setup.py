@@ -21,7 +21,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
@@ -32,6 +32,29 @@ from flydesk.settings.models import LLMRuntimeSettings
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
 logger = logging.getLogger(__name__)
+
+
+async def _require_setup_incomplete(request: Request) -> None:
+    """Guard: reject requests if setup is already completed.
+
+    Setup test endpoints (test-llm, test-embedding, test-database, test-sso)
+    are intentionally unauthenticated for the first-run wizard. Once setup is
+    marked complete, they must be locked down to prevent unauthenticated SSRF.
+    """
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if session_factory is None:
+        return  # DB not initialized yet — allow (setup is definitely incomplete)
+    from flydesk.settings.repository import SettingsRepository
+    repo = SettingsRepository(session_factory)
+    done = await repo.get_app_setting("setup_completed")
+    if done == "true":
+        raise HTTPException(
+            status_code=403,
+            detail="Setup already completed",
+        )
+
+
+SetupIncomplete = Depends(_require_setup_incomplete)
 
 
 class SetupStatus(BaseModel):
@@ -327,7 +350,7 @@ def _friendly_error(exc: Exception, context: str) -> str:
     return f"{context} error: {msg.split(chr(10))[0][:200]}"
 
 
-@router.post("/test-llm")
+@router.post("/test-llm", dependencies=[SetupIncomplete])
 async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
     """Test LLM provider connectivity without auth or persistence.
 
@@ -380,7 +403,7 @@ async def test_llm_provider(body: LLMTestRequest) -> LLMTestResult:
     )
 
 
-@router.post("/test-embedding")
+@router.post("/test-embedding", dependencies=[SetupIncomplete])
 async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
     """Generate a test embedding to verify provider configuration.
 
@@ -433,7 +456,7 @@ async def test_embedding(body: TestEmbeddingRequest) -> TestEmbeddingResult:
         )
 
 
-@router.post("/test-database")
+@router.post("/test-database", dependencies=[SetupIncomplete])
 async def test_database(body: DatabaseTestRequest, request: Request) -> DatabaseTestResult:
     """Test database connectivity.
 
@@ -758,23 +781,12 @@ async def configure_sso(body: SetupSSORequest, request: Request) -> dict:
     return {"success": True, "provider_id": provider.id}
 
 
-@router.post("/test-sso")
+@router.post("/test-sso", dependencies=[SetupIncomplete])
 async def test_sso_connectivity(body: TestSSORequest, request: Request) -> dict:
     """Test SSO issuer connectivity by fetching the OIDC discovery document.
 
     This endpoint is only available before setup is marked as completed.
     """
-    session_factory = getattr(request.app.state, "session_factory", None)
-    if not session_factory:
-        raise HTTPException(status_code=500, detail="Database not initialized")
-
-    from flydesk.settings.repository import SettingsRepository
-
-    settings_repo = SettingsRepository(session_factory)
-    setup_done = await settings_repo.get_app_setting("setup_completed")
-    if setup_done == "true":
-        raise HTTPException(status_code=403, detail="Setup already completed")
-
     from flydesk.auth.oidc import OIDCClient
 
     client = OIDCClient(issuer_url=body.issuer_url, client_id="test", client_secret="")

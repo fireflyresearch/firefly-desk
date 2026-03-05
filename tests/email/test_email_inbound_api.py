@@ -360,16 +360,13 @@ class TestSuccessfulProcessing:
             "/api/email/inbound/resend",
             json={"from": "user@example.com", "subject": "Help"},
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "error"
-        assert data["reason"] == "agent_error"
+        assert response.status_code == 502
 
         # Adapter send should NOT have been called since agent failed.
         mock_adapter.send.assert_not_awaited()
 
-    async def test_agent_not_configured_returns_error(self, client, mock_adapter):
-        """When desk_agent is not on app.state, return error."""
+    async def test_agent_not_configured_returns_503(self, client, mock_adapter):
+        """When desk_agent is not on app.state, return 503."""
         # Remove desk_agent from app state
         transport = client._transport
         app = transport.app
@@ -379,10 +376,7 @@ class TestSuccessfulProcessing:
             "/api/email/inbound/resend",
             json={"from": "user@example.com", "subject": "Help"},
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "error"
-        assert data["reason"] == "agent_not_configured"
+        assert response.status_code == 503
 
         mock_adapter.send.assert_not_awaited()
 
@@ -395,7 +389,7 @@ class TestSuccessfulProcessing:
 class TestWebhookSignatureVerification:
     async def test_rejects_invalid_signature(self, client, mock_adapter):
         """POST with invalid signature returns 401."""
-        mock_adapter._email_port.verify_webhook_signature.return_value = False
+        mock_adapter.verify_webhook_signature.return_value = False
 
         response = await client.post(
             "/api/email/inbound/resend",
@@ -408,7 +402,7 @@ class TestWebhookSignatureVerification:
 
     async def test_valid_signature_continues_processing(self, client, mock_adapter):
         """POST with valid signature proceeds to adapter.receive()."""
-        mock_adapter._email_port.verify_webhook_signature.return_value = True
+        mock_adapter.verify_webhook_signature.return_value = True
 
         response = await client.post(
             "/api/email/inbound/resend",

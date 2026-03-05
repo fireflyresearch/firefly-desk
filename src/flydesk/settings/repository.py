@@ -98,6 +98,24 @@ class SettingsRepository:
                 row.category = category
             await session.commit()
 
+    async def increment_app_setting(
+        self, key: str, delta: float, category: str = "general"
+    ) -> None:
+        """Atomically increment a numeric app setting inside a single transaction.
+
+        Avoids TOCTOU race conditions by performing the read and write within
+        the same database session/transaction.
+        """
+        async with self._session_factory() as session:
+            row = await session.get(AppSettingRow, key)
+            if row is None:
+                row = AppSettingRow(key=key, value=str(round(delta, 6)), category=category)
+                session.add(row)
+            else:
+                current = float(row.value or "0")
+                row.value = str(round(current + delta, 6))
+            await session.commit()
+
     async def get_all_app_settings(
         self, category: str | None = None
     ) -> dict[str, str]:

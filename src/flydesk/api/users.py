@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Annotated
 
@@ -615,8 +616,12 @@ async def upload_avatar(
     avatars_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate a safe filename
-    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
-    safe_name = f"{user_session.user_id}.{ext}"
+    _ALLOWED_AVATAR_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
+    raw_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "png"
+    ext = raw_ext if raw_ext in _ALLOWED_AVATAR_EXTS else "png"
+    # Sanitize user_id: keep only alphanumerics, hyphens, underscores
+    sanitized_id = re.sub(r"[^a-zA-Z0-9_-]", "_", user_session.user_id)
+    safe_name = f"{sanitized_id}.{ext}"
     file_path = avatars_dir / safe_name
 
     # Write file
@@ -642,13 +647,15 @@ async def upload_avatar(
 @router.get("/api/profile/avatar/{filename}")
 async def serve_avatar(filename: str) -> Response:
     """Serve a stored avatar image."""
+    import os
     from pathlib import Path
 
     config = get_config()
-    file_path = Path(config.file_storage_path) / "avatars" / filename
+    avatars_dir = (Path(config.file_storage_path) / "avatars").resolve()
+    file_path = (avatars_dir / filename).resolve()
 
-    # Prevent path traversal
-    if ".." in filename or "/" in filename:
+    # Prevent path traversal: resolved path must be inside avatars_dir
+    if not str(file_path).startswith(str(avatars_dir) + os.sep):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     if not file_path.exists():

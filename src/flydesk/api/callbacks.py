@@ -26,6 +26,27 @@ router = APIRouter(prefix="/api/callbacks", tags=["callbacks"])
 SettingsRepo = Annotated[SettingsRepository, Depends(get_settings_repo)]
 
 
+def _validate_callback_url(url: str) -> str:
+    """Validate callback URL: must be http(s), reject private/reserved IPs."""
+    from urllib.parse import urlparse
+    import ipaddress
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Callback URL must use http or https scheme")
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise ValueError("Callback URL has no hostname")
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"Callback URL targets a private/reserved address: {hostname}")
+    except ValueError as exc:
+        if "private" in str(exc) or "reserved" in str(exc) or "loopback" in str(exc):
+            raise
+    return url
+
+
 class CreateCallbackRequest(BaseModel):
     url: str
     events: list[str] = []
@@ -48,6 +69,10 @@ async def list_callbacks(repo: SettingsRepo) -> dict:
 @router.post("", dependencies=[AdminSettings])
 async def create_callback(body: CreateCallbackRequest, repo: SettingsRepo) -> dict:
     """Add a new outbound callback endpoint."""
+    try:
+        _validate_callback_url(body.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     callbacks = await repo.get_callbacks()
 
     callback = {
@@ -75,6 +100,10 @@ async def update_callback(
     for i, cb in enumerate(callbacks):
         if cb.get("id") == callback_id:
             if body.url is not None:
+                try:
+                    _validate_callback_url(body.url)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
                 cb["url"] = body.url
             if body.events is not None:
                 cb["events"] = body.events
@@ -116,14 +145,12 @@ async def test_callback(callback_id: str, repo: SettingsRepo, request: Request) 
 
     dispatcher = getattr(request.app.state, "callback_dispatcher", None)
     if dispatcher is None:
-        return {"success": False, "error": "Callback dispatcher not available"}
+        raise HTTPException(status_code=503, detail="Callback dispatcher not available")
 
     # Send directly (not fire-and-forget) so we can report the result.
     import hashlib
     import hmac
     import json
-
-    from flydesk.callbacks.dispatcher import logger as _  # noqa: F401
 
     payload = {
         "event": "test",
@@ -143,7 +170,7 @@ async def test_callback(callback_id: str, repo: SettingsRepo, request: Request) 
 
     http_client = getattr(request.app.state, "http_client", None)
     if http_client is None:
-        return {"success": False, "error": "HTTP client not available"}
+        raise HTTPException(status_code=503, detail="HTTP client not available")
 
     try:
         resp = await http_client.post(

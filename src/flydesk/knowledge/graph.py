@@ -24,6 +24,11 @@ from flydesk.models.knowledge import EntityRow, RelationRow
 _logger = logging.getLogger(__name__)
 
 
+def _escape_like(value: str) -> str:
+    """Escape SQL LIKE/ILIKE wildcard characters."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @dataclass
 class Entity:
     """A knowledge graph entity."""
@@ -111,16 +116,31 @@ class KnowledgeGraph:
             return self._row_to_entity(row)
 
     async def add_relation(self, relation: Relation) -> None:
-        """Add a relation between two entities."""
+        """Add a relation between two entities (upsert — skips duplicates)."""
         async with self._session_factory() as session:
-            row = RelationRow(
-                source_id=relation.source_id,
-                target_id=relation.target_id,
-                relation_type=relation.relation_type,
-                properties=self._to_json(relation.properties),
-                confidence=relation.confidence,
-            )
-            session.add(row)
+            # Check for an existing relation with the same triple
+            existing = (
+                await session.execute(
+                    select(RelationRow).where(
+                        RelationRow.source_id == relation.source_id,
+                        RelationRow.target_id == relation.target_id,
+                        RelationRow.relation_type == relation.relation_type,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                # Update properties and confidence on the existing row
+                existing.properties = self._to_json(relation.properties)
+                existing.confidence = relation.confidence
+            else:
+                row = RelationRow(
+                    source_id=relation.source_id,
+                    target_id=relation.target_id,
+                    relation_type=relation.relation_type,
+                    properties=self._to_json(relation.properties),
+                    confidence=relation.confidence,
+                )
+                session.add(row)
             await session.commit()
 
     async def find_relevant_entities(
@@ -147,7 +167,7 @@ class KnowledgeGraph:
         async with self._session_factory() as session:
             stmt = (
                 select(EntityRow)
-                .where(EntityRow.name.ilike(f"%{query}%"))
+                .where(EntityRow.name.ilike(f"%{_escape_like(query)}%"))
                 .order_by(EntityRow.mention_count.desc())
                 .limit(limit)
             )
@@ -214,31 +234,33 @@ class KnowledgeGraph:
                     break
 
                 next_ids: set[str] = set()
-                for eid in current_ids:
-                    # Outgoing relations
-                    outgoing = await session.execute(
-                        select(RelationRow).where(RelationRow.source_id == eid)
-                    )
-                    for rel_row in outgoing.scalars().all():
-                        graph.relations.append(self._row_to_relation(rel_row))
-                        if rel_row.target_id not in visited:
-                            next_ids.add(rel_row.target_id)
-                            visited.add(rel_row.target_id)
+                id_list = list(current_ids)
 
-                    # Incoming relations
-                    incoming = await session.execute(
-                        select(RelationRow).where(RelationRow.target_id == eid)
-                    )
-                    for rel_row in incoming.scalars().all():
-                        graph.relations.append(self._row_to_relation(rel_row))
-                        if rel_row.source_id not in visited:
-                            next_ids.add(rel_row.source_id)
-                            visited.add(rel_row.source_id)
+                # Batch-fetch outgoing + incoming relations in two queries
+                outgoing = await session.execute(
+                    select(RelationRow).where(RelationRow.source_id.in_(id_list))
+                )
+                for rel_row in outgoing.scalars().all():
+                    graph.relations.append(self._row_to_relation(rel_row))
+                    if rel_row.target_id not in visited:
+                        next_ids.add(rel_row.target_id)
+                        visited.add(rel_row.target_id)
 
-                # Fetch newly discovered entities
-                for nid in next_ids:
-                    entity_row = await session.get(EntityRow, nid)
-                    if entity_row:
+                incoming = await session.execute(
+                    select(RelationRow).where(RelationRow.target_id.in_(id_list))
+                )
+                for rel_row in incoming.scalars().all():
+                    graph.relations.append(self._row_to_relation(rel_row))
+                    if rel_row.source_id not in visited:
+                        next_ids.add(rel_row.source_id)
+                        visited.add(rel_row.source_id)
+
+                # Batch-fetch newly discovered entities
+                if next_ids:
+                    entity_result = await session.execute(
+                        select(EntityRow).where(EntityRow.id.in_(list(next_ids)))
+                    )
+                    for entity_row in entity_result.scalars().all():
                         graph.entities.append(self._row_to_entity(entity_row))
 
                 current_ids = next_ids
@@ -257,7 +279,7 @@ class KnowledgeGraph:
         async with self._session_factory() as session:
             stmt = select(EntityRow)
             if query:
-                stmt = stmt.where(EntityRow.name.ilike(f"%{query}%"))
+                stmt = stmt.where(EntityRow.name.ilike(f"%{_escape_like(query)}%"))
             if entity_type:
                 stmt = stmt.where(EntityRow.entity_type == entity_type)
             stmt = (

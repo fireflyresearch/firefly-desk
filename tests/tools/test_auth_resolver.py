@@ -181,7 +181,7 @@ class TestApiKeyAuth:
 class TestBasicAuth:
     async def test_returns_basic_header(self, resolver: AuthResolver, credential_store):
         credential_store.get_credential.return_value = _make_credential(
-            encrypted_value="dXNlcjpwYXNzd29yZA==",
+            encrypted_value="user:password",
         )
         system = _make_system(AuthType.BASIC)
         result = await resolver.resolve_headers(system)

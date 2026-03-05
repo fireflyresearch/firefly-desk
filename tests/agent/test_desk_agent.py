@@ -264,6 +264,7 @@ class TestDeskAgentRun:
         await desk_agent.run("Hello", user_session, "conv-1")
         context_enricher.enrich.assert_awaited_once_with(
             "Hello", conversation_history=[], knowledge_tag_filter=None,
+            user_id="user-42",
         )
 
     async def test_run_calls_prompt_builder(
@@ -662,6 +663,7 @@ class TestDeskAgentConversationHistory:
         await desk_agent.run("Hello", user_session, "conv-1")
         context_enricher.enrich.assert_awaited_once_with(
             "Hello", conversation_history=[], knowledge_tag_filter=None,
+            user_id="user-42",
         )
 
     async def test_format_conversation_history_empty(self):

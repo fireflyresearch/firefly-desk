@@ -30,11 +30,14 @@ from flydesk.models.process import BusinessProcessRow, ProcessDependencyRow, Pro
 from flydesk.models.llm import LLMProviderRow
 from flydesk.models.oidc import OIDCProviderRow
 from flydesk.models.role import RoleRow
+from flydesk.models.routing import ModelRoutingConfigRow
 from flydesk.models.sso_identity import SSOIdentityRow
 from flydesk.models.user_role import UserRoleRow
 from flydesk.models.user_memory import UserMemoryRow
 from flydesk.models.user_settings import AppSettingRow, UserSettingRow
 from flydesk.models.workflow import WorkflowRow, WorkflowStepRow, WorkflowWebhookRow  # noqa: F401
+from flydesk.models.callback_delivery import CallbackDeliveryRow
+from flydesk.models.webhook_log import WebhookLogEntryRow
 from flydesk.models.workspace import WorkspaceRoleRow, WorkspaceRow, WorkspaceUserRow
 
 __all__ = [
@@ -43,6 +46,7 @@ __all__ = [
     "Base",
     "BusinessProcessRow",
     "CacheEntryRow",
+    "CallbackDeliveryRow",
     "ConversationFolderRow",
     "ConversationRow",
     "CredentialRow",
@@ -62,6 +66,7 @@ __all__ = [
     "LLMProviderRow",
     "LocalUserRow",
     "MessageRow",
+    "ModelRoutingConfigRow",
     "NotificationDismissalRow",
     "OIDCProviderRow",
     "ProcessDependencyRow",
@@ -73,6 +78,7 @@ __all__ = [
     "UserMemoryRow",
     "UserRoleRow",
     "UserSettingRow",
+    "WebhookLogEntryRow",
     "WorkflowRow",
     "WorkflowStepRow",
     "WorkflowWebhookRow",

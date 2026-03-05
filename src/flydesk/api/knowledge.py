@@ -28,6 +28,23 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     "indexing": set(),  # system-managed
 }
 
+_ALLOWED_CONTENT_TYPES = frozenset({
+    "text/plain",
+    "text/markdown",
+    "text/html",
+    "text/csv",
+    "application/json",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+    "application/xml",
+    "text/xml",
+})
+
 from flydesk.api.deps import (
     get_auto_trigger,
     get_indexing_producer,
@@ -462,12 +479,16 @@ async def import_multiple_files(
     errors: list[dict[str, Any]] = []
     for file in files:
         try:
+            ct = (file.content_type or "text/plain").split(";")[0].strip()
+            if ct not in _ALLOWED_CONTENT_TYPES:
+                errors.append({"filename": file.filename, "error": f"Unsupported content type: {ct}"})
+                continue
             content = await file.read()
             tag_list = [t.strip() for t in tags.split(",")] if tags else None
             doc = await importer.import_file(
                 filename=file.filename or "uploaded_file",
                 content=content,
-                content_type=file.content_type or "text/plain",
+                content_type=ct,
                 tags=tag_list,
             )
             results.append({"filename": file.filename, "document_id": doc.id, "status": "indexed"})
@@ -488,12 +509,15 @@ async def import_from_file(
 
     Tags should be passed as a comma-separated string query parameter.
     """
+    ct = (file.content_type or "text/plain").split(";")[0].strip()
+    if ct not in _ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported content type: {ct}")
     content = await file.read()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
     doc = await importer.import_file(
         filename=file.filename or "uploaded_file",
         content=content,
-        content_type=file.content_type or "text/plain",
+        content_type=ct,
         title=title,
         doc_type=document_type,
         tags=tag_list,

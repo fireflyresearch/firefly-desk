@@ -946,8 +946,25 @@ async def test_kms_config(request: Request, repo: Repo) -> dict:
     if provider == "fernet":
         return {"success": True, "message": "Fernet encryption is working"}
 
-    # For external providers, attempt a basic connectivity check
+    # For external providers, attempt encrypt/decrypt roundtrip
     try:
-        return {"success": True, "message": f"{provider} connection successful"}
+        from flydesk.security.kms import create_kms_provider
+
+        class _KmsTestConfig:
+            """Lightweight config shim for create_kms_provider."""
+            kms_provider = provider
+            credential_encryption_key = ""
+
+        for attr in ("aws_kms_key_arn", "aws_kms_region", "gcp_kms_key_name",
+                      "azure_vault_url", "azure_key_name", "vault_url",
+                      "vault_token", "vault_transit_key", "vault_mount_point"):
+            setattr(_KmsTestConfig, attr, config.get(attr, ""))
+
+        kms = create_kms_provider(_KmsTestConfig)
+        ct = kms.encrypt("flydesk-kms-test")
+        pt = kms.decrypt(ct)
+        if pt != "flydesk-kms-test":
+            return {"success": False, "message": "Roundtrip mismatch"}
+        return {"success": True, "message": f"{provider} encrypt/decrypt roundtrip OK"}
     except Exception as e:
         return {"success": False, "message": str(e)}

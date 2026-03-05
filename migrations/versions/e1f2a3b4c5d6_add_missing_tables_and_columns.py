@@ -195,45 +195,50 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     # 10. Columns on workflow_steps: timeout_seconds, max_retries,
     #     retry_count
+    #     NOTE: workflow_steps table is now created by migration
+    #     f2a3b4c5d6e7 with these columns included.  The ADD COLUMN
+    #     calls below are kept for backwards compatibility with
+    #     deployments that already have a workflow_steps table.
     # ------------------------------------------------------------------
-    try:
-        op.add_column(
-            "workflow_steps",
-            sa.Column(
-                "timeout_seconds",
-                sa.Integer(),
-                nullable=False,
-                server_default=sa.text("300"),
-            ),
-        )
-    except Exception:
-        pass
+    if "workflow_steps" in existing_tables:
+        try:
+            op.add_column(
+                "workflow_steps",
+                sa.Column(
+                    "timeout_seconds",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("300"),
+                ),
+            )
+        except Exception:
+            pass
 
-    try:
-        op.add_column(
-            "workflow_steps",
-            sa.Column(
-                "max_retries",
-                sa.Integer(),
-                nullable=False,
-                server_default=sa.text("0"),
-            ),
-        )
-    except Exception:
-        pass
+        try:
+            op.add_column(
+                "workflow_steps",
+                sa.Column(
+                    "max_retries",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                ),
+            )
+        except Exception:
+            pass
 
-    try:
-        op.add_column(
-            "workflow_steps",
-            sa.Column(
-                "retry_count",
-                sa.Integer(),
-                nullable=False,
-                server_default=sa.text("0"),
-            ),
-        )
-    except Exception:
-        pass
+        try:
+            op.add_column(
+                "workflow_steps",
+                sa.Column(
+                    "retry_count",
+                    sa.Integer(),
+                    nullable=False,
+                    server_default=sa.text("0"),
+                ),
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # 11. Index: ix_kb_documents_status

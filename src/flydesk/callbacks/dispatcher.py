@@ -58,6 +58,8 @@ class CallbackDispatcher:
         self._http_client = http_client
         self._delivery_repo = delivery_repo
         self._dead_letter = dead_letter
+        # Hold strong references to fire-and-forget tasks so they aren't GC'd.
+        self._pending_tasks: set[asyncio.Task[None]] = set()
 
     async def dispatch(self, event: str, data: dict[str, Any]) -> None:
         """Send *event* with *data* to all matching callbacks (fire-and-forget)."""
@@ -80,9 +82,11 @@ class CallbackDispatcher:
                 continue
 
             callback_id = cb.get("id", "")
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._deliver_with_retries(callback_id, url, secret, event, data)
             )
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
 
     async def _deliver_with_retries(
         self,
@@ -120,6 +124,24 @@ class CallbackDispatcher:
                 resp = await self._http_client.post(
                     url, content=body, headers=headers, timeout=5.0
                 )
+                if resp.status_code >= 400:
+                    # Treat 4xx/5xx as failures so the retry loop continues.
+                    logger.warning(
+                        "Callback %s -> %s returned HTTP %d (attempt %d)",
+                        event, url, resp.status_code, attempt,
+                    )
+                    if self._delivery_repo:
+                        await self._delivery_repo.record(
+                            callback_id=callback_id,
+                            event=event,
+                            url=url,
+                            attempt=attempt,
+                            status="failed",
+                            status_code=resp.status_code,
+                            error=f"HTTP {resp.status_code}",
+                            payload=payload,
+                        )
+                    continue  # retry
                 if self._delivery_repo:
                     await self._delivery_repo.record(
                         callback_id=callback_id,

@@ -29,6 +29,18 @@ from flydesk.knowledge.models import DocumentChunk, KnowledgeDocument
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 
+def _detect_dialect(session_factory: async_sessionmaker[AsyncSession]) -> str:
+    """Detect the SQL dialect from an async session factory."""
+    try:
+        engine = session_factory.kw.get("bind")
+        if engine is not None:
+            sync_engine = getattr(engine, "sync_engine", engine)
+            return sync_engine.dialect.name
+    except (AttributeError, TypeError):
+        pass
+    return "sqlite"
+
+
 def _serialize_embedding(embedding: list[float], dialect_name: str) -> Any:
     """Serialize an embedding vector for storage.
 
@@ -79,7 +91,7 @@ class KnowledgeIndexer:
 
     async def index_document(self, document: KnowledgeDocument) -> list[DocumentChunk]:
         """Index a document: store it, chunk it, embed chunks, persist chunks."""
-        # 1. Store the document metadata via SQLAlchemy
+        # 1. Store the document metadata via SQLAlchemy (merge for upsert)
         async with self._session_factory() as session:
             doc_row = KnowledgeDocumentRow(
                 id=document.id,
@@ -91,7 +103,7 @@ class KnowledgeIndexer:
                 tags=_to_json(document.tags),
                 metadata_=_to_json(document.metadata),
             )
-            session.add(doc_row)
+            await session.merge(doc_row)
             await session.commit()
 
         # 2. Chunk the content (routes through structural/fixed/auto mode)
@@ -121,8 +133,8 @@ class KnowledgeIndexer:
             ]
             await self._vector_store.upsert(docs)
         else:
+            dialect = _detect_dialect(self._session_factory)
             async with self._session_factory() as session:
-                dialect = session.bind.dialect.name if session.bind else "sqlite"
                 for chunk, embedding in zip(chunks, embeddings):
                     row = DocumentChunkRow(
                         id=chunk.chunk_id,
@@ -144,6 +156,7 @@ class KnowledgeIndexer:
             except Exception:
                 _logger.debug(
                     "Auto KG extraction failed for %s", document.id,
+                    exc_info=True,
                 )
 
         # Invalidate cached search results since the index has changed
@@ -426,13 +439,23 @@ class KnowledgeIndexer:
             on_progress: Optional callback invoked after each document with
                 ``(completed_count, total_count)``.
         """
-        # List all document IDs
+        # List all document IDs (with optional workspace filtering)
         async with self._session_factory() as session:
-            query = select(KnowledgeDocumentRow.id)
-            # workspace_ids is stored as a JSON string; filtering by workspace
-            # is not trivial here, so we load all and filter in Python when needed.
+            query = select(KnowledgeDocumentRow.id, KnowledgeDocumentRow.workspace_ids)
             result = await session.execute(query)
-            doc_ids = list(result.scalars().all())
+            rows = result.all()
+
+        # workspace_ids is stored as a JSON array string; filter in Python
+        if workspace_id is not None:
+            import json as _json
+            filtered_ids: list[str] = []
+            for doc_id, ws_ids_raw in rows:
+                ws_ids = _json.loads(ws_ids_raw) if ws_ids_raw else []
+                if workspace_id in ws_ids:
+                    filtered_ids.append(doc_id)
+            doc_ids = filtered_ids
+        else:
+            doc_ids = [doc_id for doc_id, _ in rows]
 
         total = len(doc_ids)
         count = 0

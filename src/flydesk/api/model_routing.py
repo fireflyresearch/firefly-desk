@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from flydesk.agent.router.config import RoutingConfigRepository
 from flydesk.agent.router.models import RoutingConfig
@@ -58,7 +58,7 @@ async def test_classifier(
     """
     config = await repo.get_config()
     if config is None or not config.enabled:
-        return {"error": "Routing is not enabled", "config": RoutingConfig().model_dump()}
+        raise HTTPException(status_code=400, detail="Routing is not enabled")
 
     return {
         "message": body.get("message", ""),

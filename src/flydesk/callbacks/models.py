@@ -30,6 +30,7 @@ class CallbackEvent(StrEnum):
     DOCUMENT_DELETED = "document.deleted"
     KNOWLEDGE_UPDATED = "knowledge.updated"
     AGENT_ERROR = "agent.error"
+    WORKFLOW_NOTIFY = "workflow.notify"
 
 
 class CallbackConfig(BaseModel):

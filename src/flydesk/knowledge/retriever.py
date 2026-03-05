@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from flydesk.knowledge.cache import KnowledgeCache
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flydesk.knowledge.indexer import EmbeddingProvider
@@ -42,6 +42,22 @@ from flydesk.knowledge.scoring import (
 from flydesk.models.knowledge_base import DocumentChunkRow, KnowledgeDocumentRow
 
 _logger = logging.getLogger(__name__)
+
+
+def _detect_dialect(session_factory: async_sessionmaker[AsyncSession]) -> str:
+    """Detect the SQL dialect from an async session factory.
+
+    In SQLAlchemy 2.x the async session factory stores the engine in
+    ``session_factory.kw["bind"]`` as an ``AsyncEngine``.
+    """
+    try:
+        engine = session_factory.kw.get("bind")
+        if engine is not None:
+            sync_engine = getattr(engine, "sync_engine", engine)
+            return sync_engine.dialect.name
+    except (AttributeError, TypeError):
+        pass
+    return "sqlite"
 
 
 class KnowledgeRetriever:
@@ -65,14 +81,9 @@ class KnowledgeRetriever:
         self._vector_store = vector_store
         self._cache = cache
 
-        # Detect SQL dialect at init time.  AsyncSession.bind is always None
-        # in SQLAlchemy 2.x so we read the engine from the session factory's
-        # configuration instead.
-        try:
-            engine = session_factory.kw.get("bind")
-            self._dialect: str = engine.dialect.name if engine else "sqlite"
-        except (AttributeError, TypeError):
-            self._dialect = "sqlite"
+        # Detect SQL dialect at init time.  In SQLAlchemy 2.x the async
+        # session factory stores the engine in its internal ``kw["bind"]``.
+        self._dialect: str = _detect_dialect(session_factory)
 
     async def retrieve(
         self,
@@ -121,41 +132,56 @@ class KnowledgeRetriever:
             )
             # Build RetrievalResult objects from genai SearchResult objects
             tag_filter_set = set(tag_filter) if tag_filter else None
-            results: list[RetrievalResult] = []
-            async with self._session_factory() as session:
-                for sr in vs_results:
-                    metadata = dict(sr.document.metadata)
-                    document_id = metadata.get("document_id", "")
-                    chunk_index = metadata.get("chunk_index", 0)
 
-                    # Resolve document title and apply tag filter
-                    doc_row = await session.get(KnowledgeDocumentRow, document_id)
-                    if doc_row is None:
-                        continue
-
-                    if tag_filter_set is not None:
-                        doc_tags = doc_row.tags
-                        if isinstance(doc_tags, str):
-                            doc_tags = json.loads(doc_tags)
-                        if not tag_filter_set.intersection(doc_tags or []):
-                            continue
-
-                    title = doc_row.title if doc_row else ""
-                    results.append(
-                        RetrievalResult(
-                            chunk=DocumentChunk(
-                                chunk_id=sr.document.id,
-                                document_id=document_id,
-                                content=sr.document.text,
-                                chunk_index=chunk_index,
-                                metadata=metadata,
-                            ),
-                            score=sr.score,
-                            document_title=title,
+            # Batch-fetch all referenced document rows
+            doc_ids = list({
+                dict(sr.document.metadata).get("document_id", "")
+                for sr in vs_results
+            })
+            doc_map: dict[str, KnowledgeDocumentRow] = {}
+            if doc_ids:
+                async with self._session_factory() as session:
+                    doc_result = await session.execute(
+                        select(KnowledgeDocumentRow).where(
+                            KnowledgeDocumentRow.id.in_(doc_ids)
                         )
                     )
-                    if len(results) >= top_k:
-                        break
+                    for doc_row in doc_result.scalars().all():
+                        doc_map[doc_row.id] = doc_row
+
+            results: list[RetrievalResult] = []
+            for sr in vs_results:
+                metadata = dict(sr.document.metadata)
+                document_id = metadata.get("document_id", "")
+                chunk_index = metadata.get("chunk_index", 0)
+
+                doc_row = doc_map.get(document_id)
+                if doc_row is None:
+                    continue
+
+                if tag_filter_set is not None:
+                    doc_tags = doc_row.tags
+                    if isinstance(doc_tags, str):
+                        doc_tags = json.loads(doc_tags)
+                    if not tag_filter_set.intersection(doc_tags or []):
+                        continue
+
+                title = doc_row.title
+                results.append(
+                    RetrievalResult(
+                        chunk=DocumentChunk(
+                            chunk_id=sr.document.id,
+                            document_id=document_id,
+                            content=sr.document.text,
+                            chunk_index=chunk_index,
+                            metadata=metadata,
+                        ),
+                        score=sr.score,
+                        document_title=title,
+                    )
+                )
+                if len(results) >= top_k:
+                    break
 
             # Store results in cache for future queries
             if self._cache is not None and query_hash is not None and results:
@@ -202,42 +228,53 @@ class KnowledgeRetriever:
             else:
                 scored = []
 
-        # 4. Fetch document titles and build results (with tag filtering)
+        # 4. Batch-fetch document rows and build results (with tag filtering)
         tag_filter_set = set(tag_filter) if tag_filter else None
-        results = []
-        async with self._session_factory() as session:
-            for score, chunk_row in scored:
-                doc_row = await session.get(KnowledgeDocumentRow, chunk_row.document_id)
-                if doc_row is None:
-                    continue
-
-                # Apply tag filter: skip documents with no overlapping tags
-                if tag_filter_set is not None:
-                    doc_tags = doc_row.tags
-                    if isinstance(doc_tags, str):
-                        doc_tags = json.loads(doc_tags)
-                    if not tag_filter_set.intersection(doc_tags or []):
-                        continue
-
-                title = doc_row.title
-                metadata = chunk_row.metadata_
-                if isinstance(metadata, str):
-                    metadata = json.loads(metadata)
-                results.append(
-                    RetrievalResult(
-                        chunk=DocumentChunk(
-                            chunk_id=chunk_row.id,
-                            document_id=chunk_row.document_id,
-                            content=chunk_row.content,
-                            chunk_index=chunk_row.chunk_index,
-                            metadata=metadata,
-                        ),
-                        score=score,
-                        document_title=title,
+        doc_ids = list({chunk_row.document_id for _, chunk_row in scored})
+        doc_map: dict[str, KnowledgeDocumentRow] = {}
+        if doc_ids:
+            async with self._session_factory() as session:
+                doc_result = await session.execute(
+                    select(KnowledgeDocumentRow).where(
+                        KnowledgeDocumentRow.id.in_(doc_ids)
                     )
                 )
-                if len(results) >= top_k:
-                    break
+                for doc_row in doc_result.scalars().all():
+                    doc_map[doc_row.id] = doc_row
+
+        results = []
+        for score, chunk_row in scored:
+            doc_row = doc_map.get(chunk_row.document_id)
+            if doc_row is None:
+                continue
+
+            # Apply tag filter: skip documents with no overlapping tags
+            if tag_filter_set is not None:
+                doc_tags = doc_row.tags
+                if isinstance(doc_tags, str):
+                    doc_tags = json.loads(doc_tags)
+                if not tag_filter_set.intersection(doc_tags or []):
+                    continue
+
+            title = doc_row.title
+            metadata = chunk_row.metadata_
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            results.append(
+                RetrievalResult(
+                    chunk=DocumentChunk(
+                        chunk_id=chunk_row.id,
+                        document_id=chunk_row.document_id,
+                        content=chunk_row.content,
+                        chunk_index=chunk_row.chunk_index,
+                        metadata=metadata,
+                    ),
+                    score=score,
+                    document_title=title,
+                )
+            )
+            if len(results) >= top_k:
+                break
 
         if use_keywords_only and results:
             _logger.debug(

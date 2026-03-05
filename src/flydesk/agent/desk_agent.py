@@ -278,7 +278,6 @@ class DeskAgent:
         tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
-        self._last_multimodal_parts = multimodal_parts
 
         # 3. Adapt catalog tools for genai tool-use and execute LLM
         adapted = await self._adapt_tools(tools, session, conversation_id)
@@ -374,7 +373,6 @@ class DeskAgent:
         tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
-        self._last_multimodal_parts = multimodal_parts
 
         elapsed_ms = round((time.monotonic() - start) * 1000)
 
@@ -504,6 +502,8 @@ class DeskAgent:
                 event=SSEEventType.USAGE,
                 data=usage_data,
             )
+            # Track daily spend for budget monitoring
+            await self._track_daily_spend(usage_data.get("cost_usd", 0.0))
 
         # Final done event
         yield SSEEvent(
@@ -533,7 +533,6 @@ class DeskAgent:
         tools, system_prompt, multimodal_parts = await self._prepare_turn(
             message, session, conversation_id, tools, file_ids,
         )
-        self._last_multimodal_parts = multimodal_parts
         adapted = await self._adapt_tools(tools, session, conversation_id)
 
         # Create agent
@@ -695,6 +694,7 @@ class DeskAgent:
                 event=SSEEventType.USAGE,
                 data=usage_data,
             )
+            await self._track_daily_spend(usage_data.get("cost_usd", 0.0))
 
         # Done
         yield SSEEvent(
@@ -1040,6 +1040,7 @@ class DeskAgent:
             message,
             conversation_history=history,
             knowledge_tag_filter=knowledge_tag_filter,
+            user_id=session.user_id,
         )
 
         # 2. Prompt assembly
@@ -1158,6 +1159,23 @@ class DeskAgent:
             custom_tools=custom_tools,
             timing_tracker=timing_tracker,
         )
+
+    async def _track_daily_spend(self, cost_usd: float) -> None:
+        """Accumulate daily spend in settings for budget monitoring.
+
+        Uses :meth:`SettingsRepository.increment_app_setting` for an atomic
+        read-add-write inside a single DB transaction, avoiding TOCTOU races
+        when multiple requests track spend concurrently.
+        """
+        if not isinstance(cost_usd, (int, float)) or cost_usd <= 0 or self._settings_repo is None:
+            return
+        try:
+            from datetime import date
+            today = date.today().isoformat()
+            key = f"daily_spend_{today}"
+            await self._settings_repo.increment_app_setting(key, cost_usd)
+        except Exception:
+            _logger.debug("Failed to track daily spend.", exc_info=True)
 
     async def _route_model(
         self,

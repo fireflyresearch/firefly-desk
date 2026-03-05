@@ -76,6 +76,10 @@ class EmailChannelAdapter:
         # consumed by send()).
         self._pending_replies: dict[str, dict] = {}
 
+    async def verify_webhook_signature(self, headers: dict, body: bytes) -> bool:
+        """Delegate webhook signature verification to the underlying email port."""
+        return await self._email_port.verify_webhook_signature(headers, body)
+
     # ------------------------------------------------------------------
     # ChannelPort.receive
     # ------------------------------------------------------------------

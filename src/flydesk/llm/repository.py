@@ -49,19 +49,33 @@ class LLMProviderRepository:
     # -- Encryption helpers --
 
     def _encrypt(self, plaintext: str | None) -> str | None:
-        """Encrypt an API key using base64 obfuscation.
+        """Encrypt an API key.
 
-        A real deployment should use Fernet or a KMS. For now we use base64
-        encoding as a basic obfuscation layer.
+        Uses Fernet symmetric encryption when a valid ``encryption_key`` is
+        set, otherwise falls back to base64 obfuscation.
         """
         if plaintext is None:
             return None
+        if self._encryption_key:
+            try:
+                from cryptography.fernet import Fernet
+                f = Fernet(self._encryption_key.encode())
+                return "fernet:" + f.encrypt(plaintext.encode()).decode()
+            except (ValueError, Exception):
+                pass  # Invalid key format — fall back to base64
         return base64.b64encode(plaintext.encode()).decode()
 
     def _decrypt(self, ciphertext: str | None) -> str | None:
-        """Decrypt an API key."""
+        """Decrypt an API key (auto-detects Fernet vs base64)."""
         if ciphertext is None:
             return None
+        if ciphertext.startswith("fernet:") and self._encryption_key:
+            try:
+                from cryptography.fernet import Fernet
+                f = Fernet(self._encryption_key.encode())
+                return f.decrypt(ciphertext[7:].encode()).decode()
+            except (ValueError, Exception):
+                pass  # Invalid key — fall back to base64
         return base64.b64decode(ciphertext.encode()).decode()
 
     # -- CRUD --

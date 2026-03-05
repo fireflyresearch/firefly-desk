@@ -108,13 +108,12 @@ class ContextEnricher:
                     self._search_processes(message),
                     self._search_memories(message, user_id),
                 )
-        except (TimeoutError, Exception):
-            # Context enrichment is non-fatal; return empty context rather
-            # than blocking the agent response indefinitely.
-            entities = []
-            snippets = []
-            processes = []
-            memories = []
+        except TimeoutError:
+            _logger.warning("Context enrichment timed out after %ds", timeout_seconds)
+            entities, snippets, processes, memories = [], [], [], []
+        except Exception:
+            _logger.warning("Context enrichment failed; returning empty context", exc_info=True)
+            entities, snippets, processes, memories = [], [], [], []
 
         return EnrichedContext(
             relevant_entities=entities,

@@ -10,11 +10,52 @@
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import re
 import uuid
+from urllib.parse import urlparse
 
 import html2text
 import httpx
+
+_logger = logging.getLogger(__name__)
+
+# Schemes allowed for URL import. Reject file://, ftp://, etc.
+_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _validate_url(url: str) -> None:
+    """Reject URLs that target internal/private networks (SSRF protection).
+
+    Raises :class:`ValueError` for:
+    - Non-HTTP(S) schemes (file://, ftp://, etc.)
+    - Private/reserved IP ranges (RFC-1918, link-local, loopback)
+    - Metadata service endpoints (169.254.169.254)
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        raise ValueError(f"URL scheme '{parsed.scheme}' is not allowed; use http or https")
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise ValueError("URL has no hostname")
+
+    # Check if hostname resolves to a private/reserved IP
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"URL targets a private/reserved address: {hostname}")
+    except ValueError as exc:
+        if "private" in str(exc) or "reserved" in str(exc) or "loopback" in str(exc):
+            raise
+        # Not an IP literal — it's a hostname, which is fine
+        pass
+
+    # Block well-known cloud metadata hostnames
+    _blocked = {"metadata.google.internal", "169.254.169.254"}
+    if hostname.lower() in _blocked:
+        raise ValueError(f"URL targets a blocked metadata endpoint: {hostname}")
 
 from flydesk.files.extractor import ContentExtractor
 from flydesk.knowledge.indexer import KnowledgeIndexer
@@ -51,24 +92,31 @@ class KnowledgeImporter:
         tags: list[str] | None = None,
     ) -> KnowledgeDocument:
         """Fetch URL, convert HTML to markdown, detect type, index."""
+        _validate_url(url)
         response = await self._http_client.get(url, follow_redirects=True)
         response.raise_for_status()
 
-        content_type = response.headers.get("content-type", "")
-        raw = response.text
+        content_type = response.headers.get("content-type", "").split(";")[0].strip()
 
-        # Convert HTML content to markdown
-        if "html" in content_type:
+        # Binary document types need byte-level extraction
+        if content_type in _BINARY_CONTENT_TYPES:
+            text = await self._extractor.extract(url.rsplit("/", 1)[-1], response.content, content_type)
+            if text is None:
+                raise ValueError(f"Could not extract text from {url} ({content_type})")
+            content = text
+        elif "html" in content_type:
+            raw = response.text
             content = self._html_converter.handle(raw)
         else:
-            content = raw
+            content = response.text
 
         if doc_type is None:
             doc_type = self.detect_document_type(content, url=url)
 
         if title is None:
             # Try to extract title from HTML <title> tag
-            title_match = re.search(r"<title[^>]*>([^<]+)</title>", raw, re.IGNORECASE)
+            raw_text = response.text if "html" in response.headers.get("content-type", "") else ""
+            title_match = re.search(r"<title[^>]*>([^<]+)</title>", raw_text, re.IGNORECASE)
             title = title_match.group(1).strip() if title_match else url
 
         document = KnowledgeDocument(
