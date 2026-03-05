@@ -63,6 +63,9 @@ class WorkflowStep(BaseModel):
     error: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    timeout_seconds: int = 300
+    max_retries: int = 0
+    retry_count: int = 0
 
 
 class Workflow(BaseModel):

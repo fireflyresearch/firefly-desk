@@ -192,6 +192,9 @@ class WorkflowRepository:
                 error=step.error,
                 started_at=step.started_at,
                 completed_at=step.completed_at,
+                timeout_seconds=step.timeout_seconds,
+                max_retries=step.max_retries,
+                retry_count=step.retry_count,
             )
             session.add(row)
             await session.commit()
@@ -309,6 +312,9 @@ class WorkflowRepository:
             error=row.error,
             started_at=row.started_at,
             completed_at=row.completed_at,
+            timeout_seconds=row.timeout_seconds,
+            max_retries=row.max_retries,
+            retry_count=row.retry_count,
         )
 
     @staticmethod

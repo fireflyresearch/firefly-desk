@@ -63,6 +63,9 @@ class WorkflowStepRow(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class WorkflowWebhookRow(Base):
