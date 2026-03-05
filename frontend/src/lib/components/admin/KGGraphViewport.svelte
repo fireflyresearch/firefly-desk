@@ -146,17 +146,18 @@
 				selector: 'edge',
 				style: {
 					width: 1.5,
-					'line-color': '#334155',
-					'target-arrow-color': '#475569',
+					'line-color': '#475569',
+					'line-opacity': 0.7,
+					'target-arrow-color': '#64748b',
 					'target-arrow-shape': 'triangle',
 					'curve-style': 'bezier',
 					'arrow-scale': 0.8,
 					label: 'data(label)',
 					'font-size': 8,
-					color: '#64748b',
+					color: '#94a3b8',
 					'text-rotation': 'autorotate',
 					'text-background-color': '#0f172a',
-					'text-background-opacity': 0.85,
+					'text-background-opacity': 0.9,
 					'text-background-padding': '2px',
 					'text-background-shape': 'roundrectangle'
 				}
@@ -181,7 +182,7 @@
 			},
 			{
 				selector: 'edge.highlighted',
-				style: { width: 2.5, 'line-color': '#475569', 'target-arrow-color': '#64748b', 'z-index': 10, opacity: 1 }
+				style: { width: 2.5, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'z-index': 10, opacity: 1 }
 			},
 			{
 				selector: 'edge.dimmed',
@@ -415,7 +416,7 @@
 	<div class="absolute bottom-3 right-3 flex items-center gap-1.5">
 		{#if status === 'ready'}
 			<span class="rounded bg-surface/80 px-1.5 py-0.5 text-[10px] text-text-secondary/50 backdrop-blur-sm">
-				{filteredEntities.length} nodes
+				{filteredEntities.length} nodes · {filteredRelations.length} edges
 			</span>
 		{/if}
 		<button

@@ -32,8 +32,8 @@
 		onShowAllTypes
 	}: Props = $props();
 
-	let containerEl: HTMLDivElement;
-	let tooltipEl: HTMLDivElement;
+	let containerEl: HTMLDivElement = $state() as HTMLDivElement;
+	let tooltipEl: HTMLDivElement = $state() as HTMLDivElement;
 
 	// Plain variable (not $state) — same pattern as 2D viewport to avoid
 	// $effect re-firing when the graph instance is first assigned.
@@ -41,7 +41,16 @@
 
 	let status = $state<'loading' | 'ready' | 'empty' | 'error'>('loading');
 	let errorMsg = $state('');
-	let hoveredNode = $state<{ name: string; type: string; x: number; y: number } | null>(null);
+	let hoveredNode = $state<{
+		name: string;
+		type: string;
+		x: number;
+		y: number;
+		confidence?: number;
+		tags: string[];
+		connections: number;
+		sourceSystem?: string | null;
+	} | null>(null);
 
 	// -----------------------------------------------------------------------
 	// Helpers
@@ -150,6 +159,13 @@
 					configOptions?: Record<string, unknown>
 				) => (element: HTMLElement) => any;
 
+				// Build a lookup for connection counts per node
+				const connectionCounts = new Map<string, number>();
+				for (const link of data.links) {
+					connectionCounts.set(link.source, (connectionCounts.get(link.source) ?? 0) + 1);
+					connectionCounts.set(link.target, (connectionCounts.get(link.target) ?? 0) + 1);
+				}
+
 				const instance = ForceGraph3D()(containerEl)
 					.width(rect.width)
 					.height(rect.height)
@@ -161,15 +177,21 @@
 					.nodeLabel('')
 					.nodeOpacity(0.92)
 					.nodeResolution(12)
-					// Edge rendering
-					.linkColor(() => 'rgba(100, 116, 139, 0.35)')
-					.linkWidth(0.5)
-					.linkDirectionalArrowLength(3)
+					// Edge rendering — visible on dark background
+					.linkColor((link: any) => {
+						const srcColor = typeof link.source === 'object' ? link.source.color : null;
+						return srcColor ? srcColor + '99' : 'rgba(148, 163, 184, 0.6)';
+					})
+					.linkWidth(0.8)
+					.linkDirectionalArrowLength(3.5)
 					.linkDirectionalArrowRelPos(1)
-					.linkDirectionalArrowColor(() => 'rgba(100, 116, 139, 0.5)')
+					.linkDirectionalArrowColor(() => 'rgba(148, 163, 184, 0.7)')
 					.linkDirectionalParticles(1)
-					.linkDirectionalParticleWidth(1.2)
-					.linkDirectionalParticleColor(() => 'rgba(100, 116, 139, 0.3)')
+					.linkDirectionalParticleWidth(1.5)
+					.linkDirectionalParticleColor((link: any) => {
+						const srcColor = typeof link.source === 'object' ? link.source.color : null;
+						return srcColor ? srcColor + 'aa' : 'rgba(148, 163, 184, 0.5)';
+					})
 					// Interactions
 					.onNodeClick((node: any) => {
 						if (node?.entity) onNodeSelect(node.entity);
@@ -178,11 +200,24 @@
 						containerEl.style.cursor = node ? 'pointer' : 'default';
 						if (node) {
 							const coords = instance.graph2ScreenCoords(node.x, node.y, node.z);
+							const entity = node.entity as GraphEntity;
+							const tags: string[] = [];
+							if (entity.properties?.tags) {
+								const rawTags = entity.properties.tags;
+								if (Array.isArray(rawTags)) tags.push(...rawTags.map(String));
+							}
+							if (entity.properties?.category) {
+								tags.push(String(entity.properties.category));
+							}
 							hoveredNode = {
 								name: node.name,
 								type: node.type,
 								x: coords.x,
-								y: coords.y
+								y: coords.y,
+								confidence: entity.confidence,
+								tags,
+								connections: connectionCounts.get(node.id) ?? 0,
+								sourceSystem: entity.source_system
 							};
 						} else {
 							hoveredNode = null;
@@ -248,11 +283,38 @@
 	{#if hoveredNode}
 		<div
 			bind:this={tooltipEl}
-			class="pointer-events-none absolute z-50 rounded-md border border-border bg-surface/95 px-2 py-1.5 text-xs shadow-lg backdrop-blur-sm"
-			style="left: {hoveredNode.x + 12}px; top: {hoveredNode.y - 10}px;"
+			class="pointer-events-none absolute z-50 max-w-xs rounded-lg border border-white/10 bg-slate-900/95 px-3 py-2.5 text-xs shadow-xl backdrop-blur-md"
+			style="left: {hoveredNode.x + 14}px; top: {hoveredNode.y - 14}px;"
 		>
-			<div class="font-medium text-text-primary">{hoveredNode.name}</div>
-			<div class="text-text-secondary">{hoveredNode.type}</div>
+			<div class="flex items-center gap-2">
+				<span
+					class="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+					style="background-color: {getColor(hoveredNode.type)};"
+				></span>
+				<span class="font-semibold text-white">{hoveredNode.name}</span>
+			</div>
+			<div class="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
+				<span class="rounded bg-white/10 px-1.5 py-0.5 capitalize">{hoveredNode.type}</span>
+				{#if hoveredNode.confidence != null}
+					<span>{Math.round(hoveredNode.confidence * 100)}% confidence</span>
+				{/if}
+				{#if hoveredNode.connections > 0}
+					<span>{hoveredNode.connections} connection{hoveredNode.connections === 1 ? '' : 's'}</span>
+				{/if}
+			</div>
+			{#if hoveredNode.tags.length > 0}
+				<div class="mt-1.5 flex flex-wrap gap-1">
+					{#each hoveredNode.tags.slice(0, 5) as tag}
+						<span class="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] text-accent">{tag}</span>
+					{/each}
+					{#if hoveredNode.tags.length > 5}
+						<span class="text-[10px] text-slate-500">+{hoveredNode.tags.length - 5}</span>
+					{/if}
+				</div>
+			{/if}
+			{#if hoveredNode.sourceSystem}
+				<div class="mt-1 text-[10px] text-slate-500">from {hoveredNode.sourceSystem}</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -287,7 +349,7 @@
 	<div class="absolute bottom-3 right-3 flex items-center gap-1.5">
 		{#if status === 'ready'}
 			<span class="rounded bg-surface/80 px-1.5 py-0.5 text-[10px] text-text-secondary/50 backdrop-blur-sm">
-				{filteredEntities.length} nodes
+				{filteredEntities.length} nodes · {filteredRelations.length} edges
 			</span>
 		{/if}
 		<button
