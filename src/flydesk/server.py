@@ -354,10 +354,13 @@ async def _init_knowledge(
     llm_repo: Any,
 ) -> dict[str, Any]:
     """Wire embedding provider, knowledge indexer, and vector store."""
+    from flydesk.knowledge.cache import KnowledgeCache
     from flydesk.knowledge.embedding_adapter import GenAIEmbeddingAdapter
     from flydesk.knowledge.embedding_factory import create_embedder, parse_embedding_config
     from flydesk.knowledge.indexer import KnowledgeIndexer
     from flydesk.knowledge.stores import create_genai_vector_store
+
+    cache = KnowledgeCache(session_factory)
 
     embed_settings = await settings_repo.get_all_app_settings(category="embedding")
     embed_model = embed_settings.get("embedding_model") or config.embedding_model
@@ -434,6 +437,7 @@ async def _init_knowledge(
         chunking_mode=chunking_mode,
         vector_store=vector_store,
         auto_kg_extract=auto_kg_extract,
+        cache=cache,
     )
     app.dependency_overrides[get_knowledge_indexer] = lambda: indexer
 
@@ -442,6 +446,7 @@ async def _init_knowledge(
         "indexer": indexer,
         "vector_store": vector_store,
         "auto_kg_extract": auto_kg_extract,
+        "cache": cache,
     }
 
 
@@ -529,6 +534,7 @@ async def _init_agent(  # noqa: PLR0913
     feedback_repo: Any = None,
     custom_tool_repo: Any = None,
     sandbox_executor: Any = None,
+    cache: Any = None,
 ) -> dict[str, Any]:
     """Wire the DeskAgent and all its dependencies (retriever, tools, KG, etc.)."""
     from flydesk.agent.context import ContextEnricher
@@ -542,7 +548,7 @@ async def _init_agent(  # noqa: PLR0913
     from flydesk.widgets.parser import WidgetParser
 
     knowledge_graph = KnowledgeGraph(session_factory, embedding_provider=embedding_provider)
-    retriever = KnowledgeRetriever(session_factory, embedding_provider, vector_store=vector_store)
+    retriever = KnowledgeRetriever(session_factory, embedding_provider, vector_store=vector_store, cache=cache)
     context_enricher = ContextEnricher(
         knowledge_graph=knowledge_graph,
         retriever=retriever,
@@ -1113,6 +1119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         feedback_repo=repos["feedback_repo"],
         custom_tool_repo=repos["custom_tool_repo"],
         sandbox_executor=repos["sandbox_executor"],
+        cache=knowledge["cache"],
     )
     ctx.closables.append(agent_ctx["auto_trigger"])
     if hasattr(agent_ctx["memory_store"], "close"):

@@ -14,11 +14,15 @@ or in-memory cosine similarity / keyword matching for SQLite.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from flydesk.knowledge.cache import KnowledgeCache
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -44,10 +48,12 @@ class KnowledgeRetriever:
         session_factory: async_sessionmaker[AsyncSession],
         embedding_provider: EmbeddingProvider,
         vector_store: Any | None = None,
+        cache: KnowledgeCache | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedding_provider = embedding_provider
         self._vector_store = vector_store
+        self._cache = cache
 
         # Detect SQL dialect at init time.  AsyncSession.bind is always None
         # in SQLAlchemy 2.x so we read the engine from the session factory's
@@ -73,6 +79,15 @@ class KnowledgeRetriever:
             tag_filter: When set, only return chunks from documents whose tags
                 overlap with this list.  ``None`` disables filtering.
         """
+        # 0. Check cache before running the search
+        query_hash: str | None = None
+        if self._cache is not None:
+            query_hash = hashlib.md5(query.encode()).hexdigest()  # noqa: S324
+            cached = await self._cache.get_retrieval(query_hash)
+            if cached is not None:
+                _logger.debug("Cache hit for query hash %s", query_hash)
+                return [RetrievalResult.model_validate(r) for r in cached]
+
         # 1. Embed the query
         embeddings = await self._embedding_provider.embed([query])
         query_embedding = embeddings[0]
@@ -125,6 +140,12 @@ class KnowledgeRetriever:
                     )
                     if len(results) >= top_k:
                         break
+
+            # Store results in cache for future queries
+            if self._cache is not None and query_hash is not None and results:
+                await self._cache.set_retrieval(
+                    query_hash, [r.model_dump() for r in results]
+                )
             return results
 
         # 3. Determine backend and route to appropriate search strategy
@@ -180,6 +201,12 @@ class KnowledgeRetriever:
             _logger.debug(
                 "Keyword fallback returned %d results for query: %.60s",
                 len(results), query,
+            )
+
+        # Store results in cache for future queries
+        if self._cache is not None and query_hash is not None and results:
+            await self._cache.set_retrieval(
+                query_hash, [r.model_dump() for r in results]
             )
 
         return results
