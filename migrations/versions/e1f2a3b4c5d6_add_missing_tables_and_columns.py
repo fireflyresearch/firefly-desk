@@ -6,7 +6,7 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""add missing tables and columns
+"""add missing tables, columns, and indexes
 
 Revision ID: e1f2a3b4c5d6
 Revises: c5d6e7f8a9b0
@@ -64,7 +64,7 @@ def upgrade() -> None:
             "system_documents",
             sa.Column("system_id", sa.String(length=255), nullable=False),
             sa.Column("document_id", sa.String(length=255), nullable=False),
-            sa.Column("role", sa.String(length=50), nullable=True, server_default=sa.text("'reference'")),
+            sa.Column("role", sa.String(length=50), nullable=False, server_default=sa.text("'reference'")),
             sa.PrimaryKeyConstraint("system_id", "document_id"),
         )
 
@@ -78,7 +78,6 @@ def upgrade() -> None:
             sa.Column("notification_id", sa.String(length=255), nullable=False),
             sa.Column("dismissed_at", sa.DateTime(timezone=True), nullable=False),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("notification_id"),
         )
         op.create_index(
             op.f("ix_notification_dismissals_notification_id"),
@@ -94,8 +93,8 @@ def upgrade() -> None:
         op.create_table(
             "email_threads",
             sa.Column("id", sa.String(length=255), nullable=False),
-            sa.Column("conversation_id", sa.String(length=255), nullable=True),
-            sa.Column("email_message_id", sa.String(length=500), nullable=True),
+            sa.Column("conversation_id", sa.String(length=255), nullable=False),
+            sa.Column("email_message_id", sa.String(length=500), nullable=False),
             sa.Column("thread_root_id", sa.String(length=500), nullable=True),
             sa.Column("subject", sa.Text(), nullable=True),
             sa.Column("participants_json", sa.Text(), nullable=True),
@@ -132,8 +131,8 @@ def upgrade() -> None:
             sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
             sa.Column("classifier_model", sa.String(length=255), nullable=True),
             sa.Column("default_tier", sa.String(length=50), nullable=True),
-            sa.Column("tier_mappings", sa.Text(), nullable=True),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("tier_mappings", sa.Text(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
             sa.PrimaryKeyConstraint("id"),
         )
 
@@ -151,7 +150,7 @@ def upgrade() -> None:
             sa.Column("attempts", sa.Integer(), nullable=False, server_default=sa.text("0")),
             sa.Column("max_attempts", sa.Integer(), nullable=False, server_default=sa.text("3")),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
             sa.PrimaryKeyConstraint("id"),
         )
 
